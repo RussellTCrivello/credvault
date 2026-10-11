@@ -1,14 +1,12 @@
 import json
 import os
 import shutil
-import sqlite3
 import tempfile
 import time
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
-from django.db import connection
 from django.test import Client, TestCase
 from django.urls import reverse
 
@@ -72,13 +70,14 @@ class WorkspaceInterfaceTests(TestCase):
         response = self.client.get(reverse('vault:references_index'))
 
         self.assertContains(response, 'id="profile-trigger"')
-        self.assertContains(response, 'aria-controls="profile-panel"')
-        self.assertContains(response, 'id="profile-panel"')
+        self.assertContains(response, 'popovertarget="profile-popover"')
+        self.assertContains(response, 'id="profile-popover"')
         self.assertContains(response, 'workspace-admin')
-        self.assertContains(response, 'id="language-select"')
-        self.assertContains(response, 'id="theme-toggle"')
+        self.assertContains(response, 'name="language" value="en"')
+        self.assertContains(response, 'data-theme-choice="dark"')
         self.assertContains(response, reverse('vault:logout'))
         self.assertNotContains(response, 'class="account-box"')
+        self.assertNotContains(response, 'id="theme-toggle"')
 
     def test_search_filters_have_visible_field_labels(self):
         for route_name in ('vault:browse', 'vault:search'):
@@ -253,7 +252,7 @@ class WorkspaceInterfaceTests(TestCase):
         )
         self.assertContains(response, 'No matching records')
 
-    def test_search_with_many_matching_urls_avoids_sqlite_variable_limit(self):
+    def test_search_with_many_matching_urls_returns_them(self):
         urls = Url.objects.bulk_create([
             Url(name=f'https://bulk-search.example/login/{index}')
             for index in range(100)
@@ -266,24 +265,16 @@ class WorkspaceInterfaceTests(TestCase):
             ip=self.ip,
         )
 
-        db_connection = connection.connection
-        old_limit = db_connection.getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER)
-        db_connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 80)
-        try:
-            responses = (
-                self.client.get(
-                    reverse('vault:advanced_search'),
-                    {'keyword': 'bulk-search'},
-                ),
-                self.client.get(
-                    reverse('vault:search'),
-                    {'field': 'domain', 'q': 'bulk-search.example'},
-                ),
-            )
-        finally:
-            db_connection.setlimit(
-                sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, old_limit
-            )
+        responses = (
+            self.client.get(
+                reverse('vault:advanced_search'),
+                {'keyword': 'bulk-search'},
+            ),
+            self.client.get(
+                reverse('vault:search'),
+                {'field': 'domain', 'q': 'bulk-search.example'},
+            ),
+        )
 
         for response in responses:
             with self.subTest(path=response.request['PATH_INFO']):
@@ -495,7 +486,9 @@ class WorkspaceInterfaceTests(TestCase):
         self.assertContains(response, '<html lang="ar" dir="rtl">')
         self.assertContains(response, 'مساحة عملك')
         self.assertContains(response, 'اللغة')
-        self.assertContains(response, 'استخدام المظهر الداكن')
+        self.assertContains(response, 'id="profile-popover"')
+        self.assertContains(response, 'data-theme-choice="dark"')
+        self.assertContains(response, 'تسجيل الخروج')
 
         translated_pages = (
             ('vault:browse', (), 'كل السجلات'),

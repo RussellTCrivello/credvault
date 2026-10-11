@@ -1,19 +1,25 @@
 """
 High-throughput bulk importer for the normalized vault.
 
-The previous single-file import created one row at a time with get_or_create,
-which is far too slow for millions of lines. This module batches the work:
+The importer streams the input in batches of ``_STAGE_ROWS`` lines, so memory
+stays flat across millions of lines and thousands of files:
 
-  1. Stream the input in bounded batches so memory stays flat even across
-     millions of lines and thousands of files.
-  2. Validate every field against its format and keep only its canonical
-     spelling (see vault.validators), then collect the *distinct* referenced
-     values (URLs, emails, usernames, passwords, IPs) seen in each batch.
-  3. Bulk-create the missing reference rows (chunked to stay under the
-     SQLite variable limit).
-  4. Build the Account rows in memory, keyed by the record fingerprint, drop
-     the ones already stored with a single indexed lookup per chunk, and
-     bulk-create the rest.
+  1. Validate every field against its format and keep only its canonical
+     spelling (see vault.validators). A line that does not match its format
+     is counted as skipped.
+  2. Copy each batch into a temporary table with COPY (the fastest bulk path
+     PostgreSQL offers).
+  3. Create the missing reference rows with INSERT ... ON CONFLICT DO NOTHING
+     straight from the staged rows. The unique constraint on each ``name``
+     removes duplicates, so no ids travel through Python.
+  4. Create the Account rows with one INSERT ... SELECT. The ids come from
+     joins on the unique name constraints, and the fingerprint is computed in
+     SQL (sha256 over the same text as ``record_fingerprint``), so bulk-loaded
+     and ORM-saved records match exactly. The unique fingerprint drops records
+     that are already stored.
+
+Each batch runs in a single transaction. See README.md, "Performance", for
+measured speeds.
 
 Canonicalizing in step 2 is what keeps the reference tables free of
 duplicates: the same email written as ``Person@Example.COM`` or
@@ -26,19 +32,15 @@ management command.
 """
 
 import os
-from itertools import islice
 
-from django.db import transaction
+from django.db import connection, transaction
+from django.utils import timezone
 
-from .models import Account, Email, Ip, Pass, Url, User, record_fingerprint
 from .utils import NO_IP, CanonicalRecord, parse_line
 from .validators import (
     classify_identifier, normalize_ip, normalize_password, normalize_url,
 )
 
-# Chunk IN(...) queries to stay well below SQLite's 999-variable limit.
-_CHUNK = 500
-_BATCH = 2000
 STREAM_BATCH_SIZE = 50000
 
 _BINARY_EXTS = {
@@ -48,120 +50,110 @@ _BINARY_EXTS = {
 }
 
 
-def _chunks(iterable, size):
-    it = iter(iterable)
-    while True:
-        batch = list(islice(it, size))
-        if not batch:
-            return
-        yield batch
+_STAGE_DDL = (
+    "CREATE TEMP TABLE IF NOT EXISTS vault_import_stage ("
+    " url text NOT NULL, account_type text NOT NULL, ident text NOT NULL,"
+    " secret text NOT NULL, ip text)"
+)
+
+# Reference rows are created straight from the staged batch. The unique
+# constraint on each `name` removes duplicates (ON CONFLICT DO NOTHING), so
+# no id travels through Python.
+_REFERENCE_INSERTS = (
+    ("vault_url",
+     "INSERT INTO vault_url (name, created_at, updated_at)"
+     " SELECT DISTINCT url, %s, %s FROM vault_import_stage"
+     " ON CONFLICT (name) DO NOTHING"),
+    ("vault_pass",
+     "INSERT INTO vault_pass (name, created_at, updated_at)"
+     " SELECT DISTINCT secret, %s, %s FROM vault_import_stage"
+     " ON CONFLICT (name) DO NOTHING"),
+    ("vault_email",
+     "INSERT INTO vault_email (name, created_at, updated_at)"
+     " SELECT DISTINCT ident, %s, %s FROM vault_import_stage"
+     " WHERE account_type = 'email'"
+     " ON CONFLICT (name) DO NOTHING"),
+    ("vault_user",
+     "INSERT INTO vault_user (name, created_at, updated_at)"
+     " SELECT DISTINCT ident, %s, %s FROM vault_import_stage"
+     " WHERE account_type <> 'email'"
+     " ON CONFLICT (name) DO NOTHING"),
+    ("vault_ip",
+     "INSERT INTO vault_ip (name, created_at, updated_at)"
+     " SELECT DISTINCT ip, %s, %s FROM vault_import_stage"
+     " WHERE ip IS NOT NULL"
+     " ON CONFLICT (name) DO NOTHING"),
+)
+
+# Account rows: resolve the ids by joining on the unique name constraints and
+# compute the fingerprint in SQL. The expression builds the same text payload
+# as record_fingerprint() and hashes it with SHA-256, so bulk-loaded and
+# ORM-saved records get identical fingerprints. The unique fingerprint then
+# drops records that are already stored.
+_FINGERPRINT_SQL = (
+    "encode(sha256(convert_to("
+    " coalesce(k.url_id::text, '') || '|' || k.account_type || '|' ||"
+    " coalesce(k.email_id::text, '') || '|' ||"
+    " coalesce(k.user_id::text, '') || '|' ||"
+    " coalesce(k.password_id::text, '') || '|' ||"
+    " coalesce(k.ip_id::text, ''), 'UTF8')), 'hex')"
+)
+
+_ACCOUNT_INSERT = (
+    "INSERT INTO vault_account (url_id, account_type, email_id, user_id,"
+    " password_id, ip_id, fingerprint, created_at, updated_at)"
+    " SELECT k.url_id, k.account_type, k.email_id, k.user_id, k.password_id,"
+    " k.ip_id, " + _FINGERPRINT_SQL + ", %s, %s"
+    " FROM ("
+    "   SELECT DISTINCT u.id AS url_id, s.account_type AS account_type,"
+    "     CASE WHEN s.account_type = 'email' THEN e.id END AS email_id,"
+    "     CASE WHEN s.account_type <> 'email' THEN us.id END AS user_id,"
+    "     p.id AS password_id, i.id AS ip_id"
+    "   FROM vault_import_stage AS s"
+    "   JOIN vault_url AS u ON u.name = s.url"
+    "   JOIN vault_pass AS p ON p.name = s.secret"
+    "   LEFT JOIN vault_email AS e"
+    "     ON s.account_type = 'email' AND e.name = s.ident"
+    "   LEFT JOIN vault_user AS us"
+    "     ON s.account_type <> 'email' AND us.name = s.ident"
+    "   LEFT JOIN vault_ip AS i ON i.name = s.ip"
+    " ) AS k"
+    " WHERE (k.account_type = 'email' AND k.email_id IS NOT NULL)"
+    "    OR (k.account_type <> 'email' AND k.user_id IS NOT NULL)"
+    " ON CONFLICT (fingerprint) DO NOTHING"
+)
+
+# Rows per round trip; one transaction per batch keeps memory flat.
+_STAGE_ROWS = 100000
 
 
-def _bulk_get_or_create_names(model, names):
+def _flush_batch(rows):
     """
-    Return a {name: id} map for every canonical name, creating missing rows.
+    Store one batch of canonical (url, type, ident, secret, ip) tuples.
 
-    The names arriving here are already canonical, so the lookup is an exact
-    match on the unique `name` column: a value that is already stored is
-    reused, never inserted a second time.
+    Returns the number of new Account rows. The batch is copied into a temp
+    table with COPY (the fastest bulk path PostgreSQL offers), then everything
+    runs as set-based SQL inside one transaction.
     """
-    name_set = set(names)
-    mapping = {}
-    if not name_set:
-        return mapping
-
-    for chunk in _chunks(name_set, _CHUNK):
-        for name, pk in model.objects.filter(
-            name__in=chunk
-        ).values_list('name', 'id'):
-            mapping[name] = pk
-
-    missing_names = [name for name in name_set if name not in mapping]
-    if missing_names:
-        missing_objs = [model(name=name) for name in missing_names]
-        model.objects.bulk_create(
-            missing_objs, batch_size=_BATCH, ignore_conflicts=True
-        )
-        # Re-read only the newly created names to pick up their IDs.
-        for chunk in _chunks(missing_names, _CHUNK):
-            for name, pk in model.objects.filter(
-                name__in=chunk
-            ).values_list('name', 'id'):
-                mapping[name] = pk
-
-    return mapping
-
-
-@transaction.atomic
-def _flush_batch(keys, urls, emails, users, passes, ips):
-    """Persist one batch of deduplicated account keys and return created count."""
-    if not keys:
+    if not rows:
         return 0
-
-    url_map = _bulk_get_or_create_names(Url, urls)
-    email_map = _bulk_get_or_create_names(Email, emails)
-    user_map = _bulk_get_or_create_names(User, users)
-    pass_map = _bulk_get_or_create_names(Pass, passes)
-    ip_map = _bulk_get_or_create_names(Ip, ips)
-
-    # One Account per fingerprint: the same URL + identifier + password + IP
-    # combination appears once in the batch no matter how many lines carried
-    # it, and the unique fingerprint column keeps that true across batches,
-    # files and imports.
-    candidates = {}
-    for (url, account_type, ident, secret, ip_value) in keys:
-        url_id = url_map.get(url)
-        pass_id = pass_map.get(secret)
-        if not (url_id and pass_id):
-            continue
-
-        if account_type == 'email':
-            email_id = email_map.get(ident)
-            user_id = None
-            if not email_id:
-                continue
-        else:
-            email_id = None
-            user_id = user_map.get(ident)
-            if not user_id:
-                continue
-
-        ip_id = ip_map.get(ip_value) if ip_value else None
-        fingerprint = record_fingerprint(
-            url_id, account_type, email_id, user_id, pass_id, ip_id
-        )
-        if fingerprint in candidates:
-            continue
-        candidates[fingerprint] = Account(
-            url_id=url_id,
-            account_type=account_type,
-            email_id=email_id,
-            user_id=user_id,
-            password_id=pass_id,
-            ip_id=ip_id,
-            fingerprint=fingerprint,
-        )
-
-    # Drop the records already stored -- one indexed lookup per chunk instead
-    # of scanning every account that shares a URL or a password with the batch.
-    already_stored = set()
-    for chunk in _chunks(list(candidates), _CHUNK):
-        already_stored.update(
-            Account.objects.filter(
-                fingerprint__in=chunk
-            ).values_list('fingerprint', flat=True)
-        )
-
-    objs = [
-        account for fingerprint, account in candidates.items()
-        if fingerprint not in already_stored
-    ]
-    if objs:
-        Account.objects.bulk_create(
-            objs, batch_size=_BATCH, ignore_conflicts=True
-        )
-
-    return len(objs)
+    now = timezone.now()
+    with transaction.atomic(), connection.cursor() as cursor:
+        cursor.execute(_STAGE_DDL)
+        cursor.execute('TRUNCATE vault_import_stage')
+        with cursor.copy(
+            'COPY vault_import_stage (url, account_type, ident, secret, ip)'
+            ' FROM STDIN'
+        ) as copy:
+            for row in rows:
+                copy.write_row(row)
+        # Fresh statistics so the planner joins the batch efficiently.
+        cursor.execute('ANALYZE vault_import_stage')
+        for _table, sql in _REFERENCE_INSERTS:
+            cursor.execute(sql, (now, now))
+        cursor.execute(_ACCOUNT_INSERT, (now, now))
+        created = cursor.rowcount
+    return max(created, 0)
 
 
 def canonical_record(result):
@@ -200,17 +192,11 @@ def canonical_record(result):
 def bulk_import_lines(parsed_iter):
     """
     Consume an iterable of parsed-line dicts (None for invalid lines) and
-    store them efficiently in bounded streaming batches.
+    store them in bounded batches.
 
     Returns (accounts_created, lines_skipped).
     """
-    urls = set()
-    emails = set()
-    users = set()
-    passes = set()
-    ips = set()
-    keys = set()
-
+    rows = []
     total_created = 0
     skipped = 0
 
@@ -220,42 +206,24 @@ def bulk_import_lines(parsed_iter):
             skipped += 1
             continue
 
-        url = record['url']
-        secret = record['secret_data']
-        ident = record['account_identifier']
-        account_type = record['account_type']
         # parse_line reports a missing address as 'N/A'; store no relation.
         ip_value = record['ip_address']
         if not ip_value or ip_value == NO_IP:
             ip_value = None
 
-        urls.add(url)
-        passes.add(secret)
-        if account_type == 'email':
-            emails.add(ident)
-        else:
-            users.add(ident)
-        if ip_value:
-            ips.add(ip_value)
+        rows.append((
+            record['url'],
+            record['account_type'],
+            record['account_identifier'],
+            record['secret_data'],
+            ip_value,
+        ))
 
-        keys.add((url, account_type, ident, secret, ip_value))
+        if len(rows) >= _STAGE_ROWS:
+            total_created += _flush_batch(rows)
+            rows = []
 
-        if len(keys) >= STREAM_BATCH_SIZE:
-            total_created += _flush_batch(
-                keys, urls, emails, users, passes, ips
-            )
-            urls.clear()
-            emails.clear()
-            users.clear()
-            passes.clear()
-            ips.clear()
-            keys.clear()
-
-    if keys:
-        total_created += _flush_batch(
-            keys, urls, emails, users, passes, ips
-        )
-
+    total_created += _flush_batch(rows)
     return total_created, skipped
 
 

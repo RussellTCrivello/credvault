@@ -1,0 +1,295 @@
+/* Account menu: sidebar trigger and the popover it opens.
+   The popover uses the browser Popover API (popover="auto"), so it opens,
+   closes on outside click and on Escape without extra JavaScript. */
+
+/* ---- Trigger in the sidebar ---- */
+.vault-sidebar-bottom {
+  margin-top: auto;
+  display: grid;
+  gap: 0;
+}
+
+.profile-trigger {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  text-align: start;
+  box-shadow: 0 2px 8px #1833200a;
+  transition: background 0.16s, border-color 0.16s, box-shadow 0.16s;
+}
+.profile-trigger:hover,
+.profile-trigger[aria-expanded="true"] {
+  background: var(--green-soft);
+  border-color: transparent;
+}
+.profile-trigger:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+.profile-trigger-text {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.profile-trigger-text strong {
+  font-size: 13px;
+  font-weight: 620;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-trigger-text small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.profile-chevron {
+  color: var(--muted);
+  transition: transform 0.18s;
+}
+.profile-trigger[aria-expanded="true"] .profile-chevron {
+  transform: rotate(180deg);
+}
+
+/* ---- Avatar (shared by trigger and popover) ---- */
+.profile-avatar {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, var(--green), var(--green-hover));
+  color: var(--panel);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0;
+  box-shadow: 0 0 0 3px var(--green-soft);
+}
+.profile-avatar-lg {
+  width: 46px;
+  height: 46px;
+  font-size: 18px;
+}
+:root[data-theme="dark"] .profile-avatar {
+  color: #102519;
+}
+
+/* ---- Popover ---- */
+.profile-popover {
+  position: fixed;
+  inset: auto;
+  left: 264px;
+  bottom: 16px;
+  margin: 0;
+  width: 320px;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+.profile-popover:popover-open {
+  animation: profile-in 0.16s ease-out;
+}
+@keyframes profile-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.profile-popover::backdrop {
+  background: transparent;
+}
+
+.profile-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 18px 16px;
+  background: linear-gradient(180deg, var(--green-soft), var(--panel));
+  border-bottom: 1px solid var(--line);
+  border-radius: 14px 14px 0 0;
+}
+.profile-identity {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.profile-identity h2 {
+  font-size: 15px;
+  font-weight: 640;
+  overflow-wrap: anywhere;
+}
+.profile-identity p {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.profile-meta {
+  color: var(--subtle);
+}
+
+.profile-section {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.profile-section-title {
+  margin-bottom: 10px;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.profile-links {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.profile-link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+  font-size: 12px;
+  font-weight: 540;
+  color: var(--ink);
+  transition: background 0.14s, border-color 0.14s;
+}
+.profile-link span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-link svg {
+  width: 16px;
+  height: 16px;
+  color: var(--green);
+}
+.profile-link:hover {
+  background: var(--green-soft);
+  border-color: transparent;
+}
+.profile-link:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
+}
+
+/* Segmented controls: language and theme */
+.profile-segmented {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.profile-segment {
+  min-height: 34px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 540;
+  color: var(--muted);
+  transition: background 0.14s, color 0.14s, box-shadow 0.14s;
+}
+.profile-segment:hover {
+  color: var(--ink);
+}
+.profile-segment[aria-pressed="true"],
+.profile-segment.is-selected {
+  background: var(--panel);
+  color: var(--green);
+  font-weight: 640;
+  box-shadow: 0 1px 3px #18332022;
+}
+.profile-segment:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
+}
+
+.profile-foot {
+  display: grid;
+  gap: 12px;
+  padding: 14px 18px 16px;
+}
+.profile-logout {
+  width: 100%;
+  color: var(--red);
+  background: var(--red-soft);
+  border-color: transparent;
+}
+.profile-logout:hover {
+  border-color: var(--red);
+}
+.profile-logout svg {
+  margin-inline-end: 6px;
+}
+.profile-about {
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--subtle);
+}
+
+/* ---- Right-to-left: the sidebar sits on the right ---- */
+[dir="rtl"] .profile-trigger {
+  text-align: right;
+}
+[dir="rtl"] .profile-popover {
+  left: auto;
+  right: 264px;
+}
+[dir="rtl"] .profile-logout svg {
+  transform: scaleX(-1);
+}
+
+/* ---- Narrow screens: sidebar becomes a top bar ---- */
+@media (max-width: 760px) {
+  .vault-sidebar-bottom {
+    margin: 0;
+  }
+  .profile-trigger {
+    width: auto;
+    grid-template-columns: auto;
+    padding: 4px;
+    border-radius: 999px;
+    box-shadow: none;
+  }
+  .profile-trigger-text,
+  .profile-chevron {
+    display: none;
+  }
+  .profile-popover {
+    left: auto;
+    right: 12px;
+    top: 66px;
+    bottom: auto;
+    width: min(320px, calc(100vw - 24px));
+    max-height: calc(100vh - 80px);
+  }
+  [dir="rtl"] .profile-popover {
+    right: auto;
+    left: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-popover:popover-open {
+    animation: none;
+  }
+}

@@ -6,7 +6,6 @@ from urllib.parse import urlparse
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
-from django.core.paginator import Paginator
 from django.db.models import Count, ProtectedError, Q
 from django.db.models.functions import Lower
 from django.http import JsonResponse, StreamingHttpResponse
@@ -15,6 +14,7 @@ from django.urls import reverse
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy as _lazy, ngettext
 
+from .counts import CappedPaginator, capped_count, count_label
 from .forms import (
     AccountForm, AdvancedSearchForm, ImportFileForm, QuickSearchForm,
     ReferenceForm,
@@ -150,9 +150,8 @@ def _match_url_ids(raw_value, force_domain=False):
     if not ids.exists() and force_domain:
         dom = extract_domain(q_lower)
         if dom:
-            ids = (
+            ids = _id_filter_values(
                 Url.objects.filter(name__icontains=dom)
-                .values('id')
             )
     return ids
 
@@ -181,6 +180,30 @@ def _clean_query_string(request_get):
     return params.urlencode()
 
 
+#: Above this many matching reference ids, a subquery is used instead of a
+#: literal list (keeps the SQL size bounded for very broad matches).
+ID_LIST_LIMIT = 5000
+
+
+def _id_filter_values(source):
+    """
+    Ids of matching reference rows, as a list when there are few of them.
+
+    PostgreSQL combines index scans with OR only when the values are literals,
+    so a short list lets the record query use the foreign-key indexes for
+    every term. A broad match (more than ID_LIST_LIMIT ids) keeps the subquery.
+    """
+    if isinstance(source, (list, tuple)):
+        return list(source)
+    ids = list(source.values_list('id', flat=True)[: ID_LIST_LIMIT + 1])
+    return ids if len(ids) <= ID_LIST_LIMIT else source.values('id')
+
+
+def _has_any(ids):
+    """True when a list or a subquery from _id_filter_values matches anything."""
+    return bool(ids) if isinstance(ids, list) else ids.exists()
+
+
 def filter_accounts(params):
     """
     Build an Account queryset from URL query parameters.
@@ -200,25 +223,20 @@ def filter_accounts(params):
 
     if params.get('adv') == '1':
         if keyword:
-            url_ids = (
+            url_ids = _id_filter_values(
                 Url.objects.filter(name__icontains=keyword)
-                .values('id')
             )
-            email_ids = (
+            email_ids = _id_filter_values(
                 Email.objects.filter(name__icontains=keyword)
-                .values('id')
             )
-            user_ids = (
+            user_ids = _id_filter_values(
                 User.objects.filter(name__icontains=keyword)
-                .values('id')
             )
-            pass_ids = (
+            pass_ids = _id_filter_values(
                 Pass.objects.filter(name__icontains=keyword)
-                .values('id')
             )
-            ip_ids = (
+            ip_ids = _id_filter_values(
                 Ip.objects.filter(name__icontains=keyword)
-                .values('id')
             )
             qs = qs.filter(
                 Q(url_id__in=url_ids)
@@ -230,9 +248,8 @@ def filter_accounts(params):
 
         url = (params.get('url') or '').strip()
         if url:
-            ids = (
+            ids = _id_filter_values(
                 Url.objects.filter(name__icontains=url)
-                .values('id')
             )
             qs = qs.filter(url_id__in=ids)
 
@@ -242,33 +259,29 @@ def filter_accounts(params):
 
         email = (params.get('email') or '').strip()
         if email:
-            ids = (
+            ids = _id_filter_values(
                 Email.objects.filter(name__icontains=email)
-                .values('id')
             )
             qs = qs.filter(email_id__in=ids)
 
         username = (params.get('username') or '').strip()
         if username:
-            ids = (
+            ids = _id_filter_values(
                 User.objects.filter(name__icontains=username)
-                .values('id')
             )
             qs = qs.filter(user_id__in=ids)
 
         password = (params.get('password') or '').strip()
         if password:
-            ids = (
+            ids = _id_filter_values(
                 Pass.objects.filter(name__icontains=password)
-                .values('id')
             )
             qs = qs.filter(password_id__in=ids)
 
         ip = (params.get('ip') or '').strip()
         if ip:
-            ids = (
+            ids = _id_filter_values(
                 Ip.objects.filter(name__icontains=ip)
-                .values('id')
             )
             qs = qs.filter(ip_id__in=ids)
 
@@ -315,6 +328,12 @@ def filter_accounts(params):
     pass_ids = _match_exact_ids(Pass, search_term)
     ip_ids = _match_exact_ids(Ip, search_term)
 
+    url_ids = _id_filter_values(url_ids)
+    email_ids = _id_filter_values(email_ids)
+    user_ids = _id_filter_values(user_ids)
+    pass_ids = _id_filter_values(pass_ids)
+    ip_ids = _id_filter_values(ip_ids)
+
     clauses = Q()
     clauses |= Q(url_id__in=url_ids)
     clauses |= Q(email_id__in=email_ids)
@@ -322,7 +341,7 @@ def filter_accounts(params):
     clauses |= Q(password_id__in=pass_ids)
     clauses |= Q(ip_id__in=ip_ids)
 
-    if any(ids.exists() for ids in (
+    if any(_has_any(ids) for ids in (
         url_ids, email_ids, user_ids, pass_ids, ip_ids,
     )):
         return qs.filter(clauses)
@@ -330,25 +349,20 @@ def filter_accounts(params):
     # If invoked via free-text keyword and no exact/domain match was found,
     # fall back to reference-table substring lookup.
     if keyword and not q:
-        url_ids = (
+        url_ids = _id_filter_values(
             Url.objects.filter(name__icontains=keyword)
-            .values('id')
         )
-        email_ids = (
+        email_ids = _id_filter_values(
             Email.objects.filter(name__icontains=keyword)
-            .values('id')
         )
-        user_ids = (
+        user_ids = _id_filter_values(
             User.objects.filter(name__icontains=keyword)
-            .values('id')
         )
-        pass_ids = (
+        pass_ids = _id_filter_values(
             Pass.objects.filter(name__icontains=keyword)
-            .values('id')
         )
-        ip_ids = (
+        ip_ids = _id_filter_values(
             Ip.objects.filter(name__icontains=keyword)
-            .values('id')
         )
         return qs.filter(
             Q(url_id__in=url_ids)
@@ -361,10 +375,65 @@ def filter_accounts(params):
     return qs.none()
 
 
+def _paginate_accounts(request, queryset, per_page=100):
+    """
+    One page of Account rows, loaded in two steps.
+
+    Sorting the matches and joining the five reference tables for every match
+    is what makes broad searches slow, so only the ids are paged and sorted.
+    Full rows (with their URL, identifier, password and IP) are loaded for the
+    records on the page alone, in the same order.
+    """
+    paginator = CappedPaginator(
+        queryset.values_list('pk', flat=True), per_page
+    )
+    page_obj = paginator.get_page(request.GET.get('page', '1'))
+    ids = list(page_obj.object_list)
+    loaded = Account.objects.select_related(
+        'url', 'email', 'user', 'password', 'ip'
+    ).in_bulk(ids)
+    page_obj.object_list = [loaded[pk] for pk in ids if pk in loaded]
+    return page_obj
+
+
 def _paginate(request, queryset, per_page=100):
-    paginator = Paginator(queryset, per_page)
+    paginator = CappedPaginator(queryset, per_page)
     page_number = request.GET.get('page', '1')
     return paginator.get_page(page_number)
+
+
+# Foreign key on Account that points at each reference table.
+REFERENCE_FK = {
+    'url': 'url_id', 'email': 'email_id', 'user': 'user_id',
+    'pass': 'password_id', 'ip': 'ip_id',
+}
+
+
+def _attach_usage(kind, entities):
+    """
+    Set `usage` (number of records) on each entity of one page.
+
+    Replaces an annotate(Count('accounts')) over the whole reference
+    table, which grouped every record on each page load. Here only the
+    page's ids are counted, through the foreign-key index.
+    """
+    fk = REFERENCE_FK[kind]
+    ids = [entity.pk for entity in entities]
+    counts = {}
+    if ids:
+        rows = (
+            Account.objects.filter(**{f'{fk}__in': ids})
+            .values(fk).annotate(n=Count('id')).order_by()
+        )
+        counts = {row[fk]: row['n'] for row in rows}
+    for entity in entities:
+        entity.usage = counts.get(entity.pk, 0)
+
+
+def _records_total_context():
+    """Capped number of all records, for the Records and Overview pages."""
+    number, capped = capped_count(Account.objects.all())
+    return {'total_records': number, 'total_records_capped': capped}
 
 
 def _reference_choices(kind):
@@ -375,21 +444,21 @@ def _reference_choices(kind):
 
 def dashboard(request):
     """Replaces: main_menu() -- the landing page with workspace stats."""
-    total_accounts = Account.objects.count()
+    total_accounts, total_capped = capped_count(Account.objects.all())
     reference_counts = {
-        kind: REFERENCE_REGISTRY[kind]['model'].objects.count()
+        kind: capped_count(REFERENCE_REGISTRY[kind]['model'].objects.all())
         for kind in REFERENCE_REGISTRY
     }
     reference_rows = [
         {
             'kind': kind,
             'label_plural': REFERENCE_REGISTRY[kind]['label_plural'],
-            'count': reference_counts[kind],
+            'count': count_label(*reference_counts[kind]),
         }
         for kind in REFERENCE_REGISTRY
     ]
     return render(request, 'vault/dashboard.html', {
-        'total_records': total_accounts,
+        'total_records': count_label(total_accounts, total_capped),
         'reference_rows': reference_rows,
         'reference_registry': REFERENCE_REGISTRY,
     })
@@ -405,11 +474,12 @@ def browse_all(request):
     records = []
     page_obj = None
     total = 0
+    total_capped = False
 
     if has_query:
         queryset = filter_accounts(request.GET)
-        total = queryset.count()
-        page_obj = _paginate(request, queryset)
+        total, total_capped = capped_count(queryset)
+        page_obj = _paginate_accounts(request, queryset)
         records = page_obj.object_list
 
     return render(request, 'vault/browse.html', {
@@ -418,7 +488,8 @@ def browse_all(request):
         'records': records,
         'page_obj': page_obj,
         'total': total,
-        'total_records': Account.objects.count(),
+        'total_capped': total_capped,
+        **_records_total_context(),
         'query_string': _clean_query_string(request.GET),
     })
 
@@ -434,11 +505,12 @@ def search_records(request):
     records = []
     page_obj = None
     total = 0
+    total_capped = False
 
     if has_query:
         queryset = filter_accounts(request.GET)
-        total = queryset.count()
-        page_obj = _paginate(request, queryset)
+        total, total_capped = capped_count(queryset)
+        page_obj = _paginate_accounts(request, queryset)
         records = page_obj.object_list
 
     return render(request, 'vault/search.html', {
@@ -447,6 +519,7 @@ def search_records(request):
         'records': records,
         'page_obj': page_obj,
         'total': total,
+        'total_capped': total_capped,
         'query_string': _clean_query_string(request.GET),
     })
 
@@ -461,13 +534,14 @@ def advanced_search(request):
     records = []
     page_obj = None
     total = 0
+    total_capped = False
 
     if request.GET:
         params = request.GET.copy()
         params['adv'] = '1'
         queryset = filter_accounts(params)
-        total = queryset.count()
-        page_obj = _paginate(request, queryset)
+        total, total_capped = capped_count(queryset)
+        page_obj = _paginate_accounts(request, queryset)
         records = page_obj.object_list
 
     return render(request, 'vault/advanced_search.html', {
@@ -475,6 +549,7 @@ def advanced_search(request):
         'records': records,
         'page_obj': page_obj,
         'total': total,
+        'total_capped': total_capped,
         'query_string': _clean_query_string(request.GET),
     })
 
@@ -612,7 +687,7 @@ def delete_account(request, pk):
 def references_index(request):
     """Overview of the five reference tables and how many values each holds."""
     reference_counts = {
-        kind: REFERENCE_REGISTRY[kind]['model'].objects.count()
+        kind: capped_count(REFERENCE_REGISTRY[kind]['model'].objects.all())
         for kind in REFERENCE_REGISTRY
     }
     reference_rows = [
@@ -620,14 +695,15 @@ def references_index(request):
             'kind': kind,
             'label': REFERENCE_REGISTRY[kind]['label'],
             'label_plural': REFERENCE_REGISTRY[kind]['label_plural'],
-            'count': reference_counts[kind],
+            'count': count_label(*reference_counts[kind]),
         }
         for kind in REFERENCE_REGISTRY
     ]
-    total_records = Account.objects.count()
+    total_records, total_capped = capped_count(Account.objects.all())
     return render(request, 'vault/references_index.html', {
         'reference_rows': reference_rows,
         'total_records': total_records,
+        'total_capped': total_capped,
     })
 
 
@@ -661,18 +737,21 @@ def reference_list(request, kind):
     else:
         form = ReferenceForm(kind=kind)
 
-    total_values = model.objects.count()
-    qs = model.objects.annotate(usage=Count('accounts')).order_by('name')
+    total_values, total_capped = capped_count(model.objects.all())
+    qs = model.objects.order_by('name')
     page_obj = _paginate(request, qs, per_page=100)
+    entities = list(page_obj.object_list)
+    _attach_usage(kind, entities)
 
     return render(request, 'vault/references.html', {
         'kind': kind,
         'registry': registry,
         'reference_registry': REFERENCE_REGISTRY,
         'form': form,
-        'entities': page_obj.object_list,
+        'entities': entities,
         'page_obj': page_obj,
         'total_values': total_values,
+        'total_capped': total_capped,
         'query_string': _clean_query_string(request.GET),
     })
 

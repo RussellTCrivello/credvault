@@ -5,7 +5,7 @@
 {% block content %}
   <section class="vault-panel">
     <div class="table-toolbar">
-      <div><h2>{% trans "Reference tables" %}</h2><p class="vault-muted">{{ total_records }} {% blocktrans count record_count=total_records %}record uses these values{% plural %}records use these values{% endblocktrans %}</p></div>
+      <div><h2>{% trans "Reference tables" %}</h2><p class="vault-muted">{{ total_records }}{% if total_capped %}+{% endif %} {% blocktrans count record_count=total_records %}record uses these values{% plural %}records use these values{% endblocktrans %}</p></div>
     </div>
     <div class="vault-table-wrap">
       <table class="vault-table reference-overview">

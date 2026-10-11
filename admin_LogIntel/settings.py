@@ -85,13 +85,23 @@ WSGI_APPLICATION = 'admin_LogIntel.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# PostgreSQL. Connection details come from environment variables so the same
+# code runs on a laptop, a test server or production without edits:
+#   POSTGRES_DB        database name            (default: credvault)
+#   POSTGRES_USER      role that owns it        (default: credvault)
+#   POSTGRES_PASSWORD  role password            (default: empty)
+#   POSTGRES_HOST      server host or socket    (default: 127.0.0.1)
+#   POSTGRES_PORT      server port              (default: 5432)
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-        'OPTIONS': {
-            'timeout': 30,
-        },
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('POSTGRES_DB', 'credvault'),
+        'USER': os.environ.get('POSTGRES_USER', 'credvault'),
+        'PASSWORD': os.environ.get('POSTGRES_PASSWORD', ''),
+        'HOST': os.environ.get('POSTGRES_HOST', '127.0.0.1'),
+        'PORT': os.environ.get('POSTGRES_PORT', '5432'),
+        # Keep connections open between requests instead of reconnecting.
+        'CONN_MAX_AGE': 60,
     }
 }
 
