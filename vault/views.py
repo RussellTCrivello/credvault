@@ -640,9 +640,10 @@ def reference_list(request, kind):
     model = registry['model']
 
     if request.method == 'POST':
-        form = ReferenceForm(request.POST)
+        form = ReferenceForm(request.POST, kind=kind)
         if form.is_valid():
-            name = form.cleaned_data['name'].strip()
+            # Already canonical, so an existing value is reused, not re-added.
+            name = form.cleaned_data['name']
             entity, created = model.objects.get_or_create(name=name)
             if created:
                 messages.success(
@@ -658,7 +659,7 @@ def reference_list(request, kind):
                 )
             return redirect('vault:references', kind=kind)
     else:
-        form = ReferenceForm()
+        form = ReferenceForm(kind=kind)
 
     total_values = model.objects.count()
     qs = model.objects.annotate(usage=Count('accounts')).order_by('name')
