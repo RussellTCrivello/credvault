@@ -40,10 +40,26 @@
 .search-controls input{flex:1;min-width:0}
 .search-results{margin-top:18px}
 .record-form{display:block;padding:24px}
+.vault-panel.form-panel{overflow:visible}
 .form-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:19px 16px}
 .record-form .form-control,.search-form .form-control,.import-form .form-control{width:100%;height:40px;padding:8px 11px;border:1px solid var(--line);border-radius:6px;background:var(--panel);font-size:12px}
-.record-form .field:has(#id_url),.record-form .field:has(#id_secret_data){grid-column:1/-1}
+.record-form .field:has(#id_url),.record-form .field:has(#id_secret_data),.record-form .field.field-wide{grid-column:1/-1}
 .record-form .form-control:focus,.search-form .form-control:focus,.import-form .form-control:focus{outline:2px solid var(--green);outline-offset:1px}
+.combobox{position:relative;display:flex;align-items:center}
+.combobox .combobox-input{padding-inline-end:36px}
+.combobox-native-select{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.combobox-toggle{position:absolute;inset-inline-end:4px;top:4px;bottom:4px;width:30px;display:grid;place-items:center;border-radius:5px;color:var(--muted);font-size:12px;transition:background .12s,color .12s,transform .15s}
+.combobox-toggle:hover{background:var(--green-soft);color:var(--green)}
+.combobox.is-open .combobox-toggle{color:var(--green);transform:rotate(180deg)}
+.combobox-dropdown{position:absolute;top:calc(100% + 5px);left:0;right:0;z-index:80;max-height:240px;overflow-y:auto;background:var(--panel);border:1px solid var(--line);border-radius:7px;box-shadow:var(--shadow);padding:5px}
+.combobox-option{width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border-radius:5px;text-align:start;font-size:12px;color:var(--ink);overflow-wrap:anywhere}
+.combobox-option:hover,.combobox-option.is-active{background:var(--green-soft);color:var(--green)}
+.combobox-option.is-selected{font-weight:600;color:var(--green)}
+.combobox-option.is-new{border-bottom:1px solid var(--line);margin-bottom:3px;border-radius:5px 5px 0 0}
+.combobox-new-tag{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:4px;background:var(--green-soft);color:var(--green);font-weight:700;margin-inline-end:5px}
+.combobox-mark{background:var(--green-soft);color:var(--green);padding:0 2px;border-radius:3px;font-weight:600}
+.combobox-check{color:var(--green);font-weight:700;flex-shrink:0}
+.combobox-empty{padding:10px 12px;color:var(--muted);font-size:11px;text-align:center}
 .field-error{margin-top:6px;color:var(--red);font-size:11px}
 .required-mark{color:var(--red)}
 .form-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:24px;padding-top:17px;border-top:1px solid var(--line)}

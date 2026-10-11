@@ -4,14 +4,20 @@
 {% block intro %}<p class="page-intro">{% blocktrans with record_id=record.id %}Update the saved details for record #{{ record_id }}.{% endblocktrans %}</p>{% endblock %}
 {% block content %}
   <section class="vault-panel form-panel">
-    <form method="post" class="vault-form record-form">
+    <form method="post" class="vault-form record-form" id="account-form">
       {% csrf_token %}
       {% if form.non_field_errors %}<div class="form-error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
       <div class="form-grid">
         {% for field in form %}
-          <div class="field">
+          <div class="field{% if field.name == 'url_name' or field.name == 'password_name' %} field-wide{% endif %}">
             <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %}<span class="required-mark" aria-hidden="true"> *</span><span class="sr-only">{% trans "required" %}</span>{% endif %}</label>
-            {{ field }}
+            <div class="combobox" data-combobox-wrap>
+              {{ field }}
+              <button type="button" class="combobox-toggle" tabindex="-1" aria-label="{% trans 'Toggle options' %}">
+                <span aria-hidden="true">▾</span>
+              </button>
+              <div class="combobox-dropdown" role="listbox" hidden></div>
+            </div>
             {% if field.help_text %}<p class="field-help">{{ field.help_text }}</p>{% endif %}
             {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
           </div>
@@ -19,5 +25,10 @@
       </div>
       <div class="form-actions"><a class="button" href="{% url 'vault:detail' record.id %}">{% trans "Cancel" %}</a><button class="button primary" type="submit">{% trans "Save changes" %}</button></div>
     </form>
+    <datalist id="url-list">{% for option in url_options %}<option value="{{ option }}">{% endfor %}</datalist>
+    <datalist id="email-list">{% for option in email_options %}<option value="{{ option }}">{% endfor %}</datalist>
+    <datalist id="user-list">{% for option in user_options %}<option value="{{ option }}">{% endfor %}</datalist>
+    <datalist id="pass-list">{% for option in pass_options %}<option value="{{ option }}">{% endfor %}</datalist>
+    <datalist id="ip-list">{% for option in ip_options %}<option value="{{ option }}">{% endfor %}</datalist>
   </section>
 {% endblock %}

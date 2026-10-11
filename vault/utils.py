@@ -1,4 +1,3 @@
-
 """
 These utility functions are carried over from the original CLI script
 with minimal changes. They handle parsing imported data files.
@@ -6,6 +5,10 @@ with minimal changes. They handle parsing imported data files.
 
 import re
 from urllib.parse import urlparse
+
+_BOX_CHARS = set("╔╗╚╝║═╠╣█▀▄▌▐░▒▓│─┌┐└┘├┤┬┴┼🔥⚡💵❤️☁")
+_PROTO_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*://")
+_PORT_RE = re.compile(r"(__PROTO_COLON__//[^/\s:|;\t]+):(\d+)(?=/)")
 
 
 def extract_domain(raw_url: str) -> str:
@@ -25,30 +28,33 @@ def extract_domain(raw_url: str) -> str:
         return raw_url[:30]
 
 
-def parse_line(line: str):
+def parse_line(line):
     """
-    Adaptively parses a single line using colon, pipe, tab, 
+    Adaptively parses a single line using colon, pipe, tab,
     or semicolon delimiters while ignoring decorative borders.
-    
-    Returns a dict if successful, None otherwise.
-    Changed from returning a tuple to returning a dict 
-    so Django views can work with it more clearly.
+
+    Accepts either str or bytes. Returns a dict if the line meets
+    all record requirements, or None otherwise.
     """
-    cleaned = line.strip()
+    if isinstance(line, (bytes, bytearray)):
+        line = line.decode("utf-8", errors="ignore")
+    elif not isinstance(line, str):
+        line = str(line)
+
+    cleaned = line.strip().lstrip("\ufeff")
     if not cleaned or cleaned.startswith("#"):
         return None
 
     # Filter out ASCII art / border box characters
-    box_chars = set("╔╗╚╝║═╠╣█▀▄▌▐░▒▓│─┌┐└┘├┤┬┴┼🔥⚡💵❤️☁")
-    if any(c in box_chars for c in cleaned):
+    if any(c in _BOX_CHARS for c in cleaned):
         return None
 
-    # Protect protocol colons in URLs
-    protected = re.sub(
-        r"https?://",
+    # Protect protocol colons and URL port colons
+    protected = _PROTO_RE.sub(
         lambda m: m.group(0).replace(":", "__PROTO_COLON__"),
         cleaned,
     )
+    protected = _PORT_RE.sub(r"\1__PORT_COLON__\2", protected)
 
     # Detect delimiter
     delimiter = None
@@ -63,7 +69,9 @@ def parse_line(line: str):
         return None
 
     parts = [
-        p.strip().replace("__PROTO_COLON__", ":")
+        p.strip()
+        .replace("__PROTO_COLON__", ":")
+        .replace("__PORT_COLON__", ":")
         for p in protected.split(delimiter)
     ]
     parts = [p for p in parts if p != ""]
@@ -80,6 +88,15 @@ def parse_line(line: str):
     else:
         identifier = parts[1]
         secret = ":".join(parts[2:])
+        ip_addr = "N/A"
+
+    if not (raw_url and identifier and secret):
+        return None
+
+    if len(raw_url) > 2048 or len(identifier) > 255 or len(secret) > 500:
+        return None
+
+    if len(ip_addr) > 45:
         ip_addr = "N/A"
 
     domain = extract_domain(raw_url)

@@ -1,7 +1,7 @@
 {% extends "vault/base.html" %}{% load i18n %}
 {% block title %}{% blocktrans with record_id=record.id %}Record #{{ record_id }}{% endblocktrans %}{% endblock %}
 {% block heading %}{% trans "Record details" %}{% endblock %}
-{% block intro %}<p class="page-intro">{% trans "Review the information saved for this record." %}</p>{% endblock %}
+{% block intro %}<p class="page-intro">{{ record.domain }} · {{ record.account_identifier }}</p>{% endblock %}
 {% block header_actions %}
   <a class="button" href="{% url 'vault:browse' %}">{% trans "Back to records" %}</a>
   <a class="button primary" href="{% url 'vault:update' record.id %}">{% trans "Edit record" %}</a>
@@ -10,12 +10,17 @@
   <section class="vault-panel detail-panel">
     <div class="table-toolbar"><div><span class="badge outline">{% blocktrans with record_id=record.id %}Record #{{ record_id }}{% endblocktrans %}</span></div><a class="button danger" href="{% url 'vault:delete' record.id %}">{% trans "Delete record" %}</a></div>
     <dl class="vault-detail record-detail">
-      <div><dt>{% trans "Domain" %}</dt><dd>{{ record.domain }}</dd></div>
-      <div><dt>{% trans "Full URL" %}</dt><dd><a class="detail-link" dir="ltr" href="{{ record.url }}" target="_blank" rel="noopener noreferrer">{{ record.url }} <span aria-hidden="true">↗</span></a></dd></div>
+      <div><dt>{% trans "URL" %}</dt><dd dir="ltr"><a class="detail-link" href="{{ record.url.name }}" target="_blank" rel="noopener noreferrer">{{ record.url.name }} <span aria-hidden="true">↗</span></a></dd></div>
       <div><dt>{% trans "Account type" %}</dt><dd>{{ record.get_account_type_display }}</dd></div>
-      <div><dt>{% trans "Account identifier" %}</dt><dd dir="auto">{{ record.account_identifier }}</dd></div>
-      <div class="detail-wide"><dt>{% trans "Secret data" %}</dt><dd><code class="secret-value" dir="ltr">{{ record.secret_data }}</code></dd></div>
-      <div><dt>{% trans "IP address" %}</dt><dd dir="ltr">{{ record.ip_address|default:"—" }}</dd></div>
+      {% if record.account_type == 'email' %}
+        <div><dt>{% trans "Email" %}</dt><dd dir="auto">{{ record.identifier }}</dd></div>
+      {% else %}
+        <div><dt>{% trans "Username" %}</dt><dd dir="auto">{{ record.identifier }}</dd></div>
+      {% endif %}
+      <div class="detail-wide"><dt>{% trans "Password" %}</dt><dd><code class="secret-value" dir="ltr">{{ record.password.name }}</code></dd></div>
+      <div><dt>{% trans "IP address" %}</dt><dd dir="ltr">{{ record.ip.name|default:"—" }}</dd></div>
+      <div><dt>{% trans "Construction date" %}</dt><dd dir="ltr">{{ record.created_at }}</dd></div>
+      <div><dt>{% trans "Date of adjustment" %}</dt><dd dir="ltr">{{ record.updated_at }}</dd></div>
     </dl>
     <div class="vault-note">{% trans "This record may contain sensitive information. Limit access to the details and any exports to authorized people." %}</div>
   </section>
