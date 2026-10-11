@@ -1,11 +1,13 @@
 import json
 import os
 import shutil
+import sqlite3
 import tempfile
 import time
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
+from django.db import connection
 from django.test import TestCase
 from django.urls import reverse
 
@@ -222,6 +224,43 @@ class WorkspaceInterfaceTests(TestCase):
             {'account_type': 'user', 'email': 'person@example.com'},
         )
         self.assertContains(response, 'No matching records')
+
+    def test_search_with_many_matching_urls_avoids_sqlite_variable_limit(self):
+        urls = Url.objects.bulk_create([
+            Url(name=f'https://bulk-search.example/login/{index}')
+            for index in range(100)
+        ])
+        Account.objects.create(
+            url=urls[0],
+            account_type='email',
+            email=self.email,
+            password=self.password,
+            ip=self.ip,
+        )
+
+        db_connection = connection.connection
+        old_limit = db_connection.getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER)
+        db_connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 80)
+        try:
+            responses = (
+                self.client.get(
+                    reverse('vault:advanced_search'),
+                    {'keyword': 'bulk-search'},
+                ),
+                self.client.get(
+                    reverse('vault:search'),
+                    {'field': 'domain', 'q': 'bulk-search.example'},
+                ),
+            )
+        finally:
+            db_connection.setlimit(
+                sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, old_limit
+            )
+
+        for response in responses:
+            with self.subTest(path=response.request['PATH_INFO']):
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, 'bulk-search.example')
 
     def test_import_page_accepts_supported_text_file(self):
         uploaded_file = SimpleUploadedFile(

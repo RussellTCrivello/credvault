@@ -83,15 +83,16 @@ _QUICK_SEARCH_MAP = {
 def _match_exact_ids(model, raw_value):
     """
     Look up IDs in a reference table using its functional B-tree index on
-    LOWER(name). Executes in O(log N) (< 1 ms across millions of rows).
+    LOWER(name). Keep the IDs as a queryset so they can be used as a SQL
+    subquery instead of expanding large matches into SQL parameters.
     """
     val = (raw_value or '').strip().lower()
     if not val:
-        return []
-    return list(
+        return model.objects.none().values('id')
+    return (
         model.objects.annotate(_n=Lower('name'))
         .filter(_n=val)
-        .values_list('id', flat=True)
+        .values('id')
     )
 
 
@@ -141,17 +142,17 @@ def _match_url_ids(raw_value, force_domain=False):
                         clauses |= Q(_n__gte=prefix, _n__lt=prefix + '\uffff')
             clauses |= Q(_n__in=exact_set)
 
-    ids = list(
+    ids = (
         Url.objects.annotate(_n=Lower('name'))
         .filter(clauses)
-        .values_list('id', flat=True)
+        .values('id')
     )
-    if not ids and force_domain:
+    if not ids.exists() and force_domain:
         dom = extract_domain(q_lower)
         if dom:
-            ids = list(
+            ids = (
                 Url.objects.filter(name__icontains=dom)
-                .values_list('id', flat=True)
+                .values('id')
             )
     return ids
 
@@ -199,49 +200,40 @@ def filter_accounts(params):
 
     if params.get('adv') == '1':
         if keyword:
-            kw_clauses = Q()
-            url_ids = list(
+            url_ids = (
                 Url.objects.filter(name__icontains=keyword)
-                .values_list('id', flat=True)
+                .values('id')
             )
-            email_ids = list(
+            email_ids = (
                 Email.objects.filter(name__icontains=keyword)
-                .values_list('id', flat=True)
+                .values('id')
             )
-            user_ids = list(
+            user_ids = (
                 User.objects.filter(name__icontains=keyword)
-                .values_list('id', flat=True)
+                .values('id')
             )
-            pass_ids = list(
+            pass_ids = (
                 Pass.objects.filter(name__icontains=keyword)
-                .values_list('id', flat=True)
+                .values('id')
             )
-            ip_ids = list(
+            ip_ids = (
                 Ip.objects.filter(name__icontains=keyword)
-                .values_list('id', flat=True)
+                .values('id')
             )
-            if url_ids:
-                kw_clauses |= Q(url_id__in=url_ids)
-            if email_ids:
-                kw_clauses |= Q(email_id__in=email_ids)
-            if user_ids:
-                kw_clauses |= Q(user_id__in=user_ids)
-            if pass_ids:
-                kw_clauses |= Q(password_id__in=pass_ids)
-            if ip_ids:
-                kw_clauses |= Q(ip_id__in=ip_ids)
-            if not kw_clauses:
-                return qs.none()
-            qs = qs.filter(kw_clauses)
+            qs = qs.filter(
+                Q(url_id__in=url_ids)
+                | Q(email_id__in=email_ids)
+                | Q(user_id__in=user_ids)
+                | Q(password_id__in=pass_ids)
+                | Q(ip_id__in=ip_ids)
+            )
 
         url = (params.get('url') or '').strip()
         if url:
-            ids = list(
+            ids = (
                 Url.objects.filter(name__icontains=url)
-                .values_list('id', flat=True)
+                .values('id')
             )
-            if not ids:
-                return qs.none()
             qs = qs.filter(url_id__in=ids)
 
         account_type = (params.get('account_type') or '').strip()
@@ -250,42 +242,34 @@ def filter_accounts(params):
 
         email = (params.get('email') or '').strip()
         if email:
-            ids = list(
+            ids = (
                 Email.objects.filter(name__icontains=email)
-                .values_list('id', flat=True)
+                .values('id')
             )
-            if not ids:
-                return qs.none()
             qs = qs.filter(email_id__in=ids)
 
         username = (params.get('username') or '').strip()
         if username:
-            ids = list(
+            ids = (
                 User.objects.filter(name__icontains=username)
-                .values_list('id', flat=True)
+                .values('id')
             )
-            if not ids:
-                return qs.none()
             qs = qs.filter(user_id__in=ids)
 
         password = (params.get('password') or '').strip()
         if password:
-            ids = list(
+            ids = (
                 Pass.objects.filter(name__icontains=password)
-                .values_list('id', flat=True)
+                .values('id')
             )
-            if not ids:
-                return qs.none()
             qs = qs.filter(password_id__in=ids)
 
         ip = (params.get('ip') or '').strip()
         if ip:
-            ids = list(
+            ids = (
                 Ip.objects.filter(name__icontains=ip)
-                .values_list('id', flat=True)
+                .values('id')
             )
-            if not ids:
-                return qs.none()
             qs = qs.filter(ip_id__in=ids)
 
         created_from = params.get('created_from')
@@ -312,21 +296,15 @@ def filter_accounts(params):
 
     if field == 'domain':
         ids = _match_url_ids(search_term, force_domain=True)
-        if not ids:
-            return qs.none()
         return qs.filter(url_id__in=ids)
 
     if field == 'url':
         ids = _match_url_ids(search_term, force_domain=False)
-        if not ids:
-            return qs.none()
         return qs.filter(url_id__in=ids)
 
     if field in _QUICK_SEARCH_MAP:
         model, fk = _QUICK_SEARCH_MAP[field]
         ids = _match_exact_ids(model, search_term)
-        if not ids:
-            return qs.none()
         return qs.filter(**{f"{fk}__in": ids})
 
     # Default ('all' or unspecified field or 'keyword'): check all 5 indexed
@@ -338,55 +316,47 @@ def filter_accounts(params):
     ip_ids = _match_exact_ids(Ip, search_term)
 
     clauses = Q()
-    if url_ids:
-        clauses |= Q(url_id__in=url_ids)
-    if email_ids:
-        clauses |= Q(email_id__in=email_ids)
-    if user_ids:
-        clauses |= Q(user_id__in=user_ids)
-    if pass_ids:
-        clauses |= Q(password_id__in=pass_ids)
-    if ip_ids:
-        clauses |= Q(ip_id__in=ip_ids)
+    clauses |= Q(url_id__in=url_ids)
+    clauses |= Q(email_id__in=email_ids)
+    clauses |= Q(user_id__in=user_ids)
+    clauses |= Q(password_id__in=pass_ids)
+    clauses |= Q(ip_id__in=ip_ids)
 
-    if clauses:
+    if any(ids.exists() for ids in (
+        url_ids, email_ids, user_ids, pass_ids, ip_ids,
+    )):
         return qs.filter(clauses)
 
     # If invoked via free-text keyword and no exact/domain match was found,
     # fall back to reference-table substring lookup.
     if keyword and not q:
-        url_ids = list(
+        url_ids = (
             Url.objects.filter(name__icontains=keyword)
-            .values_list('id', flat=True)
+            .values('id')
         )
-        email_ids = list(
+        email_ids = (
             Email.objects.filter(name__icontains=keyword)
-            .values_list('id', flat=True)
+            .values('id')
         )
-        user_ids = list(
+        user_ids = (
             User.objects.filter(name__icontains=keyword)
-            .values_list('id', flat=True)
+            .values('id')
         )
-        pass_ids = list(
+        pass_ids = (
             Pass.objects.filter(name__icontains=keyword)
-            .values_list('id', flat=True)
+            .values('id')
         )
-        ip_ids = list(
+        ip_ids = (
             Ip.objects.filter(name__icontains=keyword)
-            .values_list('id', flat=True)
+            .values('id')
         )
-        if url_ids:
-            clauses |= Q(url_id__in=url_ids)
-        if email_ids:
-            clauses |= Q(email_id__in=email_ids)
-        if user_ids:
-            clauses |= Q(user_id__in=user_ids)
-        if pass_ids:
-            clauses |= Q(password_id__in=pass_ids)
-        if ip_ids:
-            clauses |= Q(ip_id__in=ip_ids)
-        if clauses:
-            return qs.filter(clauses)
+        return qs.filter(
+            Q(url_id__in=url_ids)
+            | Q(email_id__in=email_ids)
+            | Q(user_id__in=user_ids)
+            | Q(password_id__in=pass_ids)
+            | Q(ip_id__in=ip_ids)
+        )
 
     return qs.none()
 
