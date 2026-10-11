@@ -7,7 +7,7 @@ import time
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.urls import reverse
 
 from .importer import bulk_import_lines
@@ -17,11 +17,13 @@ from .utils import parse_line
 
 class WorkspaceInterfaceTests(TestCase):
     def setUp(self):
-        # The workspace is only open to administrators.
-        get_user_model().objects.create_superuser(
-            'admin', 'admin@example.com', 'correct-horse-battery'
+        administrator = get_user_model().objects.create_user(
+            username='workspace-admin',
+            password='test-password',
+            is_staff=True,
         )
-        self.client.login(username='admin', password='correct-horse-battery')
+        self.client.force_login(administrator)
+
         self.url = Url.objects.create(name='https://example.com/login')
         self.email = Email.objects.create(name='person@example.com')
         self.password = Pass.objects.create(name='test-secret')
@@ -32,6 +34,14 @@ class WorkspaceInterfaceTests(TestCase):
             email=self.email,
             password=self.password,
             ip=self.ip,
+        )
+
+    def test_anonymous_users_are_redirected_to_login(self):
+        response = Client().get(reverse('vault:dashboard'))
+
+        self.assertRedirects(
+            response,
+            f"{reverse('vault:login')}?next={reverse('vault:dashboard')}",
         )
 
     def test_workspace_pages_render(self):
@@ -55,6 +65,19 @@ class WorkspaceInterfaceTests(TestCase):
                     self.assertContains(response, 'data-import-progress')
                     self.assertContains(response, 'data-import-step="complete"')
                     self.assertContains(response, 'data-import-percent')
+
+    def test_profile_menu_groups_account_and_preferences(self):
+        response = self.client.get(reverse('vault:references_index'))
+
+        self.assertContains(response, 'id="profile-trigger"')
+        self.assertContains(response, 'popovertarget="profile-popover"')
+        self.assertContains(response, 'id="profile-popover"')
+        self.assertContains(response, 'workspace-admin')
+        self.assertContains(response, 'name="language" value="en"')
+        self.assertContains(response, 'data-theme-choice="dark"')
+        self.assertContains(response, reverse('vault:logout'))
+        self.assertNotContains(response, 'class="account-box"')
+        self.assertNotContains(response, 'id="theme-toggle"')
 
     def test_search_filters_have_visible_field_labels(self):
         for route_name in ('vault:browse', 'vault:search'):

@@ -31,6 +31,13 @@
           <a href="{% url 'vault:references_index' %}" {% if request.resolver_match.url_name == 'references_index' or request.resolver_match.url_name == 'references' or request.resolver_match.url_name == 'reference_delete' %}class="active" aria-current="page"{% endif %}>{% trans "References" %}</a>
         </nav>
         <div class="vault-sidebar-bottom">
+          <div class="workspace-card">
+            <span class="workspace-card-mark" aria-hidden="true">L</span>
+            <div>
+              <strong>{% trans "LogIntel workspace" %}</strong>
+              <small>{% trans "Private workspace" %}</small>
+            </div>
+          </div>
           {% if request.user.is_authenticated %}
           {% get_available_languages as available_languages %}
           {% get_language_info_list for available_languages as language_info_list %}

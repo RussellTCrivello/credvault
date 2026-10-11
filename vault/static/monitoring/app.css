@@ -2379,7 +2379,7 @@ textarea.text-input {
 }
 .login-card {
   width: 100%;
-  max-width: 338px;
+  max-width: 390px;
   margin: auto;
 }
 .login-kicker {
@@ -2399,26 +2399,35 @@ textarea.text-input {
   display: inline-block;
 }
 .login-card h2 {
-  font-size: 30px;
+  font-size: 34px;
   letter-spacing: -1px;
   font-weight: 600;
 }
 .login-subtitle {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin-top: 7px;
-  margin-bottom: 30px;
+  margin-bottom: 0;
+}
+.vault-form.login-form {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  padding: 0;
+  margin-top: 28px;
+}
+.login-form .field {
+  margin: 0;
 }
 .login-card .field-label {
-  font-size: 10px;
-  margin-bottom: 8px;
+  font-size: 11px;
+  margin-bottom: 7px;
 }
 .login-card .text-input {
-  height: 42px;
-  font-size: 11px;
+  height: 48px;
+  font-size: 13px;
 }
-.login-card label[for="password"] {
-  margin-top: 20px;
+.login-form .field-error {
+  margin-top: 7px;
 }
 .password-field {
   position: relative;
@@ -2436,9 +2445,10 @@ textarea.text-input {
 }
 .login-submit {
   width: 100%;
-  margin-top: 24px;
-  min-height: 43px;
-  font-size: 11px;
+  margin-top: 4px;
+  min-height: 48px;
+  padding-inline: 16px;
+  font-size: 13px;
   justify-content: space-between;
 }
 .login-submit span {
@@ -2481,8 +2491,8 @@ textarea.text-input {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  margin-top: 33px;
-  padding-top: 22px;
+  margin-top: 28px;
+  padding-top: 18px;
   border-top: 1px solid var(--line);
   color: var(--subtle);
 }
@@ -2918,7 +2928,7 @@ textarea.text-input {
     padding: 45px 27px 25px;
   }
   .login-card {
-    max-width: 355px;
+    max-width: 390px;
   }
   .login-card:before {
     content: "LogIntel.";
@@ -2927,7 +2937,7 @@ textarea.text-input {
     font-size: 30px;
     letter-spacing: -1.5px;
     font-weight: 750;
-    margin-bottom: 45px;
+    margin-bottom: 35px;
   }
   .login-form-footer {
     padding-top: 40px;
