@@ -99,7 +99,7 @@ SQLite), against a workspace of **2,000,000 records** (160k URLs, 1.2M emails,
 
 | Operation | Result |
 | --- | --- |
-| import a folder of 2,000,000 lines (4 files) | 267 s (~7.5k lines/s, ~14k row inserts/s) |
+| import a folder of 2,000,000 lines (8 files) | 267 s (~7.5k lines/s, ~14k row inserts/s) |
 | exact email / username / password / IP lookup | 1–2 ms |
 | exact full-URL lookup | ~18 ms |
 | exact domain lookup that matches **600,143** records (count) | ~39 ms |
