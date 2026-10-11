@@ -13,8 +13,9 @@ The project is built around two things:
   covers the whole answer rather than the page on screen.
 
 ```bash
-python manage.py migrate
-python manage.py runserver 0.0.0.0:8000
+python -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python manage.py migrate
+.venv/bin/python manage.py runserver 0.0.0.0:8000
 ```
 
 `sample_data/` holds a few hundred importable lines (plus files and lines that
@@ -58,11 +59,11 @@ which is the right default for a local tool).
 *Server side* — recommended for the largest volumes:
 
 ```bash
-python manage.py importfolder /path/to/folder            # recursive
-python manage.py importfolder /a /b --ext csv --ext txt  # narrow the types
-python manage.py importfolder /path --all-extensions
-python manage.py importfolder /path --dry-run --show-errors 10
-python manage.py importfolder /path --fast               # WAL + synchronous=NORMAL
+.venv/bin/python manage.py importfolder /path/to/folder            # recursive
+.venv/bin/python manage.py importfolder /a /b --ext csv --ext txt  # narrow the types
+.venv/bin/python manage.py importfolder /path --all-extensions
+.venv/bin/python manage.py importfolder /path --dry-run --show-errors 10
+.venv/bin/python manage.py importfolder /path --fast               # WAL + synchronous=NORMAL
 ```
 
 The accepted line format is unchanged from the original CLI: `url`,
@@ -109,8 +110,8 @@ SQLite), against a workspace of **2,000,000 records** (160k URLs, 1.2M emails,
 | re-importing the same folder | 0 new records, values reused |
 
 ```bash
-python scripts/scale_check.py --records 200000              # quick
-python scripts/scale_check.py --records 2000000 --fast      # serious
+.venv/bin/python scripts/scale_check.py --records 200000              # quick
+.venv/bin/python scripts/scale_check.py --records 2000000 --fast      # serious
 ```
 
 It writes its own database under `/tmp`, never your workspace file.
@@ -140,17 +141,17 @@ Because the sandbox/CI image has no GNU gettext, use the bundled helper instead
 of `compilemessages`:
 
 ```bash
-python scripts/compile_catalogs.py           # report + rebuild every .mo
-python scripts/compile_catalogs.py --check    # fail on untranslated msgids
+.venv/bin/python scripts/compile_catalogs.py           # report + rebuild every .mo
+.venv/bin/python scripts/compile_catalogs.py --check    # fail on untranslated msgids
 ```
 
 ### Add another language
 
 1. Add its Django language code and display name to `LANGUAGES` in
    `admin_LogIntel/settings.py`.
-2. Create or update its catalog with `python manage.py makemessages -l <code>`.
+2. Create or update its catalog with `.venv/bin/python manage.py makemessages -l <code>`.
 3. Translate `locale/<code>/LC_MESSAGES/django.po`.
-4. Compile catalogs with `python scripts/compile_catalogs.py`.
+4. Compile catalogs with `.venv/bin/python scripts/compile_catalogs.py`.
 5. Add or update interface tests for the new language, especially direction and
    translated form labels.
 
@@ -163,7 +164,7 @@ language that happened to be active when the process started.
 ## Tests
 
 ```bash
-python manage.py test vault
+.venv/bin/python manage.py test vault
 ```
 
 37 tests cover the pages, the reference-reuse rules, the duplicate guard, bulk
