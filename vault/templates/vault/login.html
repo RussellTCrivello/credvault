@@ -1,0 +1,74 @@
+{% load i18n static %}
+{% get_current_language as LANGUAGE_CODE %}
+{% get_current_language_bidi as LANGUAGE_BIDI %}
+<!doctype html>
+<html lang="{{ LANGUAGE_CODE }}" dir="{% if LANGUAGE_BIDI %}rtl{% else %}ltr{% endif %}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f8faf8" />
+    <title>{% trans "Administrator sign in" %} · LogIntel</title>
+    <link rel="icon" type="image/svg+xml" href="{% static 'monitoring/favicon.svg' %}" />
+    <link rel="stylesheet" href="{% static 'monitoring/app.css' %}" />
+    <link rel="stylesheet" href="{% static 'monitoring/vault.css' %}" />
+    <link rel="stylesheet" href="{% static 'monitoring/admin.css' %}" />
+  </head>
+  <body>
+    <main class="login-layout">
+      <section class="login-story" aria-hidden="true">
+        <div class="login-brand">LogIntel<span class="brand-dot">.</span></div>
+        <div class="login-story-content">
+          <p class="eyebrow">{% trans "LOGINTEL / WORKSPACE" %}</p>
+          <h1>{% trans "Administrator" %} <span>{% trans "access only." %}</span></h1>
+          <p class="login-description">{% trans "Sign in with an administrator account to review, search and manage the records in this workspace." %}</p>
+        </div>
+        <div class="login-story-footer">
+          <span>{% trans "Restricted area" %}</span>
+          <span>LOGINTEL</span>
+        </div>
+      </section>
+
+      <section class="login-form-side">
+        <div class="login-card">
+          <p class="login-kicker"><span class="status-dot"></span>{% trans "SECURE SIGN IN" %}</p>
+          <h2>{% trans "Sign in" %}</h2>
+          <p class="login-subtitle">{% trans "Use your administrator username and password." %}</p>
+
+          {% if form.non_field_errors %}
+            <div class="form-error" role="alert">
+              {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+            </div>
+          {% endif %}
+
+          <form method="post" action="{% url 'vault:login' %}" class="vault-form login-form" novalidate>
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ next }}" />
+
+            <div class="field">
+              <label class="field-label" for="{{ form.username.id_for_label }}">{% trans "Username" %}<span class="required-mark" aria-hidden="true"> *</span><span class="sr-only">{% trans "required" %}</span></label>
+              <input type="text" name="{{ form.username.html_name }}" id="{{ form.username.id_for_label }}" class="text-input" value="{{ form.username.value|default_if_none:'' }}" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus />
+              {% for error in form.username.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+            </div>
+
+            <div class="field">
+              <label class="field-label" for="{{ form.password.id_for_label }}">{% trans "Password" %}<span class="required-mark" aria-hidden="true"> *</span><span class="sr-only">{% trans "required" %}</span></label>
+              <input type="password" name="{{ form.password.html_name }}" id="{{ form.password.id_for_label }}" class="text-input" autocomplete="current-password" required />
+              {% for error in form.password.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+            </div>
+
+            <button class="button primary login-submit" type="submit">
+              <span>{% trans "Sign in" %}</span><span aria-hidden="true">→</span>
+            </button>
+          </form>
+
+          <div class="login-privacy">
+            <span class="small-shield" aria-hidden="true">✓</span>
+            <p>{% trans "Only administrator accounts can access the workspace. Sign out when you are done." %}</p>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script src="{% static 'monitoring/admin.js' %}" defer></script>
+  </body>
+</html>

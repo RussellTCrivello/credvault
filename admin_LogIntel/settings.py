@@ -57,6 +57,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'vault.middleware.AdministratorLoginMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
 ]
 
@@ -147,6 +148,12 @@ STATIC_URL = '/static/'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+
+# Administrator sign-in (see vault/access.py and vault/middleware.py)
+LOGIN_URL = 'vault:login'
+LOGIN_REDIRECT_URL = 'vault:dashboard'
+LOGOUT_REDIRECT_URL = 'vault:login'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

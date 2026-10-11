@@ -1,6 +1,7 @@
+from django.contrib.auth.views import LogoutView
 from django.urls import path
 from . import views
-
+from .access import AdministratorLoginView
 app_name = 'vault'
 
 """
@@ -22,10 +23,11 @@ Plus the normalized relationship management:
 """
 
 urlpatterns = [
+    path('login/', AdministratorLoginView.as_view(), name='login'),
+    path('logout/', LogoutView.as_view(next_page='vault:login'), name='logout'),
     path('', views.dashboard, name='dashboard'),
     path('records/', views.browse_all, name='browse'),
-    path('records/add/', views.add_account, name='add'),
-    path('records/<int:pk>/', views.view_detail, name='detail'),
+    path('records/add/', views.add_account, name='add'),   path('records/<int:pk>/', views.view_detail, name='detail'),
     path('records/<int:pk>/edit/', views.update_account, name='update'),
     path('records/<int:pk>/delete/', views.delete_account, name='delete'),
     path('search/', views.search_records, name='search'),

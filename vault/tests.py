@@ -5,10 +5,11 @@ import sqlite3
 import tempfile
 import time
 
+from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.db import connection
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.urls import reverse
 
 from .importer import bulk_import_lines
@@ -18,6 +19,13 @@ from .utils import parse_line
 
 class WorkspaceInterfaceTests(TestCase):
     def setUp(self):
+        administrator = get_user_model().objects.create_user(
+            username='workspace-admin',
+            password='test-password',
+            is_staff=True,
+        )
+        self.client.force_login(administrator)
+
         self.url = Url.objects.create(name='https://example.com/login')
         self.email = Email.objects.create(name='person@example.com')
         self.password = Pass.objects.create(name='test-secret')
@@ -28,6 +36,14 @@ class WorkspaceInterfaceTests(TestCase):
             email=self.email,
             password=self.password,
             ip=self.ip,
+        )
+
+    def test_anonymous_users_are_redirected_to_login(self):
+        response = Client().get(reverse('vault:dashboard'))
+
+        self.assertRedirects(
+            response,
+            f"{reverse('vault:login')}?next={reverse('vault:dashboard')}",
         )
 
     def test_workspace_pages_render(self):

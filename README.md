@@ -46,6 +46,7 @@ https://example.com/login|person@example.com|Secret 1|203.0.113.10
 https://example.com/login;bob;Secret 2;N/A
 https://example.com/login:bob:Secret:3:1.2.3.4
 ```
+python manage.py createsuperuser
 
 The rules live in `vault/validators.py`, which is the single place to change
 if a format needs adjusting.

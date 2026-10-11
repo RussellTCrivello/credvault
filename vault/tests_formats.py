@@ -13,6 +13,7 @@ The rules under test are the ones documented in ``vault/validators.py``:
 
 from importlib import import_module
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
@@ -627,6 +628,14 @@ class MigrationCanonicalizationTests(TestCase):
 
 class RecordFormFormatTests(TestCase):
     """The Add/Edit form applies the same rules as the importer."""
+
+    def setUp(self):
+        administrator = get_user_model().objects.create_user(
+            username='format-test-admin',
+            password='test-password',
+            is_staff=True,
+        )
+        self.client.force_login(administrator)
 
     def test_values_that_break_their_format_are_rejected(self):
         response = self.client.post(reverse('vault:add'), {
