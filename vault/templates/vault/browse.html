@@ -10,7 +10,13 @@
 {% block content %}
   <section class="vault-panel">
     <div class="table-toolbar">
-      <div><h2>{% trans "All records" %}</h2><p class="vault-muted">{{ records|length }} {% blocktrans count record_count=records|length %}record{% plural %}records{% endblocktrans %}</p></div>
+      <div>
+        <h2>{% trans "All records" %}</h2>
+        <p class="vault-muted">
+          {% blocktrans count record_count=total %}{{ record_count }} record in the workspace{% plural %}{{ record_count }} records in the workspace{% endblocktrans %}
+          {% if total > records|length %}· {% trans "showing one page at a time — the export covers every record" %}{% endif %}
+        </p>
+      </div>
       <a class="button" href="{% url 'vault:search' %}">{% trans "Search records" %} <span aria-hidden="true">⌕</span></a>
     </div>
     <div class="vault-table-wrap">
@@ -19,10 +25,11 @@
         <thead>
           <tr>
               <th scope="col">{% trans "ID" %}</th>
-              <th scope="col">{% trans "Domain / URL" %}</th>
+              <th scope="col">{% trans "Domain" %}</th>
+              <th scope="col">{% trans "URL" %}</th>
               <th scope="col">{% trans "Account type" %}</th>
               <th scope="col">{% trans "Identifier" %}</th>
-              <th scope="col">{% trans "Secret" %}</th>
+              <th scope="col">{% trans "Password" %}</th>
               <th scope="col">{% trans "IP address" %}</th>
               <th scope="col">{% trans "Actions" %}</th>
         </tr></thead>
@@ -30,18 +37,20 @@
           {% for record in records %}
             <tr>
               <td class="mono">#{{ record.id }}</td>
-              <td><strong>{{ record.domain }}</strong><small class="cell-secondary" dir="ltr">{{ record.url }}</small></td>
+              <td class="mono" dir="ltr">{{ record.url.host }}</td>
+              <td><strong dir="ltr">{{ record.url.name }}</strong></td>
               <td><span class="badge outline">{{ record.get_account_type_display }}</span></td>
-              <td dir="auto">{{ record.account_identifier }}</td>
-              <td class="mono" dir="ltr">{{ record.secret_data |default:"—" }}</td>
-              <td class="mono" dir="ltr">{{ record.ip_address|default:"—" }}</td>
+              <td dir="auto">{{ record.identifier }}</td>
+              <td class="mono" dir="ltr">{{ record.password.name|default:"—" }}</td>
+              <td class="mono" dir="ltr">{{ record.ip.name|default:"—" }}</td>
               <td><a class="button small-button" href="{% url 'vault:detail' record.id %}">{% trans "View" %}</a></td>
             </tr>
           {% empty %}
-            <tr><td colspan="6"><div class="empty-state"><div class="empty-icon" aria-hidden="true">▤</div><h2>{% trans "No records yet" %}</h2><p>{% trans "Add a record or import a supported file to start building your workspace." %}</p><a class="button primary" href="{% url 'vault:add' %}">{% trans "Add your first record" %}</a></div></td></tr>
+            <tr><td colspan="8"><div class="empty-state"><div class="empty-icon" aria-hidden="true">▤</div><h2>{% trans "No records yet" %}</h2><p>{% trans "Add a record or import a supported file to start building your workspace." %}</p><a class="button primary" href="{% url 'vault:add' %}">{% trans "Add your first record" %}</a></div></td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+    {% include "vault/pagination.html" %}
   </section>
 {% endblock %}

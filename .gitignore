@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Local virtualenv
+.venv/
+
+# SQLite sidecars from a live connection; the workspace database itself is
+# tracked so the preview starts with data.
+db.sqlite3-wal
+db.sqlite3-shm
+*.sqlite3-journal
+
+# Collected static / uploads
+staticfiles/
+media/

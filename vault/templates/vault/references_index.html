@@ -1,0 +1,35 @@
+{% extends "vault/base.html" %}{% load i18n %}
+{% block title %}{% trans "Reference tables" %}{% endblock %}
+{% block heading %}{% trans "Reference tables" %}{% endblock %}
+{% block intro %}<p class="page-intro">{% trans "These five tables hold the shared values used by your records. Each value is stored once and reused, so it is never entered twice." %}</p>{% endblock %}
+{% block content %}
+  <section class="vault-panel">
+    <div class="table-toolbar">
+      <div>
+        <h2>{% trans "Reference tables" %}</h2>
+        <p class="vault-muted">{{ total_records }} {% blocktrans count record_count=total_records %}record uses these values{% plural %}records use these values{% endblocktrans %}</p>
+      </div>
+    </div>
+    <div class="vault-table-wrap">
+      <table class="vault-table reference-overview">
+        <caption class="sr-only">{% trans "Reference tables" %}</caption>
+        <thead>
+          <tr>
+            <th scope="col">{% trans "Table" %}</th>
+            <th scope="col">{% trans "Values" %}</th>
+            <th scope="col">{% trans "Actions" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in reference_rows %}
+            <tr>
+              <td><strong>{{ row.label_plural }}</strong><br /><small class="cell-secondary">{{ row.label }}</small></td>
+              <td class="mono">{{ row.count }}</td>
+              <td><a class="button small-button" href="{% url 'vault:references' kind=row.kind %}">{% trans "Manage" %}</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

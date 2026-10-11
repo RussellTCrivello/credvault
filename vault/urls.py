@@ -15,16 +15,28 @@ This replaces the if/elif chain in main_menu():
     elif choice == "6": update_record()    →  /records/<id>/edit/
     elif choice == "7": delete_record()    →  /records/<id>/delete/
     elif choice == "8": export_data()      →  /export/csv/ or /export/json/
+
+Plus the normalized relationship management:
+    /references/                        →  references_index
+    /references/<kind>/                 →  reference_list
+    /references/<kind>/delete/<id>/     →  reference_delete
+    /advanced-search/                   →  advanced_search
 """
 
 urlpatterns = [
     path('', views.dashboard, name='dashboard'),
     path('records/', views.browse_all, name='browse'),
-    path('records/add/', views.add_record, name='add'),
-    path('records/<int:record_id>/', views.view_detail, name='detail'),
-    path('records/<int:record_id>/edit/', views.update_record, name='update'),
-    path('records/<int:record_id>/delete/', views.delete_record, name='delete'),
+    path('records/add/', views.add_account, name='add'),
+    path('records/<int:pk>/', views.view_detail, name='detail'),
+    path('records/<int:pk>/edit/', views.update_account, name='update'),
+    path('records/<int:pk>/delete/', views.delete_account, name='delete'),
     path('search/', views.search_records, name='search'),
+    path('advanced-search/', views.advanced_search, name='advanced_search'),
+    path('references/', views.references_index, name='references_index'),
+    path('references/<str:kind>/', views.reference_list,
+         name='references'),
+    path('references/<str:kind>/delete/<int:pk>/',
+         views.reference_delete, name='reference_delete'),
     path('import/', views.import_from_file, name='import'),
     path('export/csv/', views.export_csv, name='export_csv'),
     path('export/json/', views.export_json, name='export_json'),

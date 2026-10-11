@@ -29,12 +29,17 @@
       </a>
       <a class="action-card" href="{% url 'vault:search' %}">
         <span class="action-icon" aria-hidden="true">⌕</span>
-        <span><strong>{% trans "Search records" %}</strong><small>{% trans "Find a record by domain, URL, identifier, or IP." %}</small></span>
+        <span><strong>{% trans "Search records" %}</strong><small>{% trans "Type a domain, URL, email, username, password, or IP and get every match in milliseconds." %}</small></span>
+        <span class="action-arrow" aria-hidden="true">→</span>
+      </a>
+      <a class="action-card" href="{% url 'vault:advanced_search' %}">
+        <span class="action-icon" aria-hidden="true">⚲</span>
+        <span><strong>{% trans "Advanced search" %}</strong><small>{% trans "Query each field independently with filters and sorting." %}</small></span>
         <span class="action-arrow" aria-hidden="true">→</span>
       </a>
       <a class="action-card" href="{% url 'vault:import' %}">
         <span class="action-icon" aria-hidden="true">↑</span>
-        <span><strong>{% trans "Import a file" %}</strong><small>{% trans "Bring records in from a supported text file." %}</small></span>
+        <span><strong>{% trans "Import a file or folder" %}</strong><small>{% trans "Read every line of a file, or of a whole folder, and store what fits the format." %}</small></span>
         <span class="action-arrow" aria-hidden="true">→</span>
       </a>
       <a class="action-card" href="{% url 'vault:export_csv' %}">
@@ -42,6 +47,39 @@
         <span><strong>{% trans "Export data" %}</strong><small>{% trans "Download your records as CSV or JSON." %}</small></span>
         <span class="action-arrow" aria-hidden="true">→</span>
       </a>
+      <a class="action-card" href="{% url 'vault:references_index' %}">
+        <span class="action-icon" aria-hidden="true">⛁</span>
+        <span><strong>{% trans "Reference tables" %}</strong><small>{% trans "Manage the shared URL, email, username, password, and IP values." %}</small></span>
+        <span class="action-arrow" aria-hidden="true">→</span>
+      </a>
+    </div>
+  </section>
+
+  <section class="section-block">
+    <div class="section-heading">
+      <div><p class="eyebrow">{% trans "RELATIONSHIPS" %}</p><h2>{% trans "Reference tables" %}</h2></div>
+      <a class="button" href="{% url 'vault:references_index' %}">{% trans "Manage" %}</a>
+    </div>
+    <div class="vault-table-wrap">
+      <table class="vault-table reference-overview">
+        <caption class="sr-only">{% trans "Reference tables" %}</caption>
+        <thead>
+          <tr>
+            <th scope="col">{% trans "Table" %}</th>
+            <th scope="col">{% trans "Values" %}</th>
+            <th scope="col">{% trans "Actions" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in reference_rows %}
+            <tr>
+              <td><strong>{{ row.label_plural }}</strong></td>
+              <td class="mono">{{ row.count }}</td>
+              <td><a class="button small-button" href="{% url 'vault:references' kind=row.kind %}">{% trans "Open" %}</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
   </section>
 

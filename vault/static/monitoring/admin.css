@@ -78,3 +78,27 @@
 html[lang^=ar]{font-family:"Noto Sans Arabic","Noto Naskh Arabic","Tahoma",sans-serif}
 html[lang^=ar] .eyebrow{letter-spacing:0}
 @media(max-width:760px){[dir=rtl] .vault-sidebar{border-left:0;border-bottom:1px solid var(--line)}}
+/* --- bulk search, advanced search, reference tables, bulk import --- */
+.quick-search .search-controls select{min-width:150px}
+.quick-search .search-controls input{flex:1;min-width:0}
+.search-meta{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-top:6px;font-size:11px;color:var(--muted)}
+.timing-pill{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border:1px solid var(--line);border-radius:999px;background:var(--bg);font-family:var(--mono);font-size:10px;color:var(--green)}
+.export-note{font-size:11px;line-height:1.7;border-bottom:1px solid var(--line)}
+.advanced-search-form{display:block;padding:24px}
+.advanced-search-form .field{margin:0}
+.reference-filter{display:flex;gap:8px;align-items:center}
+.reference-filter .form-control{height:34px;min-width:220px;padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:var(--panel);font-size:11px}
+.reference-table{min-width:760px}
+.reference-table .wrap-cell{max-width:420px;overflow-wrap:anywhere}
+.reference-overview{min-width:520px}
+.vault-pagination{gap:12px;flex-wrap:wrap}
+.pagination-status{color:var(--muted);font-size:11px;font-family:var(--mono)}
+.pagination-controls{display:flex;gap:8px}
+.import-command{padding:16px 20px;display:grid;gap:8px}
+.import-command code{padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);font-size:11px;overflow-wrap:anywhere}
+.folder-count{color:var(--green)}
+.import-form .field.wide{grid-column:1/-1}
+.cell-secondary{overflow-wrap:anywhere}
+@media(max-width:760px){.reference-filter{width:100%}.reference-filter .form-control{flex:1;min-width:0}.quick-search .search-controls select{min-width:0;flex:1}}
+[dir=rtl] .timing-pill{direction:ltr}
+[dir=rtl] .reference-table .wrap-cell,[dir=rtl] .import-command code{unicode-bidi:plaintext}

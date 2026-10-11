@@ -1,0 +1,605 @@
+# LogIntel sample export, part 1 of 2
+# format: url<delimiter>identifier<delimiter>password<delimiter>ip
+https://x.com/home|k.tanaka@x.com|mapletundra75!|10.22.231.196
+https://netflix.com/login|halmeida9574|lanterntundra74!|10.15.182.132
+https:steamcommunity.com/login:pkowalski9722:maplefalcon94!:10.15.182.132
+https://bitbucket.org/account|skhan4194|falconquantum94!|10.55.154.252
+https://slack.com/signin;s.khan@slack.com;vertexfalcon81!;10.22.78.213
+https://spotify.com/account;ycohen2155;orbittundra58!;N/A
+https://bitbucket.org/account;l.rossi@bitbucket.org;lanternwalnut81!;10.31.175.89
+https:yahoo.com/mail:halmeida6533:vertexmeadow92!:10.40.125.105
+https://gitlab.com/login;sam.ortiz@gitlab.com;cedarsable79!;N/A
+https://shopify.com/admin|rsilva8669|walnutorbit71!|N/A
+https://yahoo.com/mail|npetrova9117|meadowharbor48!|N/A
+https://azure.microsoft.com/login;npetrova294;meadoworbit86!;10.55.251.32
+https://dropbox.com/login	divanov1369	falconmaple37!	10.40.125.105
+https:atlassian.net/login:r.silva@atlassian.net:walnutsable47!:10.5.107.198
+https://shopify.com/admin	tnguyen8491	orbitorbit55!	10.26.187.109
+https://okta.com/app|mdubois7085|sablewalnut74!|10.5.107.198
+https://azure.microsoft.com/login|y.cohen@azure.microsoft.com|orbittundra69!|N/A
+https:gitlab.com/login:jmeyer5096:meadowmaple64!:10.24.5.251
+https://facebook.com/login;ycohen570;cobaltvertex86!;10.33.138.178
+https://netflix.com/login	anovak5130	meadoworbit14!	N/A
+https://gmail.com/mail|r.silva@gmail.com|falconwalnut78!|10.43.65.122
+https:slack.com/signin:jmeyer3682:tundrafalcon42!:10.17.213.179
+https://gmail.com/mail;omarhaddad2297;cobaltorbit81!;N/A
+https://facebook.com/login|omar.haddad@facebook.com|orbitsable98!|10.33.138.178
+https://stripe.com/login	mdubois8927	falconharbor97!	10.55.251.32
+https://yahoo.com/mail|omar.haddad@yahoo.com|cedarwalnut30!|N/A
+https://gmail.com/mail|omarhaddad8675|falconharbor93!|N/A
+https://paypal.com/myaccount;t.nguyen@paypal.com;vertextundra74!;10.21.110.166
+https:bitbucket.org/account:t.nguyen@bitbucket.org:lanternharbor55!:10.43.65.122
+https://instagram.com/accounts/login|l.rossi@instagram.com|lanternvertex87!|10.15.123.40
+https://linkedin.com/feed|npetrova3364|mapletundra46!|10.15.182.132
+https://aws.amazon.com/console	pkowalski6195	maplewalnut70!	10.22.231.196
+https://azure.microsoft.com/login|r.silva@azure.microsoft.com|meadowmeadow61!|N/A
+https://wordpress.org/wp-login.php|anovak9603|sablecedar61!|10.56.176.57
+https://steamcommunity.com/login	halmeida3995	vertexlantern86!	N/A
+https:steamcommunity.com/login:h.almeida@steamcommunity.com:quantumwalnut15!:10.56.91.92
+https:github.com/login:sam.ortiz@github.com:lanternsable12!:10.33.138.178
+https://steamcommunity.com/login|a.novak@steamcommunity.com|maplevertex55!|10.22.142.16
+https://instagram.com/accounts/login;skhan3736;orbitpepper17!;10.5.107.198
+https://stripe.com/login|omar.haddad@stripe.com|sablemaple22!|10.5.107.198
+https://gitlab.com/login|d.ivanov@gitlab.com|maplewalnut77!|N/A
+https://facebook.com/login;t.nguyen@facebook.com;harborharbor98!;10.56.176.57
+https:yahoo.com/mail:divanov6942:orbitmeadow31!:N/A
+https://paypal.com/myaccount	divanov85	peppermaple92!	N/A
+https://atlassian.net/login|jmeyer8891|falconmeadow75!|10.12.233.26
+https://shopify.com/admin|anovak3629|orbitlantern36!|10.26.187.109
+https://azure.microsoft.com/login|s.khan@azure.microsoft.com|walnutcobalt25!|10.5.107.198
+https://proton.me/mail;n.petrova@proton.me;tundrawalnut55!;10.59.13.2
+https://reddit.com/user|tnguyen1577|quantumorbit16!|10.22.231.196
+https://instagram.com/accounts/login	divanov5840	cedarsable43!	10.12.233.26
+https://outlook.com/mail|ycohen7303|cedarwalnut39!|N/A
+https://azure.microsoft.com/login	anovak8818	cobaltwalnut46!	10.5.177.124
+https://gmail.com/mail|y.cohen@gmail.com|lanternorbit78!|10.26.187.109
+https:instagram.com/accounts/login:npetrova6890:lanternmeadow69!:10.7.83.178
+https://netflix.com/login;omar.haddad@netflix.com;meadowharbor23!;10.24.147.83
+https://outlook.com/mail|j.meyer@outlook.com|orbitquantum51!|10.7.83.178
+https://yahoo.com/mail;j.meyer@yahoo.com;harborcobalt39!;10.3.183.124
+https://gitlab.com/login|liwei8475|quantumcedar73!|10.38.134.27
+https://netflix.com/login|omar.haddad@netflix.com|harborcobalt68!|10.29.35.224
+https://gitlab.com/login|samortiz5938|pepperorbit64!|N/A
+https:stripe.com/login:sam.ortiz@stripe.com:quantummeadow48!:N/A
+https://console.cloud.google.com/home;a.novak@console.cloud.google.com;sablecobalt81!;10.30.113.208
+https://slack.com/signin;k.tanaka@slack.com;harbormaple45!;N/A
+https://bitbucket.org/account|y.cohen@bitbucket.org|mapleharbor76!|N/A
+https://stripe.com/login;m.dubois@stripe.com;orbitlantern58!;10.15.123.40
+https://gmail.com/mail	h.almeida@gmail.com	falconmaple26!	10.31.175.89
+https://steamcommunity.com/login	omarhaddad4167	tundrapepper57!	10.38.134.27
+https://linkedin.com/feed|ktanaka6518|tundrasable97!|10.22.100.138
+https:azure.microsoft.com/login:divanov4239:lanternpepper18!:10.56.176.57
+https:aws.amazon.com/console:m.dubois@aws.amazon.com:vertexcobalt68!:10.15.123.40
+https://outlook.com/mail;tnguyen9625;orbitlantern61!;N/A
+https://steamcommunity.com/login	s.khan@steamcommunity.com	pepperquantum62!	N/A
+https://netflix.com/login|samortiz9882|harborcobalt80!|N/A
+https://steamcommunity.com/login|li.wei@steamcommunity.com|lanternpepper97!|10.21.110.166
+https://steamcommunity.com/login;s.khan@steamcommunity.com;walnutharbor84!;10.32.177.128
+https://aws.amazon.com/console	ktanaka184	cedarmeadow33!	10.56.3.100
+https:gitlab.com/login:liwei3635:cobaltlantern95!:10.21.110.166
+https://proton.me/mail;divanov1970;tundraquantum93!;10.22.142.16
+https:facebook.com/login:p.kowalski@facebook.com:walnuttundra12!:10.22.100.138
+https://bitbucket.org/account|omarhaddad8426|falconmaple14!|10.55.251.32
+https:console.cloud.google.com/home:li.wei@console.cloud.google.com:quantumharbor82!:10.19.135.145
+https://yahoo.com/mail;d.ivanov@yahoo.com;maplefalcon97!;10.38.134.27
+https://slack.com/signin;sam.ortiz@slack.com;walnutcobalt95!;10.32.177.128
+https://wordpress.org/wp-login.php|s.khan@wordpress.org|orbitfalcon43!|N/A
+https://wordpress.org/wp-login.php|lrossi2548|vertexharbor12!|10.38.134.27
+https://gitlab.com/login|halmeida6216|lanterncedar69!|10.7.83.178
+https://paypal.com/myaccount|m.dubois@paypal.com|cobaltlantern82!|N/A
+https://github.com/login;k.tanaka@github.com;sablemeadow29!;10.22.78.213
+https://slack.com/signin|t.nguyen@slack.com|pepperlantern44!|N/A
+https://outlook.com/mail;rsilva980;falconsable57!;10.40.125.105
+https://facebook.com/login;mdubois768;lanterncobalt32!;10.13.189.231
+https://dropbox.com/login|sam.ortiz@dropbox.com|peppermeadow86!|10.40.125.105
+https://dropbox.com/login|p.kowalski@dropbox.com|sablemaple94!|10.3.7.182
+https:steamcommunity.com/login:s.khan@steamcommunity.com:maplevertex24!:10.31.175.89
+https:facebook.com/login:d.ivanov@facebook.com:sableorbit56!:10.19.135.145
+https:yahoo.com/mail:mdubois9638:walnutquantum59!:10.32.177.128
+https:linkedin.com/feed:tnguyen9506:falconlantern17!:10.19.135.145
+https://linkedin.com/feed;omar.haddad@linkedin.com;vertexwalnut96!;10.33.138.178
+https://wordpress.org/wp-login.php;t.nguyen@wordpress.org;vertexharbor41!;10.43.65.122
+https://bitbucket.org/account|j.meyer@bitbucket.org|tundrawalnut31!|10.17.213.179
+https://instagram.com/accounts/login;t.nguyen@instagram.com;meadowpepper68!;N/A
+https://steamcommunity.com/login;m.dubois@steamcommunity.com;harbormeadow15!;10.3.183.124
+https:console.cloud.google.com/home:y.cohen@console.cloud.google.com:vertexharbor26!:N/A
+https://x.com/home	anovak764	falconvertex71!	10.17.213.179
+https:wordpress.org/wp-login.php:samortiz2679:cobaltcedar77!:10.31.175.89
+https://azure.microsoft.com/login;samortiz2575;cedarcedar45!;10.7.83.178
+https://stripe.com/login;k.tanaka@stripe.com;vertexvertex43!;10.32.177.128
+https://steamcommunity.com/login|samortiz6030|orbitmaple93!|10.13.189.231
+https://linkedin.com/feed|skhan1510|falconlantern12!|N/A
+https://spotify.com/account;h.almeida@spotify.com;harborharbor91!;10.22.78.213
+https://atlassian.net/login|jmeyer9226|vertexharbor81!|10.24.147.83
+https:gmail.com/mail:ktanaka253:cobaltcobalt87!:10.47.112.14
+https://console.cloud.google.com/home;skhan6424;maplelantern50!;10.24.5.251
+https://spotify.com/account|m.dubois@spotify.com|lanternpepper87!|10.47.112.14
+https://facebook.com/login;divanov5879;cobaltquantum66!;10.15.123.40
+https://shopify.com/admin;a.novak@shopify.com;cedarwalnut11!;10.8.117.9
+https://reddit.com/user	li.wei@reddit.com	lanternfalcon13!	N/A
+https://instagram.com/accounts/login	k.tanaka@instagram.com	meadowmeadow30!	10.43.65.122
+https://azure.microsoft.com/login;t.nguyen@azure.microsoft.com;vertexlantern13!;10.38.134.27
+https:proton.me/mail:omar.haddad@proton.me:cobaltorbit58!:10.15.182.132
+https://instagram.com/accounts/login	halmeida6291	quantumlantern32!	10.5.177.124
+https://proton.me/mail;t.nguyen@proton.me;maplewalnut54!;N/A
+https://gitlab.com/login;y.cohen@gitlab.com;meadowwalnut62!;10.15.182.132
+https:spotify.com/account:n.petrova@spotify.com:quantumwalnut27!:10.3.7.182
+https://bitbucket.org/account|jmeyer4213|vertexlantern60!|N/A
+https://azure.microsoft.com/login;divanov3756;walnutcobalt33!;N/A
+https://okta.com/app;j.meyer@okta.com;falconharbor54!;10.38.134.27
+https:atlassian.net/login:p.kowalski@atlassian.net:meadowtundra29!:10.55.251.32
+https://shopify.com/admin;s.khan@shopify.com;harborquantum45!;10.33.138.178
+https://outlook.com/mail|samortiz546|cedarpepper49!|10.26.187.109
+https://proton.me/mail|skhan1993|harborsable46!|10.30.113.208
+https://aws.amazon.com/console|m.dubois@aws.amazon.com|harbortundra16!|10.17.213.179
+https://slack.com/signin|anovak8014|quantumcobalt51!|10.22.231.196
+https:github.com/login:omarhaddad8249:falconlantern81!:10.8.117.9
+https://gitlab.com/login;samortiz5024;meadowcedar19!;10.13.189.231
+https:aws.amazon.com/console:ktanaka2305:walnutpepper42!:N/A
+https://paypal.com/myaccount|s.khan@paypal.com|maplefalcon90!|10.56.3.100
+https://slack.com/signin|ycohen5149|cobaltharbor41!|10.3.7.182
+https://linkedin.com/feed|skhan83|orbitsable60!|10.56.176.57
+https://stripe.com/login;h.almeida@stripe.com;tundraharbor25!;10.55.251.32
+https://azure.microsoft.com/login|liwei286|meadowmaple48!|10.22.100.138
+https://gmail.com/mail;anovak1901;walnutlantern30!;10.22.100.138
+https:instagram.com/accounts/login:a.novak@instagram.com:cedarcobalt11!:10.43.65.122
+https://slack.com/signin|r.silva@slack.com|meadowlantern63!|10.22.142.16
+https://okta.com/app;h.almeida@okta.com;sablecobalt46!;10.12.233.26
+https://console.cloud.google.com/home	jmeyer3622	harborcedar82!	10.56.3.100
+https://aws.amazon.com/console;li.wei@aws.amazon.com;lanternharbor68!;10.21.110.166
+https://spotify.com/account;liwei5973;falconquantum89!;N/A
+https://shopify.com/admin	k.tanaka@shopify.com	sablequantum38!	10.32.177.128
+https://instagram.com/accounts/login|ycohen496|falconharbor67!|10.33.138.178
+https://netflix.com/login|lrossi8421|meadowpepper52!|10.33.138.178
+https://netflix.com/login|a.novak@netflix.com|vertexmeadow91!|10.17.213.179
+https://instagram.com/accounts/login|j.meyer@instagram.com|harborlantern66!|10.26.187.109
+https://instagram.com/accounts/login;p.kowalski@instagram.com;tundraquantum75!;10.22.231.196
+https:spotify.com/account:s.khan@spotify.com:meadowmaple16!:10.15.182.132
+https://dropbox.com/login;n.petrova@dropbox.com;orbitlantern71!;10.55.251.32
+https://okta.com/app;s.khan@okta.com;cedarmaple61!;N/A
+https://linkedin.com/feed;r.silva@linkedin.com;cobaltquantum85!;N/A
+https://stripe.com/login|s.khan@stripe.com|falconquantum93!|N/A
+https://azure.microsoft.com/login|j.meyer@azure.microsoft.com|orbitcobalt57!|10.26.187.109
+https:paypal.com/myaccount:r.silva@paypal.com:lanternmaple95!:10.29.35.224
+https:shopify.com/admin:samortiz1890:pepperfalcon19!:N/A
+https://x.com/home	l.rossi@x.com	cobaltorbit22!	10.13.189.231
+https://aws.amazon.com/console	l.rossi@aws.amazon.com	walnutlantern76!	N/A
+https://instagram.com/accounts/login|rsilva8967|sablemaple94!|N/A
+https://gmail.com/mail|j.meyer@gmail.com|meadowharbor80!|10.23.103.79
+https:proton.me/mail:j.meyer@proton.me:cedarfalcon37!:10.40.125.105
+https://atlassian.net/login;li.wei@atlassian.net;lanternmaple66!;10.3.7.182
+https://dropbox.com/login	h.almeida@dropbox.com	maplefalcon21!	10.5.107.198
+https://wordpress.org/wp-login.php;anovak2349;harborquantum85!;N/A
+https://facebook.com/login;a.novak@facebook.com;sablecedar41!;10.21.110.166
+https://slack.com/signin|divanov8708|falconfalcon27!|N/A
+https://wordpress.org/wp-login.php	a.novak@wordpress.org	maplefalcon57!	10.43.65.122
+https://x.com/home|k.tanaka@x.com|tundracedar91!|10.56.176.57
+https://facebook.com/login|rsilva4350|harbororbit89!|10.33.138.178
+https:facebook.com/login:divanov1503:falconvertex53!:10.56.3.100
+https://wordpress.org/wp-login.php|samortiz323|falconsable54!|N/A
+https:azure.microsoft.com/login:li.wei@azure.microsoft.com:harborcedar40!:10.15.182.132
+https://gitlab.com/login	jmeyer3753	maplesable87!	10.19.135.145
+https://linkedin.com/feed	lrossi5681	harborpepper81!	10.38.134.27
+https://paypal.com/myaccount	divanov8536	cobalttundra61!	10.21.110.166
+https://gitlab.com/login;sam.ortiz@gitlab.com;tundramaple31!;10.59.208.159
+https://gitlab.com/login|r.silva@gitlab.com|orbitvertex55!|10.59.13.2
+https://gmail.com/mail|p.kowalski@gmail.com|maplefalcon55!|N/A
+https://proton.me/mail|tnguyen9328|meadowfalcon39!|10.52.232.158
+https:proton.me/mail:sam.ortiz@proton.me:sableorbit70!:10.33.138.178
+https://gmail.com/mail|n.petrova@gmail.com|maplewalnut85!|10.56.176.57
+https://aws.amazon.com/console;a.novak@aws.amazon.com;vertexwalnut26!;10.21.110.166
+https://wordpress.org/wp-login.php|lrossi175|vertexmeadow74!|10.52.232.158
+https://wordpress.org/wp-login.php|tnguyen5767|orbitmaple93!|10.23.103.79
+https://shopify.com/admin;j.meyer@shopify.com;walnutharbor97!;10.40.125.105
+https://aws.amazon.com/console|t.nguyen@aws.amazon.com|vertexfalcon68!|10.22.231.196
+https://aws.amazon.com/console|p.kowalski@aws.amazon.com|maplevertex64!|10.23.103.79
+https://spotify.com/account	d.ivanov@spotify.com	harborpepper48!	10.30.113.208
+https://gitlab.com/login|tnguyen5955|falconpepper78!|10.22.100.138
+https://outlook.com/mail	samortiz1948	orbitorbit44!	10.3.183.124
+https://x.com/home|samortiz5280|maplecedar94!|10.24.147.83
+https:outlook.com/mail:k.tanaka@outlook.com:maplevertex23!:N/A
+https:instagram.com/accounts/login:l.rossi@instagram.com:sablemaple59!:10.56.176.57
+https://azure.microsoft.com/login|ktanaka761|harborcobalt28!|10.22.142.16
+https:azure.microsoft.com/login:r.silva@azure.microsoft.com:quantumpepper34!:10.56.91.92
+https://x.com/home	sam.ortiz@x.com	pepperorbit96!	10.5.177.124
+https:x.com/home:y.cohen@x.com:cobaltcedar81!:10.38.134.27
+https://spotify.com/account|y.cohen@spotify.com|harborsable15!|10.21.110.166
+https://okta.com/app|ktanaka2174|orbitfalcon55!|N/A
+https://bitbucket.org/account|jmeyer8644|mapletundra48!|N/A
+https://atlassian.net/login|halmeida8840|vertexmaple22!|N/A
+https:github.com/login:npetrova6506:tundrawalnut17!:N/A
+https:gitlab.com/login:omar.haddad@gitlab.com:falconsable85!:10.33.138.178
+https:okta.com/app:li.wei@okta.com:cobaltcedar95!:10.59.208.159
+https:proton.me/mail:sam.ortiz@proton.me:walnutsable40!:N/A
+https:bitbucket.org/account:pkowalski9273:orbitlantern27!:N/A
+https://slack.com/signin;s.khan@slack.com;meadowharbor60!;N/A
+https://aws.amazon.com/console	liwei6784	meadowquantum50!	N/A
+https:gmail.com/mail:lrossi884:quantumtundra22!:N/A
+https://stripe.com/login|y.cohen@stripe.com|lanterncobalt54!|10.30.113.208
+https://aws.amazon.com/console;tnguyen4534;meadowwalnut95!;10.21.110.166
+https://console.cloud.google.com/home;sam.ortiz@console.cloud.google.com;meadowlantern69!;10.24.147.83
+https://x.com/home	pkowalski2214	lanterntundra48!	10.56.91.92
+https:spotify.com/account:mdubois2066:orbitpepper70!:10.24.5.251
+https://yahoo.com/mail	t.nguyen@yahoo.com	sablequantum54!	10.57.160.135
+https://netflix.com/login|li.wei@netflix.com|meadowmaple91!|10.3.183.124
+https://aws.amazon.com/console	ycohen9139	falconmaple31!	10.22.142.16
+https://shopify.com/admin;a.novak@shopify.com;cedarpepper74!;10.59.13.2
+https://okta.com/app	skhan8839	cobaltwalnut74!	N/A
+https://gmail.com/mail;t.nguyen@gmail.com;vertexmeadow82!;10.8.117.9
+https:gmail.com/mail:li.wei@gmail.com:vertexharbor59!:10.5.177.124
+https://outlook.com/mail|j.meyer@outlook.com|vertexlantern49!|N/A
+https://azure.microsoft.com/login|rsilva7736|pepperpepper73!|10.38.134.27
+https://x.com/home	p.kowalski@x.com	lanternlantern57!	10.59.208.159
+https://yahoo.com/mail|jmeyer2629|vertexwalnut12!|N/A
+https://paypal.com/myaccount;pkowalski5818;orbittundra80!;10.3.7.182
+https://wordpress.org/wp-login.php	t.nguyen@wordpress.org	orbitcobalt26!	10.59.208.159
+https://gmail.com/mail;r.silva@gmail.com;maplefalcon97!;10.15.182.132
+https:gmail.com/mail:rsilva9645:falconmaple18!:10.56.3.100
+https://azure.microsoft.com/login|j.meyer@azure.microsoft.com|cedarwalnut60!|10.12.233.26
+https://azure.microsoft.com/login|t.nguyen@azure.microsoft.com|tundraharbor60!|10.22.142.16
+https://gmail.com/mail|anovak3938|harborharbor83!|10.38.134.27
+https://instagram.com/accounts/login|r.silva@instagram.com|sablewalnut44!|10.56.176.57
+https://dropbox.com/login|omarhaddad6817|mapleharbor22!|10.31.175.89
+https://spotify.com/account	skhan8084	lanterncobalt65!	10.32.177.128
+https:spotify.com/account:npetrova705:walnutwalnut80!:10.19.8.37
+https://gitlab.com/login	omar.haddad@gitlab.com	lanterntundra81!	10.23.103.79
+https://stripe.com/login	rsilva7821	vertexfalcon28!	N/A
+https://dropbox.com/login;pkowalski9703;pepperquantum27!;N/A
+https:azure.microsoft.com/login:t.nguyen@azure.microsoft.com:harborwalnut30!:10.8.117.9
+https://wordpress.org/wp-login.php;n.petrova@wordpress.org;peppercedar80!;10.32.177.128
+https:bitbucket.org/account:tnguyen4510:sablemeadow55!:10.17.213.179
+https://proton.me/mail	d.ivanov@proton.me	harborharbor59!	N/A
+https://atlassian.net/login	j.meyer@atlassian.net	sablequantum29!	10.8.117.9
+https://dropbox.com/login|divanov9246|walnutquantum76!|10.24.5.251
+https:reddit.com/user:mdubois1717:meadowwalnut35!:10.15.182.132
+https://slack.com/signin|rsilva5016|sablepepper23!|10.12.233.26
+https://aws.amazon.com/console;y.cohen@aws.amazon.com;vertexquantum98!;10.21.110.166
+https://azure.microsoft.com/login|d.ivanov@azure.microsoft.com|sablesable97!|10.24.147.83
+https://console.cloud.google.com/home|li.wei@console.cloud.google.com|falconmeadow55!|10.15.123.40
+https://gitlab.com/login;m.dubois@gitlab.com;tundrasable59!;10.55.251.32
+https://proton.me/mail;k.tanaka@proton.me;mapletundra43!;N/A
+https://slack.com/signin	s.khan@slack.com	vertexharbor88!	N/A
+https://gitlab.com/login;sam.ortiz@gitlab.com;cobaltcobalt56!;10.12.233.26
+https://aws.amazon.com/console	n.petrova@aws.amazon.com	harbortundra14!	10.55.154.252
+https://paypal.com/myaccount	d.ivanov@paypal.com	falconcobalt79!	10.24.147.83
+https://instagram.com/accounts/login|skhan1192|peppercedar14!|10.7.83.178
+https://slack.com/signin|a.novak@slack.com|walnutfalcon92!|10.47.112.14
+https:facebook.com/login:divanov6560:lanternwalnut47!:10.40.125.105
+https://atlassian.net/login|li.wei@atlassian.net|harborlantern75!|N/A
+https:facebook.com/login:s.khan@facebook.com:tundravertex18!:10.24.5.251
+https:gmail.com/mail:h.almeida@gmail.com:lanternorbit30!:10.22.142.16
+https://aws.amazon.com/console;jmeyer7943;orbitcobalt32!;10.19.8.37
+https://linkedin.com/feed	liwei8996	sablefalcon79!	10.3.7.182
+https://shopify.com/admin	t.nguyen@shopify.com	lanternfalcon86!	10.22.231.196
+https://slack.com/signin	j.meyer@slack.com	sabletundra74!	N/A
+https://steamcommunity.com/login|k.tanaka@steamcommunity.com|harbortundra86!|10.59.208.159
+https://stripe.com/login|tnguyen8940|peppertundra32!|10.56.91.92
+https://atlassian.net/login	mdubois1817	maplecedar19!	10.13.189.231
+https://dropbox.com/login	ktanaka1609	peppercedar70!	10.30.113.208
+https:wordpress.org/wp-login.php:lrossi6492:quantumwalnut33!:10.40.125.105
+https://gitlab.com/login|tnguyen1805|pepperquantum54!|10.22.100.138
+https:linkedin.com/feed:halmeida6212:orbitquantum20!:10.57.160.135
+https://aws.amazon.com/console|lrossi6491|cedarpepper91!|10.24.147.83
+https://gitlab.com/login;ktanaka5317;tundrafalcon19!;N/A
+https://x.com/home|k.tanaka@x.com|falconcedar71!|10.29.35.224
+https://okta.com/app;r.silva@okta.com;lanternpepper62!;10.43.65.122
+https:x.com/home:samortiz2875:tundralantern88!:10.56.91.92
+https:atlassian.net/login:k.tanaka@atlassian.net:sablemeadow91!:10.19.8.37
+https://wordpress.org/wp-login.php|r.silva@wordpress.org|harborquantum69!|10.24.5.251
+https://instagram.com/accounts/login|h.almeida@instagram.com|quantumquantum38!|10.22.142.16
+https://azure.microsoft.com/login	ktanaka1540	maplevertex65!	N/A
+https://slack.com/signin	omar.haddad@slack.com	harborwalnut78!	10.43.65.122
+https:dropbox.com/login:p.kowalski@dropbox.com:walnutcedar91!:N/A
+https://bitbucket.org/account|omar.haddad@bitbucket.org|falconvertex98!|N/A
+https://linkedin.com/feed	li.wei@linkedin.com	cobaltlantern98!	N/A
+https://wordpress.org/wp-login.php;l.rossi@wordpress.org;meadowquantum71!;10.29.35.224
+https://spotify.com/account;rsilva4386;cobaltmaple94!;N/A
+https://github.com/login;l.rossi@github.com;falconvertex53!;10.19.135.145
+https://atlassian.net/login|p.kowalski@atlassian.net|harbormeadow75!|10.55.251.32
+https://gmail.com/mail|j.meyer@gmail.com|orbittundra36!|10.22.231.196
+https://instagram.com/accounts/login	y.cohen@instagram.com	harbormeadow82!	10.5.177.124
+https://slack.com/signin|omar.haddad@slack.com|cedarcedar94!|10.5.177.124
+https://outlook.com/mail|n.petrova@outlook.com|mapleorbit40!|10.19.135.145
+https:slack.com/signin:npetrova3336:harbormaple44!:10.56.3.100
+https://reddit.com/user	ktanaka9130	cobaltquantum31!	10.21.110.166
+https:shopify.com/admin:npetrova8299:walnutharbor61!:10.47.112.14
+https://x.com/home	divanov7933	peppermaple17!	N/A
+https:stripe.com/login:mdubois1265:walnutwalnut29!:10.55.154.252
+https:azure.microsoft.com/login:n.petrova@azure.microsoft.com:lanternorbit23!:10.26.187.109
+https://console.cloud.google.com/home	divanov6544	quantumfalcon51!	N/A
+https://aws.amazon.com/console;l.rossi@aws.amazon.com;cobaltsable32!;10.13.189.231
+https://okta.com/app;omar.haddad@okta.com;falconwalnut94!;10.40.125.105
+https:shopify.com/admin:a.novak@shopify.com:lanternlantern52!:10.3.183.124
+https://dropbox.com/login;m.dubois@dropbox.com;maplecobalt49!;10.23.103.79
+https://console.cloud.google.com/home;a.novak@console.cloud.google.com;harborcedar36!;10.55.154.252
+https:paypal.com/myaccount:lrossi7321:pepperlantern74!:10.23.103.79
+https://shopify.com/admin;k.tanaka@shopify.com;pepperlantern63!;10.7.83.178
+https://spotify.com/account	ktanaka1560	vertexorbit80!	10.56.91.92
+https://atlassian.net/login	omar.haddad@atlassian.net	cedarcedar13!	10.3.183.124
+https://gmail.com/mail	l.rossi@gmail.com	harborwalnut10!	10.38.134.27
+https://wordpress.org/wp-login.php|omarhaddad5353|falconfalcon24!|10.47.112.14
+https://paypal.com/myaccount|y.cohen@paypal.com|falconmaple91!|10.57.160.135
+https:paypal.com/myaccount:mdubois8561:meadowquantum19!:N/A
+https:gitlab.com/login:samortiz6398:lanternvertex50!:10.23.103.79
+https://proton.me/mail	sam.ortiz@proton.me	lanternsable56!	10.7.83.178
+https://dropbox.com/login	r.silva@dropbox.com	falconmaple51!	10.19.8.37
+https:x.com/home:npetrova1381:peppermeadow51!:10.52.232.158
+https://atlassian.net/login;jmeyer2245;orbittundra26!;N/A
+https:outlook.com/mail:divanov478:maplecobalt95!:10.32.177.128
+https://outlook.com/mail;omarhaddad7461;cobaltfalcon69!;10.30.113.208
+https://outlook.com/mail	l.rossi@outlook.com	tundrafalcon30!	N/A
+https://steamcommunity.com/login;p.kowalski@steamcommunity.com;cobaltfalcon78!;N/A
+https://github.com/login|p.kowalski@github.com|maplefalcon55!|N/A
+https://facebook.com/login|j.meyer@facebook.com|meadowmeadow25!|N/A
+https://bitbucket.org/account|r.silva@bitbucket.org|sablelantern50!|N/A
+https://x.com/home;divanov6403;meadowquantum32!;N/A
+https://github.com/login	t.nguyen@github.com	cobaltwalnut90!	10.19.8.37
+https:instagram.com/accounts/login:ktanaka3606:meadowwalnut13!:10.56.176.57
+https:dropbox.com/login:m.dubois@dropbox.com:tundravertex86!:10.23.103.79
+https://bitbucket.org/account;skhan6802;walnutcedar48!;10.22.78.213
+https://linkedin.com/feed	jmeyer4403	quantumvertex55!	10.56.176.57
+https://wordpress.org/wp-login.php;rsilva9317;tundravertex61!;N/A
+https://bitbucket.org/account|r.silva@bitbucket.org|meadowwalnut34!|10.22.142.16
+https://github.com/login	mdubois5131	falconlantern57!	10.5.107.198
+https://reddit.com/user	sam.ortiz@reddit.com	harborcobalt78!	10.57.160.135
+https:yahoo.com/mail:omarhaddad6417:cedarmeadow80!:N/A
+https:github.com/login:k.tanaka@github.com:lanternmaple81!:N/A
+https:aws.amazon.com/console:m.dubois@aws.amazon.com:quantummaple87!:10.55.154.252
+https://x.com/home|samortiz2558|maplecedar32!|10.29.35.224
+https:steamcommunity.com/login:n.petrova@steamcommunity.com:falconwalnut86!:10.59.13.2
+https://proton.me/mail;l.rossi@proton.me;cobaltwalnut29!;N/A
+https:shopify.com/admin:jmeyer7630:meadowcedar52!:N/A
+https://dropbox.com/login|sam.ortiz@dropbox.com|lanterntundra37!|10.5.107.198
+https://azure.microsoft.com/login|omar.haddad@azure.microsoft.com|falconwalnut68!|N/A
+https://netflix.com/login|tnguyen5173|falconmaple26!|10.52.232.158
+https:proton.me/mail:t.nguyen@proton.me:tundratundra97!:N/A
+https://okta.com/app|skhan5183|pepperpepper67!|N/A
+https://slack.com/signin|y.cohen@slack.com|lanterncobalt19!|10.15.123.40
+https://instagram.com/accounts/login	ktanaka511	orbitpepper30!	10.56.176.57
+https://wordpress.org/wp-login.php	y.cohen@wordpress.org	walnutlantern83!	10.21.110.166
+https://gmail.com/mail	mdubois6794	orbitquantum88!	10.21.110.166
+https://azure.microsoft.com/login	a.novak@azure.microsoft.com	cobaltmaple46!	N/A
+https://steamcommunity.com/login|ycohen2751|peppermaple74!|10.57.160.135
+https://gitlab.com/login;skhan2579;cobaltquantum84!;10.29.35.224
+https://azure.microsoft.com/login;liwei3088;maplewalnut18!;N/A
+https://shopify.com/admin;l.rossi@shopify.com;orbitvertex83!;N/A
+https://bitbucket.org/account;mdubois5743;harborfalcon19!;N/A
+https://yahoo.com/mail|anovak8229|harborcobalt65!|10.31.175.89
+https://outlook.com/mail|samortiz1937|quantumharbor27!|10.3.7.182
+https://bitbucket.org/account|ktanaka150|harbororbit29!|10.56.176.57
+https:console.cloud.google.com/home:skhan5203:falconfalcon40!:10.47.112.14
+https://yahoo.com/mail|y.cohen@yahoo.com|walnutcobalt61!|N/A
+https://slack.com/signin|pkowalski1688|vertexlantern60!|10.23.103.79
+https://linkedin.com/feed	sam.ortiz@linkedin.com	meadoworbit14!	10.15.123.40
+https://spotify.com/account|samortiz8033|falconcedar63!|N/A
+https:aws.amazon.com/console:p.kowalski@aws.amazon.com:lanterncobalt15!:10.15.123.40
+https://gmail.com/mail|liwei9750|maplefalcon58!|N/A
+https://shopify.com/admin	p.kowalski@shopify.com	quantumcedar55!	N/A
+https://gmail.com/mail|ktanaka2885|harborcobalt10!|10.56.176.57
+https://stripe.com/login|j.meyer@stripe.com|vertexquantum24!|10.29.35.224
+https://outlook.com/mail	halmeida4727	vertexfalcon83!	10.8.117.9
+https://paypal.com/myaccount|y.cohen@paypal.com|walnutfalcon65!|10.56.91.92
+https://facebook.com/login|liwei4173|lanternquantum27!|10.19.135.145
+https://spotify.com/account;pkowalski81;lanternmaple46!;10.17.213.179
+https://gmail.com/mail|a.novak@gmail.com|lanternmaple36!|N/A
+https://x.com/home|d.ivanov@x.com|cedarsable66!|10.13.189.231
+https://shopify.com/admin	n.petrova@shopify.com	falconsable81!	10.8.117.9
+https://facebook.com/login;m.dubois@facebook.com;quantummeadow64!;N/A
+https://x.com/home	omar.haddad@x.com	cobaltcobalt98!	10.21.110.166
+https://gitlab.com/login|omar.haddad@gitlab.com|orbitlantern86!|N/A
+https:paypal.com/myaccount:j.meyer@paypal.com:peppertundra92!:10.23.103.79
+https://steamcommunity.com/login;pkowalski468;harborcobalt94!;10.59.13.2
+https:bitbucket.org/account:sam.ortiz@bitbucket.org:quantumorbit43!:10.19.135.145
+https://gitlab.com/login|sam.ortiz@gitlab.com|vertexfalcon21!|N/A
+https://atlassian.net/login|s.khan@atlassian.net|meadowtundra33!|10.30.113.208
+https:gmail.com/mail:ycohen4947:maplefalcon89!:N/A
+https://wordpress.org/wp-login.php;omarhaddad8990;quantumpepper30!;10.55.154.252
+https:netflix.com/login:halmeida8506:meadowlantern62!:N/A
+https://wordpress.org/wp-login.php|ycohen4290|sablevertex53!|10.3.7.182
+https://shopify.com/admin;d.ivanov@shopify.com;quantumcobalt93!;10.59.208.159
+https:outlook.com/mail:r.silva@outlook.com:mapletundra23!:10.24.5.251
+https://atlassian.net/login;n.petrova@atlassian.net;tundracobalt13!;10.26.187.109
+https://shopify.com/admin|t.nguyen@shopify.com|cobaltwalnut75!|N/A
+https:azure.microsoft.com/login:halmeida6071:pepperorbit25!:10.24.5.251
+https://steamcommunity.com/login;skhan4015;meadowvertex25!;N/A
+https://dropbox.com/login;ycohen3648;maplefalcon72!;10.56.91.92
+https://gmail.com/mail|pkowalski1471|maplevertex13!|N/A
+https://x.com/home	h.almeida@x.com	falconharbor49!	N/A
+https:aws.amazon.com/console:n.petrova@aws.amazon.com:tundrawalnut25!:N/A
+https://stripe.com/login	r.silva@stripe.com	lanternfalcon38!	10.30.113.208
+https://spotify.com/account|m.dubois@spotify.com|cobaltmaple22!|10.40.125.105
+https://netflix.com/login	samortiz4042	falconcobalt64!	10.59.13.2
+https://x.com/home	anovak366	lanternsable36!	N/A
+https://outlook.com/mail|ycohen8925|quantumfalcon62!|N/A
+https:gmail.com/mail:t.nguyen@gmail.com:cedarcobalt68!:10.23.103.79
+https://shopify.com/admin;l.rossi@shopify.com;tundrawalnut42!;10.19.135.145
+https://x.com/home	ycohen9758	maplemaple27!	N/A
+https://github.com/login	li.wei@github.com	cedarmeadow48!	10.33.138.178
+https:gitlab.com/login:s.khan@gitlab.com:orbitorbit49!:10.15.123.40
+https://slack.com/signin|t.nguyen@slack.com|maplemeadow34!|10.59.13.2
+https://x.com/home;s.khan@x.com;pepperharbor26!;10.57.160.135
+https://x.com/home|t.nguyen@x.com|sablemeadow35!|10.21.110.166
+https://spotify.com/account|halmeida5772|harborlantern27!|10.22.78.213
+https://yahoo.com/mail;sam.ortiz@yahoo.com;sablevertex72!;N/A
+https://wordpress.org/wp-login.php|j.meyer@wordpress.org|sablelantern95!|10.22.100.138
+https://slack.com/signin|sam.ortiz@slack.com|tundracobalt85!|10.7.83.178
+https://steamcommunity.com/login	ktanaka7110	maplesable58!	10.56.91.92
+https://x.com/home|a.novak@x.com|cedarvertex21!|N/A
+https://github.com/login|d.ivanov@github.com|falconpepper83!|10.30.113.208
+https://spotify.com/account	li.wei@spotify.com	walnutharbor45!	10.17.213.179
+https://paypal.com/myaccount	npetrova7466	vertexpepper77!	10.30.113.208
+https://azure.microsoft.com/login|sam.ortiz@azure.microsoft.com|meadowsable27!|10.26.187.109
+https://slack.com/signin|l.rossi@slack.com|meadowlantern70!|N/A
+https://instagram.com/accounts/login|jmeyer862|quantumfalcon37!|10.33.138.178
+https://steamcommunity.com/login;lrossi7229;cedarsable14!;N/A
+https://instagram.com/accounts/login	li.wei@instagram.com	cedarcobalt35!	10.32.177.128
+https://gitlab.com/login	li.wei@gitlab.com	cedarmaple96!	10.15.123.40
+https://reddit.com/user	omar.haddad@reddit.com	harborquantum73!	10.7.83.178
+https://yahoo.com/mail|j.meyer@yahoo.com|cedarorbit13!|10.3.183.124
+https://spotify.com/account;divanov7339;lanternwalnut36!;10.22.100.138
+https://aws.amazon.com/console	omarhaddad9156	orbittundra83!	10.22.100.138
+https:paypal.com/myaccount:pkowalski4329:quantumharbor60!:10.13.189.231
+https://okta.com/app|m.dubois@okta.com|vertextundra82!|10.40.125.105
+https://dropbox.com/login	samortiz7254	harborwalnut16!	10.22.78.213
+https://stripe.com/login|s.khan@stripe.com|pepperlantern21!|10.32.177.128
+https://instagram.com/accounts/login;skhan7368;walnutmeadow86!;10.59.13.2
+https://gmail.com/mail|d.ivanov@gmail.com|vertexmeadow83!|N/A
+https://outlook.com/mail|rsilva715|harbororbit56!|10.29.35.224
+https://x.com/home|j.meyer@x.com|walnutquantum20!|10.8.117.9
+https://atlassian.net/login;jmeyer7641;cobaltwalnut82!;N/A
+https://outlook.com/mail	pkowalski9737	walnutvertex31!	10.12.233.26
+https://steamcommunity.com/login|ycohen8508|maplewalnut47!|10.59.13.2
+https:console.cloud.google.com/home:l.rossi@console.cloud.google.com:walnutorbit12!:N/A
+https://linkedin.com/feed|jmeyer8076|orbitpepper21!|10.8.117.9
+https://slack.com/signin	rsilva3196	tundralantern63!	N/A
+https://console.cloud.google.com/home;k.tanaka@console.cloud.google.com;harbortundra24!;10.3.7.182
+https://github.com/login|h.almeida@github.com|cobaltvertex11!|10.22.78.213
+https://proton.me/mail|p.kowalski@proton.me|meadowwalnut71!|10.21.110.166
+https://atlassian.net/login|anovak5438|meadowvertex39!|10.15.123.40
+https://yahoo.com/mail|jmeyer5608|quantumorbit95!|10.5.177.124
+https://atlassian.net/login|d.ivanov@atlassian.net|lanterncobalt96!|10.22.231.196
+https://yahoo.com/mail|p.kowalski@yahoo.com|vertexquantum55!|10.24.5.251
+https://reddit.com/user|m.dubois@reddit.com|sablefalcon64!|10.24.147.83
+https://outlook.com/mail|li.wei@outlook.com|quantummaple85!|10.21.110.166
+https://instagram.com/accounts/login|k.tanaka@instagram.com|cedarvertex84!|N/A
+https://atlassian.net/login|liwei1793|sablewalnut53!|10.7.83.178
+https://netflix.com/login	sam.ortiz@netflix.com	meadowpepper45!	10.24.147.83
+https://slack.com/signin|halmeida8595|sablepepper47!|N/A
+https:netflix.com/login:liwei735:sablecobalt60!:10.47.112.14
+https://facebook.com/login|d.ivanov@facebook.com|falconharbor45!|10.3.7.182
+https://github.com/login;k.tanaka@github.com;maplecobalt60!;10.5.177.124
+https://shopify.com/admin|li.wei@shopify.com|vertexfalcon32!|N/A
+https://spotify.com/account	mdubois4787	pepperwalnut41!	10.8.117.9
+https://github.com/login;liwei7187;quantumpepper86!;10.47.112.14
+https:outlook.com/mail:k.tanaka@outlook.com:meadowcobalt34!:10.32.177.128
+https://slack.com/signin|li.wei@slack.com|tundraquantum65!|10.22.142.16
+https://slack.com/signin|k.tanaka@slack.com|lanternwalnut97!|10.52.232.158
+https://netflix.com/login|r.silva@netflix.com|lanternlantern66!|10.15.123.40
+https://gmail.com/mail|omar.haddad@gmail.com|pepperwalnut85!|10.40.125.105
+https://outlook.com/mail	a.novak@outlook.com	orbitpepper31!	10.55.154.252
+https:stripe.com/login:k.tanaka@stripe.com:pepperpepper39!:10.33.138.178
+https://shopify.com/admin|halmeida2751|lanterncedar95!|10.31.175.89
+https://paypal.com/myaccount|halmeida6371|meadowsable93!|10.5.177.124
+https://facebook.com/login|lrossi4631|falconwalnut90!|10.33.138.178
+https://azure.microsoft.com/login	s.khan@azure.microsoft.com	meadowpepper44!	10.24.147.83
+https://facebook.com/login;k.tanaka@facebook.com;lanternvertex61!;N/A
+https:shopify.com/admin:l.rossi@shopify.com:orbitcobalt83!:N/A
+https://x.com/home;p.kowalski@x.com;sablesable89!;10.32.177.128
+https://linkedin.com/feed	t.nguyen@linkedin.com	cobaltfalcon71!	10.57.160.135
+https://x.com/home	sam.ortiz@x.com	cobaltvertex98!	10.26.187.109
+https://x.com/home;j.meyer@x.com;tundrafalcon69!;N/A
+https://netflix.com/login|p.kowalski@netflix.com|falconorbit58!|10.19.8.37
+https:linkedin.com/feed:y.cohen@linkedin.com:meadowsable61!:10.23.103.79
+https://slack.com/signin	a.novak@slack.com	cobalttundra75!	N/A
+https://azure.microsoft.com/login|li.wei@azure.microsoft.com|vertexmaple25!|10.22.78.213
+https://shopify.com/admin|p.kowalski@shopify.com|lanternmaple59!|10.22.142.16
+https://bitbucket.org/account|t.nguyen@bitbucket.org|maplecedar58!|N/A
+https://yahoo.com/mail|omarhaddad209|pepperwalnut76!|10.3.183.124
+https://netflix.com/login	lrossi740	quantummeadow20!	10.22.78.213
+https://facebook.com/login	divanov5505	walnutorbit51!	10.33.138.178
+https://paypal.com/myaccount|m.dubois@paypal.com|cedarorbit25!|10.56.176.57
+https://yahoo.com/mail|lrossi5445|harborcedar15!|10.12.233.26
+https://atlassian.net/login|rsilva7381|meadowmeadow41!|10.57.160.135
+https:okta.com/app:li.wei@okta.com:cobaltmeadow41!:N/A
+https://outlook.com/mail|sam.ortiz@outlook.com|harborvertex10!|N/A
+https://slack.com/signin|l.rossi@slack.com|orbitcedar75!|10.40.125.105
+https://paypal.com/myaccount;k.tanaka@paypal.com;vertexpepper73!;10.43.65.122
+https://github.com/login|a.novak@github.com|falcontundra35!|N/A
+https:gitlab.com/login:y.cohen@gitlab.com:sablevertex14!:10.22.142.16
+https://gmail.com/mail|k.tanaka@gmail.com|harborcedar34!|10.32.177.128
+https://console.cloud.google.com/home|sam.ortiz@console.cloud.google.com|cedarcedar88!|N/A
+https://wordpress.org/wp-login.php|omarhaddad4619|pepperpepper84!|N/A
+https://spotify.com/account|skhan9550|tundrapepper39!|10.57.160.135
+https://atlassian.net/login|l.rossi@atlassian.net|pepperlantern56!|10.19.135.145
+https://gitlab.com/login;lrossi3607;meadowfalcon71!;10.59.13.2
+https://yahoo.com/mail	anovak9541	falconmaple22!	10.22.100.138
+https:proton.me/mail:samortiz8935:walnutquantum23!:10.24.5.251
+https://github.com/login|ktanaka7280|maplefalcon27!|10.55.154.252
+https:okta.com/app:skhan2486:meadowmaple18!:N/A
+https://instagram.com/accounts/login|tnguyen6995|tundrapepper22!|10.13.189.231
+https://reddit.com/user|sam.ortiz@reddit.com|orbitlantern81!|10.56.91.92
+https:paypal.com/myaccount:l.rossi@paypal.com:lanternquantum53!:10.21.110.166
+https://console.cloud.google.com/home|a.novak@console.cloud.google.com|harbormeadow94!|N/A
+https://stripe.com/login|r.silva@stripe.com|peppertundra98!|10.59.13.2
+https://spotify.com/account|l.rossi@spotify.com|mapletundra23!|N/A
+https://x.com/home|s.khan@x.com|orbitpepper62!|10.24.147.83
+https://slack.com/signin;ktanaka1192;maplequantum36!;10.56.176.57
+https://proton.me/mail|y.cohen@proton.me|quantummeadow43!|10.33.138.178
+https:dropbox.com/login:pkowalski2274:vertexmaple11!:10.19.8.37
+https://shopify.com/admin	rsilva3677	sablecobalt64!	10.26.187.109
+https://yahoo.com/mail;divanov7275;cedarcedar74!;10.47.112.14
+https://atlassian.net/login|r.silva@atlassian.net|meadowvertex82!|N/A
+https://shopify.com/admin|anovak4374|meadowcobalt58!|10.30.113.208
+https://stripe.com/login	liwei6751	quantumorbit10!	10.43.65.122
+https://wordpress.org/wp-login.php|anovak6136|quantumsable80!|10.22.100.138
+https://dropbox.com/login|l.rossi@dropbox.com|orbitwalnut41!|10.19.135.145
+https://github.com/login|d.ivanov@github.com|harborwalnut96!|10.57.160.135
+https://proton.me/mail	d.ivanov@proton.me	walnutlantern44!	N/A
+https://proton.me/mail	omarhaddad1855	lanternmaple72!	N/A
+https://aws.amazon.com/console|j.meyer@aws.amazon.com|pepperfalcon30!|10.22.100.138
+https://proton.me/mail|li.wei@proton.me|meadowcedar66!|N/A
+https://dropbox.com/login;p.kowalski@dropbox.com;orbitwalnut97!;10.30.113.208
+https://x.com/home	s.khan@x.com	cobaltvertex27!	10.24.5.251
+https://x.com/home	divanov4429	meadowpepper30!	10.8.117.9
+https:azure.microsoft.com/login:halmeida7479:meadowcobalt34!:10.3.183.124
+https://wordpress.org/wp-login.php|divanov2610|orbittundra37!|10.12.233.26
+https://netflix.com/login|d.ivanov@netflix.com|harborharbor78!|10.57.160.135
+https:facebook.com/login:l.rossi@facebook.com:pepperlantern70!:10.23.103.79
+https://gitlab.com/login	ycohen145	cedarsable66!	10.22.100.138
+https://dropbox.com/login	mdubois7796	sableharbor13!	10.43.65.122
+https://spotify.com/account	h.almeida@spotify.com	peppermeadow66!	N/A
+https://bitbucket.org/account	y.cohen@bitbucket.org	lanterncedar83!	N/A
+https://console.cloud.google.com/home|d.ivanov@console.cloud.google.com|falconmaple36!|10.43.65.122
+https://paypal.com/myaccount	y.cohen@paypal.com	quantumquantum82!	10.55.154.252
+https://gitlab.com/login|tnguyen6064|maplelantern63!|10.32.177.128
+https://slack.com/signin|tnguyen8825|tundrafalcon22!|10.5.177.124
+https://console.cloud.google.com/home;omar.haddad@console.cloud.google.com;cedarwalnut28!;N/A
+https://facebook.com/login;rsilva9431;harborsable11!;10.3.183.124
+https://paypal.com/myaccount	omarhaddad8115	cedarquantum13!	10.15.182.132
+https://gitlab.com/login|y.cohen@gitlab.com|quantumsable61!|10.22.231.196
+https://facebook.com/login|h.almeida@facebook.com|falconorbit38!|10.19.135.145
+https:okta.com/app:pkowalski9462:harbortundra16!:10.59.13.2
+https:facebook.com/login:omarhaddad243:walnutharbor86!:10.56.3.100
+https://atlassian.net/login	r.silva@atlassian.net	vertexlantern39!	10.26.187.109
+https://github.com/login;tnguyen4749;maplemeadow60!;10.22.231.196
+https://linkedin.com/feed|divanov2250|maplelantern62!|N/A
+https://outlook.com/mail|ycohen8652|peppercedar14!|N/A
+https:yahoo.com/mail:s.khan@yahoo.com:cedarcedar89!:N/A
+https://spotify.com/account;npetrova4248;falconorbit24!;10.24.5.251
+https://slack.com/signin|l.rossi@slack.com|peppervertex78!|10.12.233.26
+https:yahoo.com/mail:k.tanaka@yahoo.com:walnutfalcon21!:10.15.182.132
+https:linkedin.com/feed:j.meyer@linkedin.com:pepperfalcon20!:N/A
+https:facebook.com/login:omarhaddad3064:pepperharbor94!:N/A
+https:linkedin.com/feed:s.khan@linkedin.com:harborcobalt59!:N/A
+https://linkedin.com/feed|omar.haddad@linkedin.com|peppercedar30!|10.31.175.89
+https:spotify.com/account:skhan8974:harborsable72!:10.22.231.196
+https://linkedin.com/feed;d.ivanov@linkedin.com;quantumquantum31!;10.3.7.182
+https://gmail.com/mail|ktanaka8727|walnutquantum96!|10.55.251.32
+https://yahoo.com/mail|liwei4157|cedarcedar74!|N/A
+https://linkedin.com/feed|j.meyer@linkedin.com|peppercobalt72!|10.55.154.252
+https://proton.me/mail	p.kowalski@proton.me	peppervertex81!	N/A
+https:aws.amazon.com/console:omar.haddad@aws.amazon.com:orbitfalcon32!:10.24.5.251
+https://okta.com/app	j.meyer@okta.com	walnutfalcon54!	10.56.176.57
+https://wordpress.org/wp-login.php;npetrova6944;cobaltmaple24!;10.33.138.178
+https:netflix.com/login:skhan5823:orbitfalcon63!:10.59.13.2
+https://azure.microsoft.com/login|l.rossi@azure.microsoft.com|quantumvertex46!|10.22.142.16
+https://yahoo.com/mail|t.nguyen@yahoo.com|falconsable80!|10.23.103.79
+https://proton.me/mail|npetrova7200|walnutcedar67!|10.5.107.198
+https://stripe.com/login;k.tanaka@stripe.com;lanternvertex35!;N/A
+https://stripe.com/login	y.cohen@stripe.com	vertexpepper68!	N/A
+https://github.com/login;anovak6468;quantumwalnut42!;10.57.160.135
+https:wordpress.org/wp-login.php:omar.haddad@wordpress.org:walnutfalcon80!:10.47.112.14
+https://console.cloud.google.com/home;p.kowalski@console.cloud.google.com;harbororbit52!;10.15.123.40
+https://paypal.com/myaccount;anovak8935;tundracedar76!;10.56.176.57
+https://azure.microsoft.com/login	s.khan@azure.microsoft.com	tundraquantum88!	N/A
+https://bitbucket.org/account|halmeida4634|lanternsable76!|10.3.183.124
+https://console.cloud.google.com/home|n.petrova@console.cloud.google.com|quantumsable51!|10.24.5.251
+https://gitlab.com/login	tnguyen5385	tundramaple61!	10.24.147.83
+https://netflix.com/login	ktanaka8191	peppercobalt68!	10.15.123.40
+https://x.com/home|npetrova7427|walnutmeadow18!|10.5.107.198
+https:okta.com/app:jmeyer2696:cobaltorbit71!:N/A
+https:okta.com/app:omar.haddad@okta.com:vertexwalnut26!:N/A
+https://dropbox.com/login|n.petrova@dropbox.com|tundraharbor82!|10.33.138.178
+
+this line is not a record and will be skipped
+also-too-short

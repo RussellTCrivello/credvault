@@ -1,0 +1,52 @@
+{% extends "vault/base.html" %}{% load i18n %}
+{% block title %}{% trans "Advanced search" %}{% endblock %}
+{% block heading %}{% trans "Advanced search" %}{% endblock %}
+{% block intro %}<p class="page-intro">{% trans "Query each field independently. Every filter is optional and combined with AND." %}</p>{% endblock %}
+{% block content %}
+  <section class="vault-panel search-panel">
+    <form method="get" action="{% url 'vault:advanced_search' %}" class="vault-form advanced-search-form">
+      <div class="form-grid">
+        {% for field in form %}
+          <div class="field">
+            <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+      <div class="form-actions">
+        <a class="button" href="{% url 'vault:advanced_search' %}">{% trans "Reset" %}</a>
+        <button class="button primary" type="submit">{% trans "Search" %}</button>
+      </div>
+    </form>
+  </section>
+
+  {% if searched %}
+    <section class="vault-panel results-panel">
+      <div class="table-toolbar">
+        <div>
+          <h2>{% trans "Search results" %}</h2>
+          <p class="vault-muted">{{ total }} {% blocktrans count record_count=total %}matching record{% plural %}matching records{% endblocktrans %}{% if elapsed_ms is not None %} <span class="timing-pill">{% blocktrans with ms=elapsed_ms|floatformat:1 %}{{ ms }} ms{% endblocktrans %}</span>{% endif %}</p>
+        </div>
+        <div class="vault-actions">
+          <a class="button" href="{% url 'vault:export_csv' %}?{{ query_string }}">{% trans "Export all as CSV" %}</a>
+          <a class="button" href="{% url 'vault:export_json' %}?{{ query_string }}">{% trans "Export all as JSON" %}</a>
+        </div>
+      </div>
+      <div class="vault-table-wrap">
+        <table class="vault-table record-table">
+          <caption class="sr-only">{% trans "Matching records" %}</caption>
+          <thead><tr><th scope="col">{% trans "ID" %}</th><th scope="col">{% trans "URL" %}</th><th scope="col">{% trans "Account type" %}</th><th scope="col">{% trans "Identifier" %}</th><th scope="col">{% trans "IP address" %}</th><th scope="col">{% trans "Actions" %}</th></tr></thead>
+          <tbody>
+            {% for record in records %}
+              <tr><td class="mono">#{{ record.id }}</td><td><strong dir="ltr">{{ record.url.name }}</strong></td><td><span class="badge outline">{{ record.get_account_type_display }}</span></td><td dir="auto">{{ record.identifier }}</td><td class="mono" dir="ltr">{{ record.ip.name|default:"—" }}</td><td><a class="button small-button" href="{% url 'vault:detail' record.id %}">{% trans "View" %}</a></td></tr>
+            {% empty %}
+              <tr><td colspan="6"><div class="empty-state"><h2>{% trans "No matching records" %}</h2><p>{% trans "Try different filters or clear some of them." %}</p></div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% include "vault/pagination.html" %}
+    </section>
+  {% endif %}
+{% endblock %}

@@ -1,8 +1,9 @@
+#
 msgid ""
 msgstr ""
+"Language: ar\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Language: ar\n"
 "Plural-Forms: nplurals=6; plural=n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 && n%100<=10 ? 3 : n%100>=11 && n%100<=99 ? 4 : 5;\n"
 
 msgid "English"
@@ -119,8 +120,12 @@ msgstr "نزّل سجلاتك بصيغة CSV أو JSON."
 msgid "Handle sensitive information carefully."
 msgstr "تعامل مع المعلومات الحساسة بعناية."
 
-msgid "Record exports include all record fields. Store downloaded files securely and share them only with authorized people."
-msgstr "تتضمن ملفات تصدير السجلات جميع الحقول. احفظ الملفات التي نزّلتها بأمان ولا تشاركها إلا مع أشخاص مخوّلين."
+msgid ""
+"Record exports include all record fields. Store downloaded files securely "
+"and share them only with authorized people."
+msgstr ""
+"تتضمن ملفات تصدير السجلات جميع الحقول. احفظ الملفات التي نزّلتها بأمان ولا "
+"تشاركها إلا مع أشخاص مخوّلين."
 
 msgid "Browse the records saved in your workspace."
 msgstr "تصفح السجلات المحفوظة في مساحة عملك."
@@ -179,14 +184,16 @@ msgstr "عرض"
 msgid "No records yet"
 msgstr "لا توجد سجلات بعد"
 
-msgid "Add a record or import a supported file to start building your workspace."
+msgid ""
+"Add a record or import a supported file to start building your workspace."
 msgstr "أضف سجلًا أو استورد ملفًا مدعومًا لبدء إعداد مساحة عملك."
 
 msgid "Add your first record"
 msgstr "أضف سجلك الأول"
 
 msgid "Find records by domain, URL, account details, secret, or IP address."
-msgstr "اعثر على السجلات حسب النطاق أو الرابط أو تفاصيل الحساب أو السر أو عنوان IP."
+msgstr ""
+"اعثر على السجلات حسب النطاق أو الرابط أو تفاصيل الحساب أو السر أو عنوان IP."
 
 msgid "Search your records"
 msgstr "ابحث في سجلاتك"
@@ -245,10 +252,15 @@ msgstr "معرّف الحساب"
 msgid "Secret data"
 msgstr "البيانات السرية"
 
-msgid "This record may contain sensitive information. Limit access to the details and any exports to authorized people."
-msgstr "قد يحتوي هذا السجل على معلومات حساسة. اقصر الوصول إلى التفاصيل والملفات المصدّرة على الأشخاص المخوّلين."
+msgid ""
+"This record may contain sensitive information. Limit access to the details "
+"and any exports to authorized people."
+msgstr ""
+"قد يحتوي هذا السجل على معلومات حساسة. اقصر الوصول إلى التفاصيل والملفات "
+"المصدّرة على الأشخاص المخوّلين."
 
-msgid "Enter the record details below. Fields marked required must be completed."
+msgid ""
+"Enter the record details below. Fields marked required must be completed."
 msgstr "أدخل تفاصيل السجل أدناه. يجب تعبئة الحقول المطلوبة."
 
 msgid "required"
@@ -299,14 +311,20 @@ msgstr "أضف مجموعة من السجلات دفعة واحدة من ملف 
 msgid "Supported file formats"
 msgstr "تنسيقات الملفات المدعومة"
 
-msgid "Text files with colon, pipe, tab, or semicolon-delimited rows are supported. Empty lines and comments are ignored."
-msgstr "تُدعم الملفات النصية التي تفصل صفوفها بنقطتين رأسيتين أو خط عمودي أو جدولة أو فاصلة منقوطة. يتم تجاهل الأسطر الفارغة والتعليقات."
+msgid ""
+"Text files with colon, pipe, tab, or semicolon-delimited rows are supported."
+" Empty lines and comments are ignored."
+msgstr ""
+"تُدعم الملفات النصية التي تفصل صفوفها بنقطتين رأسيتين أو خط عمودي أو جدولة "
+"أو فاصلة منقوطة. يتم تجاهل الأسطر الفارغة والتعليقات."
 
 msgid "Select data file to import"
 msgstr "اختر ملف البيانات المراد استيراده"
 
 msgid "Supported formats: TXT with colon, pipe, tab, or semicolon delimiters"
-msgstr "التنسيقات المدعومة: ملفات TXT ذات الفواصل بالنقطتين الرأسيتين أو الخط العمودي أو الجدولة أو الفاصلة المنقوطة"
+msgstr ""
+"التنسيقات المدعومة: ملفات TXT ذات الفواصل بالنقطتين الرأسيتين أو الخط "
+"العمودي أو الجدولة أو الفاصلة المنقوطة"
 
 msgid "Import file"
 msgstr "استيراد الملف"
@@ -358,3 +376,481 @@ msgstr[5] "تم استيراد %(count)s سجل."
 
 msgid "Filtered out %(count)s non-record lines."
 msgstr "تم استبعاد %(count)s سطرًا لا يحتوي على سجل."
+
+msgid "Reference tables"
+msgstr "الجداول المرجعية"
+
+msgid "References"
+msgstr "المراجع"
+
+msgid "Open"
+msgstr "فتح"
+
+msgid "Manage"
+msgstr "إدارة"
+
+msgid "RELATIONSHIPS"
+msgstr "العلاقات"
+
+msgid "Values"
+msgstr "القيم"
+
+msgid "Table"
+msgstr "الجدول"
+
+msgid "Advanced search"
+msgstr "بحث متقدم"
+
+msgid ""
+"Query each field independently. Every filter is optional and combined with "
+"AND."
+msgstr "استعلم كل حقل بمفرده. كل مرشّح اختياري وتُجمع الشروط بـ AND."
+
+msgid "Reset"
+msgstr "إعادة تعيين"
+
+msgid "Query each field independently with filters and sorting."
+msgstr "استعلم كل حقل بمفرده باستخدام المرشّحات والفرز."
+
+msgid ""
+"These five tables hold the shared values used by your records. Each value is"
+" stored once and reused, so it is never entered twice."
+msgstr ""
+"تحتوي هذه الجداول الخمسة على القيم المشتركة التي تستخدمها سجلاتك. تُخزَّن كل"
+" قيمة مرة واحدة وتُعاد استخدامها، لذا لا تُدخل مرّتين أبدًا."
+
+msgid "All reference tables"
+msgstr "كل الجداول المرجعية"
+
+msgid ""
+"Each %(label)s is stored once and reused by every record that needs it."
+msgstr ""
+"تُخزَّن كل %(label)s مرة واحدة وتُعاد استخدامها من قبل كل سجل يحتاجها."
+
+msgid "Add a value"
+msgstr "إضافة قيمة"
+
+msgid "Enter a new %(label)s below. If it already exists, it will be reused."
+msgstr ""
+"أدخل %(label)s جديدًا أدناه. إذا كان موجودًا بالفعل، فسيُعاد استخدامه."
+
+msgid "Used by"
+msgstr "مُستخدَم بواسطة"
+
+msgid "Add the first value using the form above."
+msgstr "أضف القيمة الأولى باستخدام النموذج أعلاه."
+
+msgid "Add"
+msgstr "إضافة"
+
+msgid "Name"
+msgstr "الاسم"
+
+msgid "Delete"
+msgstr "حذف"
+
+msgid "Password"
+msgstr "كلمة المرور"
+
+msgid "Passwords"
+msgstr "كلمات المرور"
+
+msgid "Record"
+msgstr "سجل"
+
+msgid "URLs"
+msgstr "الروابط"
+
+msgid "Emails"
+msgstr "عناوين البريد الإلكتروني"
+
+msgid "Usernames"
+msgstr "أسماء المستخدمين"
+
+msgid "IP addresses"
+msgstr "عناوين IP"
+
+msgid "Construction date"
+msgstr "تاريخ الإنشاء"
+
+msgid "Date of adjustment"
+msgstr "تاريخ التعديل"
+
+msgid "Name of the URL"
+msgstr "اسم الرابط"
+
+msgid "Name of the email"
+msgstr "اسم البريد الإلكتروني"
+
+msgid "Name of the user"
+msgstr "اسم المستخدم"
+
+msgid "Name of the pass"
+msgstr "اسم كلمة المرور"
+
+msgid "Name of the IP"
+msgstr "اسم IP"
+
+msgid "Host"
+msgstr "المضيف"
+
+msgid "This exact relationship already exists."
+msgstr "هذه العلاقة موجودة بالفعل."
+
+msgid "An email address is required for email accounts."
+msgstr "يلزم عنوان بريد إلكتروني لحسابات البريد الإلكتروني."
+
+msgid "Email accounts cannot have a username."
+msgstr "لا يمكن لحسابات البريد الإلكتروني أن يكون لها اسم مستخدم."
+
+msgid "A username is required for user accounts."
+msgstr "يلزم اسم مستخدم لحسابات المستخدم."
+
+msgid "User accounts cannot have an email."
+msgstr "لا يمكن لحسابات المستخدم أن يكون لها بريد إلكتروني."
+
+msgid "%(label)s added successfully."
+msgstr "تمت إضافة %(label)s بنجاح."
+
+msgid "%(label)s deleted successfully."
+msgstr "تم حذف %(label)s بنجاح."
+
+msgid "%(name)s already exists and was reused."
+msgstr "القيمة %(name)s موجودة بالفعل وأُعيد استخدامها."
+
+msgid "Delete this %(label)s?"
+msgstr "هل تريد حذف %(label)s؟"
+
+msgid "Reassign or delete those records first if you want to keep them."
+msgstr "أعد تعيين تلك السجلات أو احذفها أولًا إذا كنت تريد الاحتفاظ بها."
+
+msgid "Keyword"
+msgstr "كلمة مفتاحية"
+
+msgid "URL contains"
+msgstr "الرابط يحتوي على"
+
+msgid "Domain contains"
+msgstr "النطاق يحتوي على"
+
+msgid "Email contains"
+msgstr "البريد الإلكتروني يحتوي على"
+
+msgid "Username contains"
+msgstr "اسم المستخدم يحتوي على"
+
+msgid "Password contains"
+msgstr "كلمة المرور تحتوي على"
+
+msgid "IP contains"
+msgstr "عنوان IP يحتوي على"
+
+msgid "Any of the values above"
+msgstr "أي من القيم أعلاه"
+
+msgid "Created from"
+msgstr "أُنشئ من"
+
+msgid "Created to"
+msgstr "أُنشئ إلى"
+
+msgid "Sort by"
+msgstr "ترتيب حسب"
+
+msgid "Newest first"
+msgstr "الأحدث أولًا"
+
+msgid "Oldest first"
+msgstr "الأقدم أولًا"
+
+msgid "URL (A-Z)"
+msgstr "الرابط (أ-ي)"
+
+msgid "Identifier (A-Z)"
+msgstr "المعرّف (أ-ي)"
+
+msgid "Any"
+msgstr "أي"
+
+msgid ""
+"Enter the record details below. Existing URLs, emails, usernames, passwords,"
+" and IPs are reused automatically -- nothing is stored twice."
+msgstr ""
+"أدخل تفاصيل السجل أدناه. تُعاد استخدام الروابط والبريد الإلكتروني وأسماء "
+"المستخدمين وكلمات المرور وعناوين IP تلقائيًا — لا يُخزَّن أي شيء مرّتين."
+
+msgid "Try different filters or clear some of them."
+msgstr "جرّب مرشّحات مختلفة أو امسح بعضها."
+
+msgid "Enter a value"
+msgstr "أدخل قيمة"
+
+msgid "Search by"
+msgstr "ابحث بواسطة"
+
+msgid "Value"
+msgstr "القيمة"
+
+msgid "Enter the exact value to find"
+msgstr "أدخل القيمة الدقيقة للبحث"
+
+msgid ""
+"Pick a field and enter the exact value to find every matching record "
+"instantly, even across millions of rows."
+msgstr ""
+"اختر حقلًا وأدخل القيمة الدقيقة لإيجاد كل سجل مطابق فورًا، حتى عبر ملايين "
+"السجلات."
+
+msgid ""
+"Matching is exact and case-insensitive on the chosen field. Use Advanced "
+"search for partial matches."
+msgstr ""
+"المطابقة دقيقة وغير حساسة لحالة الأحرف في الحقل المختار. استخدم البحث "
+"المتقدم للمطابقات الجزئية."
+
+msgid "Try a different value or check the spelling."
+msgstr "جرّب قيمة مختلفة أو تحقق من الإملاء."
+
+msgid "Exact match on %(field)s: %(value)s"
+msgstr "مطابقة دقيقة على %(field)s: %(value)s"
+
+msgid "Contains: %(value)s"
+msgstr "يتضمّن: %(value)s"
+
+msgid "%(ms)s ms"
+msgstr "%(ms)s مللي ثانية"
+
+msgid "Export all as CSV"
+msgstr "تصدير الكل بصيغة CSV"
+
+msgid "Export all as JSON"
+msgstr "تصدير الكل بصيغة JSON"
+
+msgid "Nothing to search yet"
+msgstr "لا يوجد بحث بعد"
+
+msgid "Choose the field, type the exact value, and press Search."
+msgstr "اختر الحقل، ثم اكتب القيمة الدقيقة، واضغط بحث."
+
+msgid ""
+"Every one of the %(count)s matching records is included in the export. The "
+"table below is only a page of %(shown)s rows."
+msgstr ""
+"كل سجل من السجلات المطابقة وعددها %(count)s مشمول في التصدير. الجدول أدناه "
+"هو مجرد صفحة من %(shown)s صفوف."
+
+msgid "filtered by %(needle)s"
+msgstr "مُصفّى حسب %(needle)s"
+
+msgid "Find a value"
+msgstr "ابحث عن قيمة"
+
+msgid "This does not look like an IP address."
+msgstr "لا يبدو هذا عنوان IP صحيحًا."
+
+msgid "Select data files to import"
+msgstr "اختر ملفات البيانات للاستيراد"
+
+msgid "Add records in bulk from a text file -- or a whole folder of files."
+msgstr "أضف سجلات بكميات كبيرة من ملف نصي — أو من مجلد كامل من الملفات."
+
+msgid ""
+"Text files with colon, pipe, tab, or semicolon-delimited rows are supported."
+" Empty lines and comments are ignored. Every line of every selected file is "
+"read; only lines that match the format are stored."
+msgstr ""
+"تُدعم ملفات النصوص ذات الصفوف المفصولة بنقطتين رأسيتين أو خط عمودي أو جدولة "
+"أو فاصلة منقوطة. يتم تجاهل الأسطر الفارغة والتعليقات. تُقرأ كل سطر في كل ملف"
+" محدد؛ ولا تُخزَّن سوى الأسطر المطابقة للصيغة."
+
+msgid "Or select a whole folder"
+msgstr "أو اختر مجلدًا كاملًا"
+
+msgid ""
+"Pick a folder and every text file inside it (including subfolders) will be "
+"imported. For very large volumes, prefer the importfolder management "
+"command."
+msgstr ""
+"اختر مجلدًا وستُستورد كل ملف نصي بداخله (بما في ذلك المجلدات الفرعية). "
+"للحجوم الكبيرة جدًا، يُفضَّل استخدام أمر الإدارة importfolder."
+
+msgid "Or a folder already on the server"
+msgstr "أو مجلد موجود بالفعل على الخادم"
+
+msgid ""
+"Absolute path to a directory (or a single file) the server can read. This is"
+" the fastest way to ingest millions of lines because nothing is uploaded."
+msgstr ""
+"مسار كامل إلى مجلد (أو ملف واحد) يمكن للخادم قراءته. هذه أسرع طريقة لاستيراد"
+" ملايين الأسطر لأنه لا يتم رفع أي شيء."
+
+msgid "Import"
+msgstr "استيراد"
+
+msgid "Pagination"
+msgstr "ترقيم الصفحات"
+
+msgid "Page %(number)s of %(total)s"
+msgstr "الصفحة %(number)s من %(total)s"
+
+msgid "Previous"
+msgstr "السابق"
+
+msgid "Next"
+msgstr "التالي"
+
+msgid "Importing millions of lines"
+msgstr "استيراد ملايين الأسطر"
+
+msgid ""
+"Files are streamed in batches, so size is limited by disk, not by memory. "
+"Re-running an import is safe: known values are reused and duplicate records "
+"are skipped."
+msgstr ""
+"تُقرأ الملفات على دفعات، لذا يحدهم القرص لا الذاكرة. إعادة تشغيل الاستيراد "
+"آمنة: تُعاد استخدام القيم المعروفة ويُتجاهل السجلات المكررة."
+
+msgid "Fastest path (server side):"
+msgstr "الأسرع (من جهة الخادم):"
+
+msgid ""
+"Add --dry-run to preview what would be stored, --ext to widen or narrow the "
+"file types, and --fast for a large one-off ingest."
+msgstr ""
+"أضف --dry-run لمعاينة ما سيتم تخزينه، و --ext لتوسيع أو تضييق أنواع الملفات،"
+" و --fast للاستيراد الكبير مرة واحدة."
+
+msgid ""
+"No new records were created. Existing values were reused and %(count)d "
+"line(s) were not valid records."
+msgstr ""
+"لم يتم إنشاء سجلات جديدة. أُعيد استخدام القيم الموجودة و%(count)d سطرًا غير "
+"صالح."
+
+msgid "%(files)s file(s) read in %(seconds)s s."
+msgstr "تمت قراءة %(files)s ملفًا في %(seconds)s ثانية."
+
+msgid "Please choose a file, a folder, or a server path."
+msgstr "الرجاء اختيار ملف أو مجلد أو مسار على الخادم."
+
+msgid "No importable text files were found in that selection."
+msgstr "لم يتم العثور على ملفات نصوص قابلة للاستيراد في هذا التحديد."
+
+msgid ""
+"That server path cannot be read. Check the folder name, or add it to "
+"IMPORT_ROOTS."
+msgstr ""
+"لا يمكن قراءة هذا المسار على الخادم. تحقق من اسم المجلد أو أضفه إلى "
+"IMPORT_ROOTS."
+
+msgid ""
+"Update the saved details for record #%(record_id)s. Unchanged values keep "
+"pointing at the same reference row."
+msgstr ""
+"حدّث التفاصيل المحفوظة للسجل #%(record_id)s. القيم التي لم تتغير تبقى مرتبطة"
+" بنفس الصف المرجعي."
+
+msgid ""
+"This will remove <strong>%(name)s</strong> and its saved details from the "
+"workspace. The shared URL, email, username, password, and IP values stay "
+"available for your other records."
+msgstr ""
+"سيؤدي هذا إلى إزالة <strong>%(name)s</strong> وتفاصيله المحفوظة من مساحة "
+"العمل. تبقى القيم المشتركة للرابط والبريد واسم المستخدم وكلمة المرور وIP "
+"متاحة لسجلاتك الأخرى."
+
+msgid ""
+"Type a domain, URL, email, username, password, or IP and get every match in "
+"milliseconds."
+msgstr ""
+"اكتب نطاقًا أو رابطًا أو بريدًا أو اسم مستخدم أو كلمة مرور أو عنوان IP واحصل"
+" على جميع النتائج في أجزاء من الثانية."
+
+msgid "Import a file or folder"
+msgstr "استيراد ملف أو مجلد"
+
+msgid ""
+"Read every line of a file, or of a whole folder, and store what fits the "
+"format."
+msgstr "اقرأ كل سطر في ملف أو في مجلد كامل واحفظ ما يطابق التنسيق."
+
+msgid "showing one page at a time — the export covers every record"
+msgstr "تُعرض صفحة واحدة في كل مرة — التصدير يشمل كل سجل"
+
+msgid "files selected"
+msgstr "ملفات محددة"
+
+msgid "every line of every file is read; only valid records are stored"
+msgstr "تُقرأ كل سطور كل ملف؛ ولا تُخزَّن سوى السجلات الصالحة"
+
+msgid ""
+"You're about to permanently delete %(name)s, used by %(counter)s record."
+msgid_plural ""
+"You're about to permanently delete %(name)s, used by %(counter)s records."
+msgstr[0] "أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجل."
+msgstr[1] ""
+"أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجل واحد."
+msgstr[2] ""
+"أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجلين."
+msgstr[3] ""
+"أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجلات."
+msgstr[4] ""
+"أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجلًا."
+msgstr[5] "أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجل."
+
+msgid ""
+"Cannot delete %(name)s: it is still used by %(count)s record. Reassign or "
+"delete those records first."
+msgid_plural ""
+"Cannot delete %(name)s: it is still used by %(count)s records. Reassign or "
+"delete those records first."
+msgstr[0] ""
+"لا يمكن حذف %(name)s: لا يزال مستخدمًا بواسطة %(count)s سجل. أعد تعيين تلك "
+"السجلات أو احذفها أولًا."
+msgstr[1] ""
+"لا يمكن حذف %(name)s: لا يزال مستخدمًا بواسطة سجل واحد (%(count)s). أعد "
+"تعيين تلك السجلات أو احذفها أولًا."
+msgstr[2] ""
+"لا يمكن حذف %(name)s: لا يزال مستخدمًا بواسطة سجلين (%(count)s). أعد تعيين "
+"تلك السجلات أو احذفها أولًا."
+msgstr[3] ""
+"لا يمكن حذف %(name)s: لا يزال مستخدمًا بواسطة %(count)s سجلات. أعد تعيين تلك"
+" السجلات أو احذفها أولًا."
+msgstr[4] ""
+"لا يمكن حذف %(name)s: لا يزال مستخدمًا بواسطة %(count)s سجلًا. أعد تعيين تلك"
+" السجلات أو احذفها أولًا."
+msgstr[5] ""
+"لا يمكن حذف %(name)s: لا يزال مستخدمًا بواسطة %(count)s سجل. أعد تعيين تلك "
+"السجلات أو احذفها أولًا."
+
+msgid "value"
+msgid_plural "values"
+msgstr[0] "قيمة"
+msgstr[1] "قيمة واحدة"
+msgstr[2] "قيمتان"
+msgstr[3] "قيمات"
+msgstr[4] "قيمة"
+msgstr[5] "قيمة"
+
+msgid "record uses these values"
+msgid_plural "records use these values"
+msgstr[0] "سجل يستخدم هذه القيم"
+msgstr[1] "سجل واحد يستخدم هذه القيم"
+msgstr[2] "سجلان يستخدمان هذه القيم"
+msgstr[3] "سجلات تستخدم هذه القيم"
+msgstr[4] "سجلًا يستخدم هذه القيم"
+msgstr[5] "سجل يستخدم هذه القيم"
+
+msgid "%(record_count)s record in the workspace"
+msgid_plural "%(record_count)s records in the workspace"
+msgstr[0] "%(record_count)s سجل في مساحة العمل"
+msgstr[1] "سجل واحد (%(record_count)s) في مساحة العمل"
+msgstr[2] "سجلان (%(record_count)s) في مساحة العمل"
+msgstr[3] "%(record_count)s سجلات في مساحة العمل"
+msgstr[4] "%(record_count)s سجلًا في مساحة العمل"
+msgstr[5] "%(record_count)s سجل في مساحة العمل"
+
+msgid "Manage the shared URL, email, username, password, and IP values."
+msgstr ""
+"أدِر قيم الروابط والبريد الإلكتروني وأسماء المستخدمين وكلمات المرور وعناوين "
+"IP المشتركة."

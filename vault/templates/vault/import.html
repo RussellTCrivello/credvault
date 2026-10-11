@@ -1,22 +1,37 @@
 {% extends "vault/base.html" %}{% load i18n %}
 {% block title %}{% trans "Import records" %}{% endblock %}
 {% block heading %}{% trans "Import records" %}{% endblock %}
-{% block intro %}<p class="page-intro">{% trans "Add records in bulk from a text file." %}</p>{% endblock %}
+{% block intro %}<p class="page-intro">{% trans "Add records in bulk from a text file -- or a whole folder of files." %}</p>{% endblock %}
 {% block content %}
   <section class="vault-panel form-panel import-panel">
-    <div class="vault-note import-note"><strong>{% trans "Supported file formats" %}</strong><br />{% trans "Text files with colon, pipe, tab, or semicolon-delimited rows are supported. Empty lines and comments are ignored." %}</div>
+    <div class="vault-note import-note"><strong>{% trans "Supported file formats" %}</strong><br />{% trans "Text files with colon, pipe, tab, or semicolon-delimited rows are supported. Empty lines and comments are ignored. Every line of every selected file is read; only lines that match the format are stored." %}</div>
     <form method="post" enctype="multipart/form-data" class="vault-form import-form">
       {% csrf_token %}
       {% if form.non_field_errors %}<div class="form-error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
       {% for field in form %}
-        <div class="field">
-          <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %}<span class="required-mark" aria-hidden="true"> *</span><span class="sr-only">{% trans "required" %}</span>{% endif %}</label>
+        <div class="field{% if field.name == 'server_path' or field.name == 'folder' %} wide{% endif %}">
+          <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
           {{ field }}
           {% if field.help_text %}<p class="field-help">{{ field.help_text }}</p>{% endif %}
           {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+          {% if field.name == 'folder' %}<p class="field-help folder-count" data-folder-count data-files-label="{% trans 'files selected' %}" data-hint="{% trans 'every line of every file is read; only valid records are stored' %}" hidden></p>{% endif %}
         </div>
       {% endfor %}
-      <div class="form-actions"><a class="button" href="{% url 'vault:browse' %}">{% trans "Cancel" %}</a><button class="button primary" type="submit">{% trans "Import file" %}</button></div>
+      <div class="form-actions"><a class="button" href="{% url 'vault:browse' %}">{% trans "Cancel" %}</a><button class="button primary" type="submit">{% trans "Import" %}</button></div>
     </form>
+  </section>
+
+  <section class="vault-panel">
+    <div class="table-toolbar">
+      <div>
+        <h2>{% trans "Importing millions of lines" %}</h2>
+        <p class="vault-muted">{% trans "Files are streamed in batches, so size is limited by disk, not by memory. Re-running an import is safe: known values are reused and duplicate records are skipped." %}</p>
+      </div>
+    </div>
+    <div class="vault-note import-command">
+      <strong>{% trans "Fastest path (server side):" %}</strong>
+      <code dir="ltr">python manage.py importfolder /path/to/folder</code>
+      <p class="field-help">{% trans "Add --dry-run to preview what would be stored, --ext to widen or narrow the file types, and --fast for a large one-off ingest." %}</p>
+    </div>
   </section>
 {% endblock %}

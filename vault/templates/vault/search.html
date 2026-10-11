@@ -1,32 +1,59 @@
 {% extends "vault/base.html" %}{% load i18n %}
 {% block title %}{% trans "Search records" %}{% endblock %}
 {% block heading %}{% trans "Search records" %}{% endblock %}
-{% block intro %}<p class="page-intro">{% trans "Find records by domain, URL, account details, secret, or IP address." %}</p>{% endblock %}
+{% block intro %}<p class="page-intro">{% trans "Pick a field and enter the exact value to find every matching record instantly, even across millions of rows." %}</p>{% endblock %}
 {% block content %}
   <section class="vault-panel search-panel">
-    <form method="get" action="{% url 'vault:search' %}" class="search-form">
-      <label class="field-label" for="{{ form.keyword.id_for_label }}">{% trans "Search your records" %}</label>
-      <div class="search-controls">{{ form.keyword }}<button class="button primary" type="submit">{% trans "Search" %}</button></div>
-      {% for error in form.keyword.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
-      <p class="field-help">{% trans "Search is case-insensitive and checks all record fields." %}</p>
+    <form method="get" action="{% url 'vault:search' %}" class="search-form quick-search">
+      <div class="search-controls">
+        {{ form.field }}
+        {{ form.q }}
+        <button class="button primary" type="submit">{% trans "Search" %}</button>
+      </div>
+      {% for error in form.q.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+      <p class="field-help">{% trans "Matching is exact and case-insensitive on the chosen field. Use Advanced search for partial matches." %}</p>
     </form>
   </section>
-  {% if request.GET.keyword %}
+
+  {% if searched %}
     <section class="vault-panel results-panel">
-      <div class="table-toolbar"><div><h2>{% trans "Search results" %}</h2><p class="vault-muted">{{ records|length }} {% blocktrans count record_count=records|length %}matching record{% plural %}matching records{% endblocktrans %}</p></div></div>
+      <div class="table-toolbar">
+        <div>
+          <h2>{% trans "Search results" %}</h2>
+          <p class="vault-muted">
+            {{ total }} {% blocktrans count record_count=total %}matching record{% plural %}matching records{% endblocktrans %}
+            {% if note %}· {{ note }}{% endif %}
+            {% if elapsed_ms is not None %}<span class="timing-pill">{% blocktrans with ms=elapsed_ms|floatformat:1 %}{{ ms }} ms{% endblocktrans %}</span>{% endif %}
+          </p>
+        </div>
+        <div class="vault-actions">
+          <a class="button" href="{% url 'vault:export_csv' %}?{{ query_string }}">{% trans "Export all as CSV" %}</a>
+          <a class="button" href="{% url 'vault:export_json' %}?{{ query_string }}">{% trans "Export all as JSON" %}</a>
+        </div>
+      </div>
+      {% if total %}
+        <div class="vault-note export-note">
+          {% blocktrans with count=total shown=page_obj.paginator.per_page %}Every one of the {{ count }} matching records is included in the export. The table below is only a page of {{ shown }} rows.{% endblocktrans %}
+        </div>
+      {% endif %}
       <div class="vault-table-wrap">
         <table class="vault-table record-table">
           <caption class="sr-only">{% trans "Matching records" %}</caption>
-          <thead><tr><th scope="col">{% trans "ID" %}</th><th scope="col">{% trans "Domain / URL" %}</th><th scope="col">{% trans "Account type" %}</th><th scope="col">{% trans "Identifier" %}</th><th scope="col">{% trans "IP address" %}</th><th scope="col">{% trans "Actions" %}</th></tr></thead>
+          <thead><tr><th scope="col">{% trans "ID" %}</th><th scope="col">{% trans "Domain" %}</th><th scope="col">{% trans "URL" %}</th><th scope="col">{% trans "Account type" %}</th><th scope="col">{% trans "Identifier" %}</th><th scope="col">{% trans "IP address" %}</th><th scope="col">{% trans "Actions" %}</th></tr></thead>
           <tbody>
             {% for record in records %}
-              <tr><td class="mono">#{{ record.id }}</td><td><strong>{{ record.domain }}</strong><small class="cell-secondary" dir="ltr">{{ record.url }}</small></td><td><span class="badge outline">{{ record.get_account_type_display }}</span></td><td dir="auto">{{ record.account_identifier }}</td><td class="mono" dir="ltr">{{ record.ip_address|default:"—" }}</td><td><a class="button small-button" href="{% url 'vault:detail' record.id %}">{% trans "View" %}</a></td></tr>
+              <tr><td class="mono">#{{ record.id }}</td><td class="mono" dir="ltr">{{ record.url.host }}</td><td><strong dir="ltr">{{ record.url.name }}</strong></td><td><span class="badge outline">{{ record.get_account_type_display }}</span></td><td dir="auto">{{ record.identifier }}</td><td class="mono" dir="ltr">{{ record.ip.name|default:"—" }}</td><td><a class="button small-button" href="{% url 'vault:detail' record.id %}">{% trans "View" %}</a></td></tr>
             {% empty %}
-              <tr><td colspan="6"><div class="empty-state"><h2>{% trans "No matching records" %}</h2><p>{% trans "Try a different search term or check the spelling." %}</p></div></td></tr>
+              <tr><td colspan="7"><div class="empty-state"><h2>{% trans "No matching records" %}</h2><p>{% trans "Try a different value or check the spelling." %}</p></div></td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
+      {% include "vault/pagination.html" %}
+    </section>
+  {% elif request.GET %}
+    <section class="vault-panel">
+      <div class="empty-state"><h2>{% trans "Nothing to search yet" %}</h2><p>{% trans "Choose the field, type the exact value, and press Search." %}</p></div>
     </section>
   {% endif %}
 {% endblock %}

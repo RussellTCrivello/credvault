@@ -1,0 +1,16 @@
+{% load i18n %}
+{% if page_obj and page_obj.paginator.num_pages > 1 %}
+  <nav class="vault-pagination" aria-label="{% trans 'Pagination' %}">
+    <span class="pagination-status">
+      {% blocktrans with number=page_obj.number total=page_obj.paginator.num_pages %}Page {{ number }} of {{ total }}{% endblocktrans %}
+    </span>
+    <span class="pagination-controls">
+      {% if page_obj.has_previous %}
+        <a class="button small-button" href="?{% if query_string %}{{ query_string }}&amp;{% endif %}page={{ page_obj.previous_page_number }}">{% trans "Previous" %}</a>
+      {% endif %}
+      {% if page_obj.has_next %}
+        <a class="button small-button" href="?{% if query_string %}{{ query_string }}&amp;{% endif %}page={{ page_obj.next_page_number }}">{% trans "Next" %}</a>
+      {% endif %}
+    </span>
+  </nav>
+{% endif %}

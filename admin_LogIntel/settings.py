@@ -10,7 +10,9 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from pathlib import Path
+
 from django.utils.translation import gettext_lazy as _
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -26,7 +28,8 @@ SECRET_KEY = 'django-insecure-a=!aw-_ai3ej@zip%bjvrg)=x8hwd7*4$_q$o7%1=mx=h!^3*w
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+# Development preview: accept the proxied preview host.
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -38,7 +41,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'vault',                          # <-- ADD THIS LINE
+    'vault',
 ]
 
 MIDDLEWARE = [
@@ -108,7 +111,8 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en'
 
-# Add a language here and provide its catalog under locale/<language-code>/LC_MESSAGES/.
+# Add a language here and provide its catalog under
+# locale/<language-code>/LC_MESSAGES/.
 LANGUAGES = [
     ('en', _('English')),
     ('ar', _('Arabic')),
@@ -127,10 +131,24 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = '/static/'
-import os
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# --- bulk ingest -------------------------------------------------------
+# A browser folder pick sends one form field per file, so the default limit of
+# 1000 fields has to go up or a folder with thousands of files is rejected
+# before the view ever sees it.
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 100000
+
+# Only files with these extensions are read when a whole folder is imported.
+IMPORT_EXTENSIONS = ['.txt', '.text', '.csv', '.tsv', '.tab', '.log',
+                     '.dat', '.list']
+
+# Optional allowlist for the "folder already on the server" importer. When it
+# is empty any readable path is accepted, which is what a local workspace
+# expects; list directories here to restrict it on a shared host.
+IMPORT_ROOTS = []
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
