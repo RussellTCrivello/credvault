@@ -207,12 +207,13 @@ Rows per COPY batch, one run each, same data and the same two workers:
 | Load | 153 s | 133 s | 141 s | 146 s | 171 s |
 
 Between 100,000 and 500,000 the difference is inside the run-to-run noise of
-this disk (roughly 10%); 1,000,000 and above measured about 20% slower. The parser has to fill a batch before
-the database work on that batch can start, so a batch as large as the input
-removes the overlap the workers exist to create (and the big set-based inserts
-spill to disk instead of staying in memory). The default is therefore 250,000
-rows -- twice the earlier 100,000 -- and it is not raised automatically on a
-machine with more memory. Use `VAULT_IMPORT_BATCH_ROWS` and
+this disk (roughly 10%); 1,000,000 and above measured about 20% slower. There
+is a reason to expect that shape: the parser has to fill a batch before any of
+it can be copied and merged, so a batch as large as the input removes the
+overlap the parse workers exist to create, and one oversized set-based insert
+has to do all of its planning and joining in one go. The default is therefore
+250,000 rows -- twice the earlier 100,000 -- and it is not raised automatically
+on a machine with more memory. Use `VAULT_IMPORT_BATCH_ROWS` and
 `vault/tests_performance.py` to find your own machine's number.
 
 ## Tuning for a fast machine
