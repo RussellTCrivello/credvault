@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 import time
 
+from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.db import connection
@@ -18,6 +19,11 @@ from .utils import parse_line
 
 class WorkspaceInterfaceTests(TestCase):
     def setUp(self):
+        # The workspace is only open to administrators.
+        get_user_model().objects.create_superuser(
+            'admin', 'admin@example.com', 'correct-horse-battery'
+        )
+        self.client.login(username='admin', password='correct-horse-battery')
         self.url = Url.objects.create(name='https://example.com/login')
         self.email = Email.objects.create(name='person@example.com')
         self.password = Pass.objects.create(name='test-secret')
