@@ -1,16 +1,16 @@
-{% extends "vault/base.html" %}{% load i18n %}
+{% extends "vault/base.html" %}{% load i18n monitoring %}
 {% block title %}{% blocktrans with record_id=record.id %}Record #{{ record_id }}{% endblocktrans %}{% endblock %}
 {% block heading %}{% trans "Record details" %}{% endblock %}
-{% block intro %}<p class="page-intro">{{ record.domain }} · {{ record.account_identifier }}</p>{% endblock %}
+{% block intro %}<p class="page-intro"><span dir="ltr">{{ record.url.name }}</span> · <span dir="auto">{{ record.identifier }}</span></p>{% endblock %}
 {% block header_actions %}
-  <a class="button" href="{% url 'vault:browse' %}">{% trans "Back to records" %}</a>
-  <a class="button primary" href="{% url 'vault:update' record.id %}">{% trans "Edit record" %}</a>
+  <a class="button" href="{% url 'vault:browse' %}">{% icon "database" %}{% trans "Back to records" %}</a>
+  <a class="button primary" href="{% url 'vault:update' record.id %}">{% icon "pencil" %}{% trans "Edit record" %}</a>
 {% endblock %}
 {% block content %}
   <section class="vault-panel detail-panel">
     <div class="table-toolbar"><div><span class="badge outline">{% blocktrans with record_id=record.id %}Record #{{ record_id }}{% endblocktrans %}</span></div><a class="button danger" href="{% url 'vault:delete' record.id %}">{% trans "Delete record" %}</a></div>
     <dl class="vault-detail record-detail">
-      <div><dt>{% trans "URL" %}</dt><dd dir="ltr"><a class="detail-link" href="{{ record.url.name }}" target="_blank" rel="noopener noreferrer">{{ record.url.name }} <span aria-hidden="true">↗</span></a></dd></div>
+      <div><dt>{% trans "URL" %}</dt><dd dir="ltr"><a class="detail-link" href="{{ record.url.name }}" target="_blank" rel="noopener noreferrer">{{ record.url.name }} {% icon "arrow-right" css_class="link-icon" %}</a></dd></div>
       <div><dt>{% trans "Account type" %}</dt><dd>{{ record.get_account_type_display }}</dd></div>
       {% if record.account_type == 'email' %}
         <div><dt>{% trans "Email" %}</dt><dd dir="auto">{{ record.identifier }}</dd></div>

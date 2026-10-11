@@ -1,50 +1,92 @@
-{% extends "vault/base.html" %}{% load i18n %}
+{% extends "vault/base.html" %}{% load i18n monitoring %}
 {% block title %}{% trans "Advanced search" %}{% endblock %}
 {% block heading %}{% trans "Advanced search" %}{% endblock %}
 {% block intro %}<p class="page-intro">{% trans "Query each field independently. Every filter is optional and combined with AND." %}</p>{% endblock %}
+{% block header_actions %}
+  <a class="button" href="{% url 'vault:search' %}">{% icon "search" %}{% trans "Quick search" %}</a>
+{% endblock %}
 {% block content %}
-  <section class="vault-panel search-panel">
-    <form method="get" action="{% url 'vault:advanced_search' %}" class="advanced-search-form">
-      {% csrf_token %}
-      <div class="form-grid">
-        {% for field in form %}
-          <div class="field">
-            <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-            {{ field }}
-            {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
-          </div>
+  <section class="vault-panel filter-panel">
+    <div class="filter-panel-head">
+      <div>
+        <h2>{% trans "Filters" %}</h2>
+        <p class="vault-muted">{% trans "Fill only what you know. Empty fields are ignored." %}</p>
+      </div>
+      <span class="filter-badge" data-filter-count{% if not filters.count %} hidden{% endif %}>
+        {% blocktrans count counter=filters.count %}{{ counter }} filter{% plural %}{{ counter }} filters{% endblocktrans %}
+      </span>
+    </div>
+
+    <form method="get" action="{% url 'vault:advanced_search' %}" class="advanced-filter-form" data-filter-form>
+      <div class="filter-groups">
+        {% for group in filter_groups %}
+          <fieldset class="filter-group" data-filter-group="{{ group.id }}">
+            <legend class="filter-group-legend">
+              <span class="group-icon">{% icon group.icon %}</span>
+              <span>{{ group.title }}</span>
+            </legend>
+            {% if group.help %}<p class="filter-group-help">{{ group.help }}</p>{% endif %}
+            <div class="filter-group-fields">
+              {% for row in group.rows %}
+                {% if row.kind == 'segmented' %}
+                  {% include "vault/partials/filter_segmented.html" with name=row.name label=row.label choices=row.choices current=row.current icon=row.icon group_id=group.id %}
+                {% else %}
+                  {% include "vault/partials/filter_field.html" with field=row.field icon=row.icon wide=row.wide %}
+                {% endif %}
+              {% endfor %}
+            </div>
+          </fieldset>
         {% endfor %}
       </div>
-      <div class="form-actions">
-        <a class="button" href="{% url 'vault:advanced_search' %}">{% trans "Reset" %}</a>
-        <button class="button primary" type="submit">{% trans "Search" %}</button>
+
+      <div class="form-actions filter-form-actions">
+        <a class="button ghost" href="{% url 'vault:advanced_search' %}">{% icon "refresh" %}{% trans "Reset" %}</a>
+        <button class="button primary" type="submit">{% icon "search" %}{% trans "Search" %}</button>
       </div>
     </form>
   </section>
 
-  {% if request.GET %}
+  {% include "vault/partials/active_filters.html" %}
+
+  {% if has_query %}
     <section class="vault-panel results-panel">
       <div class="table-toolbar">
         <div><h2>{% trans "Search results" %}</h2><p class="vault-muted">{{ total }} {% blocktrans count record_count=total %}matching record{% plural %}matching records{% endblocktrans %}</p></div>
         <div class="vault-actions">
-          <a class="button" href="{% url 'vault:export_csv' %}?{% if query_string %}{{ query_string }}&{% endif %}adv=1">{% trans "Export CSV" %}</a>
-          <a class="button" href="{% url 'vault:export_json' %}?{% if query_string %}{{ query_string }}&{% endif %}adv=1">{% trans "Export JSON" %}</a>
+          <a class="button" href="{% url 'vault:export_csv' %}?{% if query_string %}{{ query_string }}&{% endif %}adv=1">{% icon "download" %}{% trans "Export CSV" %}</a>
+          <a class="button" href="{% url 'vault:export_json' %}?{% if query_string %}{{ query_string }}&{% endif %}adv=1">{% icon "download" %}{% trans "Export JSON" %}</a>
         </div>
       </div>
       <div class="vault-table-wrap">
         <table class="vault-table record-table">
           <caption class="sr-only">{% trans "Matching records" %}</caption>
-          <thead><tr><th scope="col">{% trans "ID" %}</th><th scope="col">{% trans "URL" %}</th><th scope="col">{% trans "Account type" %}</th><th scope="col">{% trans "Identifier" %}</th><th scope="col">{% trans "IP address" %}</th><th scope="col">{% trans "Actions" %}</th></tr></thead>
+          <thead><tr><th scope="col">{% trans "ID" %}</th><th scope="col">{% trans "URL" %}</th><th scope="col">{% trans "Account type" %}</th><th scope="col">{% trans "Identifier" %}</th><th scope="col">{% trans "Password" %}</th><th scope="col">{% trans "IP address" %}</th><th scope="col">{% trans "Actions" %}</th></tr></thead>
           <tbody>
             {% for record in records %}
-              <tr><td class="mono">#{{ record.id }}</td><td><strong dir="ltr">{{ record.url.name }}</strong></td><td><span class="badge outline">{{ record.get_account_type_display }}</span></td><td dir="auto">{{ record.identifier }}</td><td class="mono" dir="ltr">{{ record.ip.name|default:"—" }}</td><td><a class="button small-button" href="{% url 'vault:detail' record.id %}">{% trans "View" %}</a></td></tr>
+              <tr>
+                <td class="mono">#{{ record.id }}</td>
+                <td><strong dir="ltr">{{ record.url.name }}</strong></td>
+                <td><span class="badge outline">{{ record.get_account_type_display }}</span></td>
+                <td dir="auto">{{ record.identifier }}</td>
+                <td class="mono" dir="ltr">{{ record.password.name|default:"—" }}</td>
+                <td class="mono" dir="ltr">{{ record.ip.name|default:"—" }}</td>
+                <td><a class="button small-button" href="{% url 'vault:detail' record.id %}">{% trans "View" %}</a></td>
+              </tr>
             {% empty %}
-              <tr><td colspan="6"><div class="empty-state"><h2>{% trans "No matching records" %}</h2><p>{% trans "Try different filters or clear some of them." %}</p></div></td></tr>
+              <tr><td colspan="7"><div class="empty-state"><span class="empty-icon">{% icon "search" %}</span><h2>{% trans "No matching records" %}</h2><p>{% trans "Try different filters or clear some of them." %}</p></div></td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
       {% include "vault/pagination.html" %}
+    </section>
+  {% else %}
+    <section class="vault-panel filter-prompt">
+      <div class="empty-state">
+        <span class="empty-icon">{% icon "sliders" %}</span>
+        <h2>{% trans "No query yet" %}</h2>
+        <p>{% trans "Set at least one filter and the matching records are listed here, fully exportable." %}</p>
+      </div>
     </section>
   {% endif %}
 {% endblock %}

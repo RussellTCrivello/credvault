@@ -1,0 +1,789 @@
+/* ==========================================================================
+   LogIntel workspace — filter and form field system
+   --------------------------------------------------------------------------
+   One definition for every "entry field" in the interface: the quick search
+   bar, the advanced filter panel, the reference-table filter and the record
+   forms. Icons, hints, clear buttons, segmented controls, active-filter chips
+   and the panel chrome all live here, so a field behaves identically on every
+   screen and both themes, in LTR and RTL.
+   ========================================================================== */
+
+svg.icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* -- panels ------------------------------------------------------------- */
+
+.filter-panel,
+.form-panel,
+.results-panel {
+  margin-bottom: 18px;
+}
+
+.filter-panel {
+  padding: 0;
+}
+
+.panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 17px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.panel-head h2 {
+  font-size: 13px;
+  letter-spacing: -0.1px;
+}
+
+.panel-head .vault-muted {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.filter-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 16px 20px 12px;
+}
+
+.filter-panel-head h2 {
+  font-size: 13px;
+}
+
+.filter-panel-head .vault-muted {
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+.filter-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid #c9dccd;
+  border-radius: 999px;
+  background: var(--green-soft);
+  color: var(--green);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* -- the bar that holds the fields ------------------------------------ */
+
+.filter-bar {
+  display: grid;
+  gap: 14px;
+  padding: 4px 20px 18px;
+}
+
+.filter-bar-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.filter-bar-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.filter-bar-icon {
+  color: var(--green);
+}
+
+.filter-bar-hint {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  max-width: 62ch;
+}
+
+.filter-bar-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 13px 16px;
+}
+
+.filter-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 21px;
+}
+
+.filter-bar-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+
+.recent-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--subtle);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.recent-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.recent-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 11px;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.recent-item:hover {
+  border-color: #b9cdbf;
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.recent-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-item em {
+  color: var(--subtle);
+  font-style: normal;
+  font-size: 10px;
+}
+
+.recent-clear {
+  margin-inline-start: auto;
+  color: var(--muted);
+  font-size: 10px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.recent-clear:hover {
+  color: var(--red);
+}
+
+/* -- a single field ----------------------------------------------------- */
+
+.filter-field {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+}
+
+.filter-field--wide {
+  grid-column: 1 / -1;
+}
+
+.filter-field .field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.field-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--subtle);
+}
+
+.filter-field--error .field-icon,
+.filter-field--error .field-label {
+  color: var(--red);
+}
+
+.input-shell {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-shell > .filter-input,
+.input-shell > .form-control {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.4;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  appearance: none;
+}
+
+.input-shell > select.filter-input,
+.input-shell > select.form-control {
+  padding-inline-end: 30px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 18px, calc(100% - 11px) 18px;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+}
+
+[dir="rtl"] .input-shell > select.filter-input,
+[dir="rtl"] .input-shell > select.form-control {
+  background-position: 15px 18px, 11px 18px;
+}
+
+.input-shell > .filter-input::placeholder {
+  color: var(--subtle);
+  opacity: 1;
+}
+
+.input-shell > .filter-input:hover,
+.input-shell > .form-control:hover {
+  border-color: #c8d4cb;
+}
+
+.input-shell > .filter-input:focus,
+.input-shell > .form-control:focus {
+  outline: none;
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px var(--green-soft);
+}
+
+.input-shell > input[type="search"]::-webkit-search-cancel-button {
+  display: none;
+}
+
+.input-shell > input[type="date"] {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.input-clear {
+  position: absolute;
+  inset-inline-end: 6px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--subtle);
+  opacity: 0.85;
+}
+
+.input-clear:hover {
+  background: var(--red-soft);
+  color: var(--red);
+  opacity: 1;
+}
+
+.input-clear svg {
+  width: 12px;
+  height: 12px;
+}
+
+.field-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.65;
+}
+
+.field-error {
+  margin: 0;
+  color: var(--red);
+  font-size: 11px;
+}
+
+/* Segmented controls replace the bare <select>s: every option is one click
+   away and the current one is visible without opening anything. */
+
+.segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--bg);
+}
+
+.segment {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: max-content;
+  padding: 7px 11px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 560;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.segment:hover {
+  color: var(--green);
+  background: var(--panel);
+}
+
+.segment.is-active {
+  background: var(--panel);
+  color: var(--green);
+  box-shadow: 0 1px 2px #1833201a;
+}
+
+:root[data-theme="dark"] .segment.is-active {
+  box-shadow: none;
+  outline: 1px solid #3f5a48;
+}
+
+.segment-icon {
+  width: 13px;
+  height: 13px;
+  opacity: 0.8;
+}
+
+.segment.is-active .segment-icon {
+  opacity: 1;
+}
+
+.segment-input:focus-visible ~ .segment-text,
+.segment:has(.segment-input:focus-visible) {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.filter-field--segmented .segmented {
+  align-self: start;
+}
+
+.segmented--tight .segment {
+  padding: 5px 9px;
+  font-size: 10px;
+}
+
+/* -- grouped filter panel (advanced search) ----------------------------- */
+
+.advanced-filter-form {
+  padding: 0 20px 20px;
+}
+
+.filter-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.filter-group {
+  min-width: 0;
+  margin: 0;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--bg);
+}
+
+.filter-group:focus-within {
+  border-color: #cddcd1;
+  background: var(--panel);
+}
+
+.filter-field--value {
+  /* The value input is the one thing a filter bar is really about. */
+  flex: 1 1 340px;
+  min-width: 0;
+}
+
+.reference-table td:first-child {
+  font-weight: 560;
+  color: var(--ink);
+}
+
+.reference-table .badge {
+  min-width: 26px;
+  justify-content: center;
+}
+
+.filter-group--wide {
+  grid-column: 1 / -1;
+}
+
+.filter-group-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.2px;
+}
+
+.group-icon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--green);
+}
+
+.group-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.filter-group-help {
+  margin: 6px 0 12px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.65;
+}
+
+.filter-group-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 13px 14px;
+}
+
+.filter-group-fields > .filter-field {
+  grid-column: span 1;
+}
+
+.filter-group-fields > .filter-field--wide {
+  grid-column: 1 / -1;
+}
+
+.filter-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+/* -- active filter chips ------------------------------------------------ */
+
+.active-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin: -6px 0 18px;
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.active-filters-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--subtle);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.active-filters .filter-chips {
+  margin: 0;
+  gap: 6px;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 5px 6px 5px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+.filter-chip .chip-icon {
+  width: 12px;
+  height: 12px;
+  color: var(--green);
+}
+
+.chip-label {
+  color: var(--muted);
+}
+
+.chip-value {
+  max-width: 320px;
+  overflow: hidden;
+  color: var(--ink);
+  font-weight: 600;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip-remove {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: var(--muted);
+  transition: background 0.15s, color 0.15s;
+}
+
+.chip-remove:hover {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.chip-remove svg {
+  width: 10px;
+  height: 10px;
+}
+
+.active-filters-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-inline-start: auto;
+  color: var(--muted);
+  font-size: 10px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.active-filters-clear:hover {
+  color: var(--red);
+}
+
+/* -- empty / prompt state ----------------------------------------------- */
+
+.filter-prompt {
+  padding: 4px 0 2px;
+}
+
+.filter-prompt .empty-state .button {
+  margin-top: 14px;
+}
+
+/* -- record + reference forms ------------------------------------------- */
+
+.record-form .field .field-label,
+.value-form .field .field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.record-form .form-control,
+.value-form .filter-input {
+  height: 40px;
+  border-radius: 7px;
+}
+
+.value-form-panel .form-grid {
+  padding: 18px 20px 0;
+}
+
+.value-form {
+  padding: 0 20px 20px;
+}
+
+.value-form .form-actions {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.reference-filter-form {
+  padding: 0 20px 18px;
+}
+
+/* -- keyboard shortcut hint --------------------------------------------- */
+
+.kbd {
+  display: inline-block;
+  min-width: 17px;
+  padding: 1px 4px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  text-align: center;
+}
+
+.record-form-panel .form-grid {
+  padding: 18px 20px 0;
+}
+
+.record-form-grid .field {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  margin: 0;
+}
+
+.record-form-grid .field .input-shell > .combobox {
+  width: 100%;
+}
+
+.record-form-grid .field--error .form-control {
+  border-color: var(--red);
+}
+
+.reuse-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.reuse-icon {
+  margin-top: 1px;
+  color: var(--green);
+}
+
+@media (max-width: 760px) {
+  .record-form-panel .form-grid {
+    padding-inline: 14px;
+  }
+}
+
+/* -- responsive --------------------------------------------------------- */
+
+@media (max-width: 1080px) {
+  .filter-bar-body {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .filter-bar-actions {
+    grid-column: 1 / -1;
+    padding-top: 2px;
+  }
+}
+
+@media (max-width: 880px) {
+  .filter-groups,
+  .filter-group-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .filter-panel-head,
+  .panel-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .filter-bar,
+  .advanced-filter-form {
+    padding-inline: 14px;
+  }
+
+  .filter-bar-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .segmented .segment {
+    flex: 1 0 auto;
+  }
+
+  .active-filters-clear {
+    margin-inline-start: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .segment,
+  .filter-chip,
+  .input-shell > .filter-input,
+  .recent-item,
+  .input-clear {
+    transition: none;
+  }
+}
+
+/* -- right-to-left ------------------------------------------------------ */
+
+[dir="rtl"] .filter-bar-title,
+[dir="rtl"] .active-filters-label {
+  letter-spacing: 0;
+}
+
+[dir="rtl"] .chip-remove,
+[dir="rtl"] .input-clear {
+  inset-inline-end: 6px;
+}

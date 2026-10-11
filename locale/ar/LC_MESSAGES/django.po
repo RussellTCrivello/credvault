@@ -1,8 +1,9 @@
+#
 msgid ""
 msgstr ""
+"Language: ar\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Language: ar\n"
 "Plural-Forms: nplurals=6; plural=n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 && n%100<=10 ? 3 : n%100>=11 && n%100<=99 ? 4 : 5;\n"
 
 msgid "English"
@@ -119,11 +120,12 @@ msgstr "نزّل سجلاتك بصيغة CSV أو JSON."
 msgid "Handle sensitive information carefully."
 msgstr "تعامل مع المعلومات الحساسة بعناية."
 
-msgid "Record exports include all record fields. Store downloaded files securely and share them only with authorized people."
-msgstr "تتضمن ملفات تصدير السجلات جميع الحقول. احفظ الملفات التي نزّلتها بأمان ولا تشاركها إلا مع أشخاص مخوّلين."
-
-msgid "Browse the records saved in your workspace."
-msgstr "تصفح السجلات المحفوظة في مساحة عملك."
+msgid ""
+"Record exports include all record fields. Store downloaded files securely "
+"and share them only with authorized people."
+msgstr ""
+"تتضمن ملفات تصدير السجلات جميع الحقول. احفظ الملفات التي نزّلتها بأمان ولا "
+"تشاركها إلا مع أشخاص مخوّلين."
 
 msgid "Export CSV"
 msgstr "تصدير CSV"
@@ -155,12 +157,6 @@ msgstr "الرابط"
 msgid "Account Type"
 msgstr "نوع الحساب"
 
-msgid "Secret Data"
-msgstr "البيانات السرية"
-
-msgid "Domain / URL"
-msgstr "النطاق / الرابط"
-
 msgid "Account type"
 msgstr "نوع الحساب"
 
@@ -175,24 +171,6 @@ msgstr "الإجراءات"
 
 msgid "View"
 msgstr "عرض"
-
-msgid "No records yet"
-msgstr "لا توجد سجلات بعد"
-
-msgid "Add a record or import a supported file to start building your workspace."
-msgstr "أضف سجلًا أو استورد ملفًا مدعومًا لبدء إعداد مساحة عملك."
-
-msgid "Add your first record"
-msgstr "أضف سجلك الأول"
-
-msgid "Find records by domain, URL, account details, secret, or IP address."
-msgstr "اعثر على السجلات حسب النطاق أو الرابط أو تفاصيل الحساب أو السر أو عنوان IP."
-
-msgid "Search your records"
-msgstr "ابحث في سجلاتك"
-
-msgid "Search is case-insensitive and checks all record fields."
-msgstr "لا يميّز البحث بين الأحرف الكبيرة والصغيرة، ويفحص جميع حقول السجل."
 
 msgid "Search results"
 msgstr "نتائج البحث"
@@ -212,17 +190,12 @@ msgstr "السجلات المطابقة"
 msgid "No matching records"
 msgstr "لا توجد سجلات مطابقة"
 
-msgid "Try a different search term or check the spelling."
-msgstr "جرّب عبارة بحث مختلفة أو تحقق من الإملاء."
-
+#, python-format
 msgid "Record #%(record_id)s"
 msgstr "السجل رقم %(record_id)s"
 
 msgid "Record details"
 msgstr "تفاصيل السجل"
-
-msgid "Review the information saved for this record."
-msgstr "راجع المعلومات المحفوظة لهذا السجل."
 
 msgid "Back to records"
 msgstr "العودة إلى السجلات"
@@ -236,20 +209,12 @@ msgstr "حذف السجل"
 msgid "Domain"
 msgstr "النطاق"
 
-msgid "Full URL"
-msgstr "الرابط الكامل"
-
-msgid "Account identifier"
-msgstr "معرّف الحساب"
-
-msgid "Secret data"
-msgstr "البيانات السرية"
-
-msgid "This record may contain sensitive information. Limit access to the details and any exports to authorized people."
-msgstr "قد يحتوي هذا السجل على معلومات حساسة. اقصر الوصول إلى التفاصيل والملفات المصدّرة على الأشخاص المخوّلين."
-
-msgid "Enter the record details below. Fields marked required must be completed."
-msgstr "أدخل تفاصيل السجل أدناه. يجب تعبئة الحقول المطلوبة."
+msgid ""
+"This record may contain sensitive information. Limit access to the details "
+"and any exports to authorized people."
+msgstr ""
+"قد يحتوي هذا السجل على معلومات حساسة. اقصر الوصول إلى التفاصيل والملفات "
+"المصدّرة على الأشخاص المخوّلين."
 
 msgid "required"
 msgstr "مطلوب"
@@ -260,17 +225,16 @@ msgstr "إلغاء"
 msgid "Save record"
 msgstr "حفظ السجل"
 
+#, python-format
 msgid "Edit record #%(record_id)s"
 msgstr "تعديل السجل رقم %(record_id)s"
 
+#, python-format
 msgid "Update the saved details for record #%(record_id)s."
 msgstr "حدّث التفاصيل المحفوظة للسجل رقم %(record_id)s."
 
 msgid "Save changes"
 msgstr "حفظ التغييرات"
-
-msgid "Delete record #%(record_id)s"
-msgstr "حذف السجل رقم %(record_id)s"
 
 msgid "Delete this record?"
 msgstr "هل تريد حذف هذا السجل؟"
@@ -278,14 +242,9 @@ msgstr "هل تريد حذف هذا السجل؟"
 msgid "This action cannot be undone."
 msgstr "لا يمكن التراجع عن هذا الإجراء."
 
+#, python-format
 msgid "You're about to permanently delete record #%(record_id)s."
 msgstr "أنت على وشك حذف السجل رقم %(record_id)s نهائيًا."
-
-msgid "This will remove %(domain)s and its saved details from the workspace."
-msgstr "سيؤدي هذا إلى إزالة %(domain)s وتفاصيله المحفوظة من مساحة العمل."
-
-msgid "Keep record"
-msgstr "الاحتفاظ بالسجل"
 
 msgid "Delete permanently"
 msgstr "حذف نهائي"
@@ -293,35 +252,22 @@ msgstr "حذف نهائي"
 msgid "Import records"
 msgstr "استيراد السجلات"
 
-msgid "Add records in bulk from a text file."
-msgstr "أضف مجموعة من السجلات دفعة واحدة من ملف نصي."
-
 msgid "Supported file formats"
 msgstr "تنسيقات الملفات المدعومة"
-
-msgid "Text files with colon, pipe, tab, or semicolon-delimited rows are supported. Empty lines and comments are ignored."
-msgstr "تُدعم الملفات النصية التي تفصل صفوفها بنقطتين رأسيتين أو خط عمودي أو جدولة أو فاصلة منقوطة. يتم تجاهل الأسطر الفارغة والتعليقات."
 
 msgid "Select data file to import"
 msgstr "اختر ملف البيانات المراد استيراده"
 
 msgid "Supported formats: TXT with colon, pipe, tab, or semicolon delimiters"
-msgstr "التنسيقات المدعومة: ملفات TXT ذات الفواصل بالنقطتين الرأسيتين أو الخط العمودي أو الجدولة أو الفاصلة المنقوطة"
-
-msgid "Import file"
-msgstr "استيراد الملف"
+msgstr ""
+"التنسيقات المدعومة: ملفات TXT ذات الفواصل بالنقطتين الرأسيتين أو الخط "
+"العمودي أو الجدولة أو الفاصلة المنقوطة"
 
 msgid "example.com"
 msgstr "example.com"
 
-msgid "https://example.com/login"
-msgstr "https://example.com/login"
-
 msgid "user@example.com"
 msgstr "user@example.com"
-
-msgid "Password or secret"
-msgstr "كلمة المرور أو السر"
 
 msgid "N/A"
 msgstr "غير متاح"
@@ -335,18 +281,19 @@ msgstr "البريد الإلكتروني"
 msgid "Domain, username, email, or IP..."
 msgstr "النطاق أو اسم المستخدم أو البريد الإلكتروني أو IP..."
 
+#, python-format
 msgid "Record successfully added with ID: %(record_id)s"
 msgstr "تمت إضافة السجل بنجاح، ومعرّفه: %(record_id)s"
 
+#, python-format
 msgid "Record #%(record_id)s updated successfully."
 msgstr "تم تحديث السجل رقم %(record_id)s بنجاح."
 
+#, python-format
 msgid "Record #%(record_id)s deleted successfully."
 msgstr "تم حذف السجل رقم %(record_id)s بنجاح."
 
-msgid "No valid records found in the file."
-msgstr "لم يتم العثور على سجلات صالحة في الملف."
-
+#, python-format
 msgid "Successfully imported %(count)s record."
 msgid_plural "Successfully imported %(count)s records."
 msgstr[0] "تم استيراد %(count)s سجل."
@@ -356,6 +303,7 @@ msgstr[3] "تم استيراد %(count)s سجلات."
 msgstr[4] "تم استيراد %(count)s سجلًا."
 msgstr[5] "تم استيراد %(count)s سجل."
 
+#, python-format
 msgid "Filtered out %(count)s non-record lines."
 msgstr "تم استبعاد %(count)s سطرًا لا يحتوي على سجل."
 
@@ -383,7 +331,9 @@ msgstr "الجدول"
 msgid "Advanced search"
 msgstr "بحث متقدم"
 
-msgid "Query each field independently. Every filter is optional and combined with AND."
+msgid ""
+"Query each field independently. Every filter is optional and combined with "
+"AND."
 msgstr "استعلم كل حقل بمفرده. كل مرشّح اختياري وتُجمع الشروط بـ AND."
 
 msgid "Reset"
@@ -392,24 +342,34 @@ msgstr "إعادة تعيين"
 msgid "Query each field independently with filters and sorting."
 msgstr "استعلم كل حقل بمفرده باستخدام المرشّحات والفرز."
 
-msgid "These five tables hold the shared values used by your records. Each value is stored once and reused, so it is never entered twice."
-msgstr "تحتوي هذه الجداول الخمسة على القيم المشتركة التي تستخدمها سجلاتك. تُخزَّن كل قيمة مرة واحدة وتُعاد استخدامها، لذا لا تُدخل مرّتين أبدًا."
+msgid ""
+"These five tables hold the shared values used by your records. Each value is"
+" stored once and reused, so it is never entered twice."
+msgstr ""
+"تحتوي هذه الجداول الخمسة على القيم المشتركة التي تستخدمها سجلاتك. تُخزَّن كل"
+" قيمة مرة واحدة وتُعاد استخدامها، لذا لا تُدخل مرّتين أبدًا."
 
 msgid "All reference tables"
 msgstr "كل الجداول المرجعية"
 
-msgid "Each %(label)s is stored once and reused by every record that needs it."
-msgstr "تُخزَّن كل %(label)s مرة واحدة وتُعاد استخدامها من قبل كل سجل يحتاجها."
+#, python-format
+msgid ""
+"Each %(label)s is stored once and reused by every record that needs it."
+msgstr ""
+"تُخزَّن كل %(label)s مرة واحدة وتُعاد استخدامها من قبل كل سجل يحتاجها."
 
 msgid "Add a value"
 msgstr "إضافة قيمة"
 
+#, python-format
 msgid "Enter a new %(label)s below. If it already exists, it will be reused."
-msgstr "أدخل %(label)s جديدًا أدناه. إذا كان موجودًا بالفعل، فسيُعاد استخدامه."
+msgstr ""
+"أدخل %(label)s جديدًا أدناه. إذا كان موجودًا بالفعل، فسيُعاد استخدامه."
 
 msgid "Used by"
 msgstr "مُستخدَم بواسطة"
 
+#, python-format
 msgid "No %(label_plural)s yet"
 msgstr "لا توجد %(label_plural)s بعد"
 
@@ -482,38 +442,48 @@ msgstr "يلزم اسم مستخدم لحسابات المستخدم."
 msgid "User accounts cannot have an email."
 msgstr "لا يمكن لحسابات المستخدم أن يكون لها بريد إلكتروني."
 
+#, python-format
 msgid "%(label)s added successfully."
 msgstr "تمت إضافة %(label)s بنجاح."
 
+#, python-format
 msgid "%(label)s deleted successfully."
 msgstr "تم حذف %(label)s بنجاح."
 
+#, python-format
 msgid "%(name)s already exists and was reused."
 msgstr "القيمة %(name)s موجودة بالفعل وأُعيد استخدامها."
 
+#, python-format
 msgid "Delete this %(label)s?"
 msgstr "هل تريد حذف %(label)s؟"
 
-msgid "Cannot delete %(name)s: it is still used by %(count)s record. Reassign or delete those records first."
-msgstr "لا يمكن حذف %(name)s: لا يزال مستخدمًا بواسطة %(count)s سجل. أعد تعيين تلك السجلات أو احذفها أولًا."
-
-msgid "Cannot delete %(name)s: it is still used by %(count)s records. Reassign or delete those records first."
-msgstr "لا يمكن حذف %(name)s: لا يزال مستخدمًا بواسطة %(count)s سجلات. أعد تعيين تلك السجلات أو احذفها أولًا."
+#, python-format
+msgid ""
+"Cannot delete %(name)s: it is still used by %(count)s record. Reassign or "
+"delete those records first."
+msgstr ""
+"لا يمكن حذف %(name)s: لا يزال مستخدمًا بواسطة %(count)s سجل. أعد تعيين تلك "
+"السجلات أو احذفها أولًا."
 
 msgid "Reassign or delete those records first if you want to keep them."
 msgstr "أعد تعيين تلك السجلات أو احذفها أولًا إذا كنت تريد الاحتفاظ بها."
 
-msgid "You're about to permanently delete %(name)s, used by %(counter)s record."
-msgid_plural "You're about to permanently delete %(name)s, used by %(counter)s records."
+#, python-format
+msgid ""
+"You're about to permanently delete %(name)s, used by %(counter)s record."
+msgid_plural ""
+"You're about to permanently delete %(name)s, used by %(counter)s records."
 msgstr[0] "أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجل."
-msgstr[1] "أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجل واحد."
-msgstr[2] "أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجلين."
-msgstr[3] "أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجلات."
-msgstr[4] "أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجلًا."
+msgstr[1] ""
+"أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجل واحد."
+msgstr[2] ""
+"أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجلين."
+msgstr[3] ""
+"أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجلات."
+msgstr[4] ""
+"أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجلًا."
 msgstr[5] "أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجل."
-
-msgid "No new records were created. Existing values were reused and %d line(s) were not valid records."
-msgstr "لم يتم إنشاء سجلات جديدة. أُعيد استخدام القيم الموجودة و%d سطرًا غير صالحة."
 
 msgid "Keyword"
 msgstr "كلمة مفتاحية"
@@ -560,20 +530,15 @@ msgstr "المعرّف (أ-ي)"
 msgid "Any"
 msgstr "أي"
 
-msgid "Enter the record details below. Existing URLs, emails, usernames, passwords, and IPs are reused automatically -- nothing is stored twice."
-msgstr "أدخل تفاصيل السجل أدناه. تُعاد استخدام الروابط والبريد الإلكتروني وأسماء المستخدمين وكلمات المرور وعناوين IP تلقائيًا — لا يُخزَّن أي شيء مرّتين."
+msgid ""
+"Enter the record details below. Existing URLs, emails, usernames, passwords,"
+" and IPs are reused automatically -- nothing is stored twice."
+msgstr ""
+"أدخل تفاصيل السجل أدناه. تُعاد استخدام الروابط والبريد الإلكتروني وأسماء "
+"المستخدمين وكلمات المرور وعناوين IP تلقائيًا — لا يُخزَّن أي شيء مرّتين."
 
 msgid "Try different filters or clear some of them."
 msgstr "جرّب مرشّحات مختلفة أو امسح بعضها."
-
-msgid "value"
-msgid_plural "values"
-msgstr[0] "قيمة"
-msgstr[1] "قيمة واحدة"
-msgstr[2] "قيمتان"
-msgstr[3] "قيمات"
-msgstr[4] "قيمة"
-msgstr[5] "قيمة"
 
 msgid "record uses these values"
 msgid_plural "records use these values"
@@ -596,39 +561,30 @@ msgstr "الرابط / النطاق"
 msgid "Enter the exact value to find"
 msgstr "أدخل القيمة الدقيقة للبحث"
 
-msgid "Pick a field and enter the exact value to find every matching record instantly, even across millions of rows."
-msgstr "اختر حقلًا وأدخل القيمة الدقيقة لإيجاد كل سجل مطابق فورًا، حتى عبر ملايين السجلات."
-
-msgid "Matching is exact and case-insensitive on the chosen field. Use Advanced search for partial matches."
-msgstr "المطابقة دقيقة وغير حساسة لحالة الأحرف في الحقل المختار. استخدم البحث المتقدم للمطابقات الجزئية."
+msgid ""
+"Pick a field and enter the exact value to find every matching record "
+"instantly, even across millions of rows."
+msgstr ""
+"اختر حقلًا وأدخل القيمة الدقيقة لإيجاد كل سجل مطابق فورًا، حتى عبر ملايين "
+"السجلات."
 
 msgid "Try a different value or check the spelling."
 msgstr "جرّب قيمة مختلفة أو تحقق من الإملاء."
 
-msgid "Add records in bulk from a text file -- or a whole folder of files."
-msgstr "أضف سجلات بكميات كبيرة من ملف نصي — أو من مجلد كامل من الملفات."
-
-msgid "Text files with colon, pipe, tab, or semicolon-delimited rows are supported. Empty lines and comments are ignored. Every line of every selected file is read; only lines that match the format are stored."
-msgstr "تُدعم ملفات النصوص ذات الصفوف المفصولة بنقطتين رأسيتين أو خط عمودي أو جدولة أو فاصلة منقوطة. يتم تجاهل الأسطر الفارغة والتعليقات. تُقرأ كل سطر في كل ملف محدد؛ ولا تُخزَّن سوى الأسطر المطابقة للصيغة."
-
-msgid "Or select a whole folder"
-msgstr "أو اختر مجلدًا كاملًا"
-
-msgid "Pick a folder and every text file inside it (including subfolders) will be imported. For very large volumes, prefer the importfolder management command."
-msgstr "اختر مجلدًا وستُستورد كل ملف نصي بداخله (بما في ذلك المجلدات الفرعية). للحجوم الكبيرة جدًا، تفضيل أمر الإدارة importfolder."
-
 msgid "Or enter a local/server folder or file path"
 msgstr "أو أدخل مسار مجلد أو ملف محلي/على الخادم"
 
-msgid "For very large folders already on disk, enter the directory path here to recursively read every file and store valid lines."
-msgstr "للمجلدات الكبيرة جدًا الموجودة على القرص، أدخل مسار المجلد هنا لقراءة كل ملف بداخله وتخزين الأسطر الصالحة."
-
-msgid "Import"
-msgstr "استيراد"
+msgid ""
+"For very large folders already on disk, enter the directory path here to "
+"recursively read every file and store valid lines."
+msgstr ""
+"للمجلدات الكبيرة جدًا الموجودة على القرص، أدخل مسار المجلد هنا لقراءة كل ملف"
+" بداخله وتخزين الأسطر الصالحة."
 
 msgid "Pagination"
 msgstr "ترقيم الصفحات"
 
+#, python-format
 msgid "Page %(number)s of %(total)s"
 msgstr "الصفحة %(number)s من %(total)s"
 
@@ -637,9 +593,6 @@ msgstr "السابق"
 
 msgid "Next"
 msgstr "التالي"
-
-msgid "Toggle options"
-msgstr "عرض الخيارات"
 
 msgid "Search or select URL (e.g. https://example.com/login)"
 msgstr "ابحث عن رابط أو اختره (مثل https://example.com/login)"
@@ -656,3 +609,774 @@ msgstr "ابحث عن كلمة مرور أو اخترها"
 msgid "Search or select IP address (or N/A)"
 msgstr "ابحث عن عنوان IP أو اختره (أو N/A)"
 
+#, python-format
+msgid "%(count)s file(s) in %(path)s are not text and were ignored."
+msgstr "تم تجاهل %(count)s ملف في %(path)s لأنه ليس ملفًا نصيًا."
+
+#, python-format
+msgid "%(count)s uploaded file"
+msgid_plural "%(count)s uploaded files"
+msgstr[0] "لا ملفات مرفوعة"
+msgstr[1] "ملف مرفوع واحد"
+msgstr[2] "ملفان مرفوعان"
+msgstr[3] "%(count)s ملفات مرفوعة"
+msgstr[4] "%(count)s ملفًا مرفوعًا"
+msgstr[5] "%(count)s ملفًا مرفوعًا"
+
+#, python-format
+msgid "%(name)s was skipped: not a text file."
+msgstr "تم تخطي %(name)s لأنه ليس ملفًا نصيًا."
+
+msgid "(unnamed file)"
+msgstr "(ملف بلا اسم)"
+
+#, python-brace-format
+msgid "+ {n} more file(s) in the list"
+msgstr "‏+{n} ملفًا آخر في القائمة"
+
+#, python-brace-format
+msgid "+{n} more note(s) not shown."
+msgstr "‏+{n} ملاحظة أخرى غير معروضة."
+
+msgid "/path/to/folder"
+msgstr "/path/to/folder"
+
+msgid "203.0.113.10"
+msgstr "203.0.113.10"
+
+msgid "A domain is enough -- every URL under it matches."
+msgstr "النطاق يكفي — فكل الروابط تحته مطابقة."
+
+msgid ""
+"A value that already exists is reused; a new one is created in its reference"
+" table. Nothing is stored twice."
+msgstr ""
+"القيمة الموجودة يُعاد استخدامها، والجديدة تُنشأ في جدولها المرجعي. لا "
+"يُخزَّن شيء مرتين."
+
+msgid "Add a file"
+msgstr "إضافة ملف"
+
+msgid "Add a folder"
+msgstr "إضافة مجلد"
+
+msgid "Add at least one file to import."
+msgstr "أضف ملفًا واحدًا على الأقل للاستيراد."
+
+msgid ""
+"Add records in bulk from a text file -- or a whole folder of files. Progress"
+" is measured byte by byte, so the bar tells the truth about large imports."
+msgstr ""
+"أضف السجلات دفعة واحدة من ملف نصي أو من مجلد كامل. يُقاس التقدّم بالبايت "
+"سطرًا سطرًا، فيصف الشريط الاستيراد الكبير بصدق."
+
+msgid "Already stored"
+msgstr "مخزَّن مسبقًا"
+
+msgid "Any value -- exact match across URL, email, username, password, IP"
+msgstr ""
+"أي قيمة — مطابقة تامة عبر الرابط والبريد واسم المستخدم وكلمة المرور والعنوان"
+" IP"
+
+msgid "Applies to the result table and to the export files."
+msgstr "ينطبق على جدول النتائج وملفات التصدير."
+
+msgid "Back to record"
+msgstr "العودة إلى السجل"
+
+msgid "Bytes read"
+msgstr "البايتات المقروءة"
+
+msgid "Choose what to import"
+msgstr "اختر ما تريد استيراده"
+
+msgid "Clear"
+msgstr "مسح"
+
+msgid "Clear all"
+msgstr "مسح الكل"
+
+msgid "Clear filter"
+msgstr "مسح التصفية"
+
+msgid "Clear the value"
+msgstr "مسح القيمة"
+
+msgid "Clear this field"
+msgstr "مسح هذا الحقل"
+
+msgid "Colon, pipe, tab or semicolon delimited text"
+msgstr "نص مفصول بنقطتين رأسيتين أو خط عمودي أو Tab أو فاصلة منقوطة"
+
+msgid "Contains"
+msgstr "يحتوي على"
+
+msgid "Data read"
+msgstr "البيانات المقروءة"
+
+msgid "Dates are compared against the record creation date."
+msgstr "تُقارَن التواريخ بتاريخ إنشاء السجل."
+
+#, python-format
+msgid "Distinct %(label)s values, each reusable by any number of records."
+msgstr ""
+"قيم %(label)s غير مكرّرة، وكل قيمة صالحة للاستخدام في أي عدد من السجلات."
+
+msgid "Drop files or a folder here"
+msgstr "أفلت الملفات أو المجلد هنا"
+
+msgid ""
+"Duplicate rows are counted separately, so a quiet import is distinguishable "
+"from a broken file."
+msgstr ""
+"تُحسَب الصفوف المكررة على حدة، فيمكن التفريق بين استيراد لا جديد فيه وبين "
+"ملف تالف."
+
+msgid "Elapsed"
+msgstr "المنقضي"
+
+msgid "Empty or comment"
+msgstr "فارغة أو تعليق"
+
+msgid "Enter a folder or file path first."
+msgstr "أدخل مسار مجلد أو ملف أولًا."
+
+msgid "Every field is searchable: pick a stored value or type a new one."
+msgstr "كل حقل قابل للبحث: اختر قيمة مخزَّنة أو اكتب قيمة جديدة."
+
+msgid "Every filter below is combined with the others (AND)."
+msgstr "تُجمَع كل تصفية أدناه مع غيرها (AND)."
+
+msgid ""
+"Every number above was measured while reading the files, not estimated."
+msgstr "كل رقم أعلاه قِيس أثناء قراءة الملفات، لا استنتاجه."
+
+msgid "Every text file inside, subfolders included"
+msgstr "كل ملف نصي بالداخل، بما في ذلك المجلدات الفرعية"
+
+msgid "Exact match search"
+msgstr "بحث بمطابقة تامة"
+
+msgid "Exclude"
+msgstr "استبعاد"
+
+msgid "Exclude all"
+msgstr "استبعاد الكل"
+
+msgid ""
+"Existing URLs, emails, usernames, passwords and IPs are reused, never "
+"written twice."
+msgstr ""
+"تُعاد استخدام الروابط والبريد وأسماء المستخدمين وكلمات المرور والعناوين "
+"الموجودة، ولا تُكتب مرتين."
+
+#, python-format
+msgid "File %(n)s of %(total)s"
+msgstr "الملف %(n)s من %(total)s"
+
+msgid "Files"
+msgstr "الملفات"
+
+msgid "Files done"
+msgstr "الملفات المكتملة"
+
+msgid "Fill only what you know. Empty fields are ignored."
+msgstr "املأ ما تعرفه فقط. الحقول الفارغة تُتجاهل."
+
+msgid "Filter"
+msgstr "تصفية"
+
+msgid "Filters"
+msgstr "عوامل التصفية"
+
+msgid "Find a value"
+msgstr "ابحث عن قيمة"
+
+msgid "Find records"
+msgstr "البحث عن سجلات"
+
+msgid "Finishing the current batch, then stopping…"
+msgstr "إتمام الدفعة الحالية ثم التوقف…"
+
+msgid "Finishing up"
+msgstr "الإنهاء"
+
+msgid ""
+"Free text is matched against every stored value at once: URLs, emails, "
+"usernames, passwords and IPs."
+msgstr ""
+"يُقارَن النص الحر بكل القيم المخزَّنة دفعة واحدة: الروابط والبريد وأسماء "
+"المستخدمين وكلمات المرور والعناوين."
+
+msgid "From a server path"
+msgstr "من مسار على الخادم"
+
+msgid "From this device"
+msgstr "من هذا الجهاز"
+
+msgid "Import again"
+msgstr "استيراد مرة أخرى"
+
+msgid "Import complete"
+msgstr "اكتمل الاستيراد"
+
+msgid "Import failed"
+msgstr "فشل الاستيراد"
+
+#, python-brace-format
+msgid "Import finished in {time}"
+msgstr "انتهى الاستيراد خلال {time}"
+
+msgid "Import progress"
+msgstr "تقدّم الاستيراد"
+
+msgid "Import source"
+msgstr "مصدر الاستيراد"
+
+msgid "Import stopped"
+msgstr "توقف الاستيراد"
+
+#, python-format
+msgid "Import stopped after %(count)s record."
+msgstr "توقف الاستيراد بعد %(count)s سجل."
+
+#, python-format
+msgid "Import stopped after %(count)s records."
+msgstr "توقف الاستيراد بعد %(count)s سجلات."
+
+#, python-brace-format
+msgid "Import stopped after {time}"
+msgstr "توقف الاستيراد بعد {time}"
+
+msgid "Importing from a server path is disabled in this workspace."
+msgstr "الاستيراد من مسار على الخادم معطَّل في مساحة العمل هذه."
+
+msgid "Importing…"
+msgstr "جارٍ الاستيراد…"
+
+msgid "Include"
+msgstr "إدراج"
+
+msgid "Include all"
+msgstr "إدراج الكل"
+
+msgid ""
+"Indexed and exact: paste a whole value, or pick a field to narrow the match."
+msgstr "مفهرس ودقيق: الصق قيمة كاملة، أو اختر حقلًا لتضييق المطابقة."
+
+msgid ""
+"JavaScript is off, so this form imports in one go and reports a summary when"
+" it finishes. Everything below needs JavaScript to animate."
+msgstr ""
+"‏JavaScript معطَّل، لذا يجري هذا النموذج الاستيراد دفعة واحدة ويعرض ملخصًا "
+"عند الانتهاء. كل ما يلي يحتاج JavaScript ليتحرك."
+
+msgid "Leave it empty to search by owner or location only."
+msgstr "اتركه فارغًا للبحث بالمالك أو الموقع فقط."
+
+msgid "Lines read"
+msgstr "الأسطر المقروءة"
+
+msgid "Listed as a non-text file — excluded"
+msgstr "مدرَج كملف غير نصي — مستبعد"
+
+msgid "Listing files"
+msgstr "حصر الملفات"
+
+msgid "Listing files on disk"
+msgstr "حصر الملفات على القرص"
+
+msgid "Listing files…"
+msgstr "جارٍ حصر الملفات…"
+
+msgid "Manage the shared URL, email, username, password, and IP values."
+msgstr ""
+"أدِر القيم المشتركة: الروابط والبريد وأسماء المستخدمين وكلمات المرور "
+"والعناوين."
+
+msgid "Match"
+msgstr "المطابقة"
+
+msgid "Matched anywhere: URL, email, username, password or IP."
+msgstr ""
+"تطابقة في أي مكان: الرابط أو البريد أو اسم المستخدم أو كلمة المرور أو "
+"العنوان IP."
+
+msgid "Most used"
+msgstr "الأكثر استخدامًا"
+
+msgid "Name (A-Z)"
+msgstr "الاسم (تصاعديًا)"
+
+msgid "Name (Z-A)"
+msgstr "الاسم (تنازليًا)"
+
+msgid "New records"
+msgstr "سجلات جديدة"
+
+msgid "Newest"
+msgstr "الأحدث"
+
+msgid "No file selected yet."
+msgstr "لم يُحدَّد ملف بعد."
+
+#, python-format
+msgid ""
+"No new records were created. %(duplicates)s line(s) already existed and "
+"%(invalid)s line(s) were not valid records."
+msgstr ""
+"لم تُنشَأ سجلات جديدة. %(duplicates)s سطرًا كان موجودًا و%(invalid)s سطرًا "
+"ليست سجلات صالحة."
+
+msgid "No query yet"
+msgstr "لا استعلام بعد"
+
+#, python-format
+msgid ""
+"No readable files were found in %(path)s, so only the uploaded files were "
+"imported."
+msgstr ""
+"لم يُعثر على ملفات قابلة للقراءة في %(path)s، فاستُيرادت الملفات المرفوعة "
+"فقط."
+
+msgid "No readable files were found in the specified path."
+msgstr "لم يُعثر على ملفات قابلة للقراءة في المسار المحدَّد."
+
+msgid "No value in this table matches the filter."
+msgstr "لا قيمة في هذا الجدول تطابق التصفية."
+
+msgid "Not records"
+msgstr "ليست سجلات"
+
+msgid "Nothing else was written after the failure."
+msgstr "لم يُكتَب شيء آخر بعد الخطأ."
+
+msgid "Nothing has been read yet. Start import reads exactly these files."
+msgstr "لم يُقرأ شيء بعد. يقرأ «ابدأ الاستيراد» هذه الملفات بعينها."
+
+msgid ""
+"Nothing is read until you press Start import, and only the files listed "
+"below are sent."
+msgstr ""
+"لا يُقرأ شيء حتى تضغط «ابدأ الاستيراد»، ولا تُرسل إلا الملفات المدرَجة "
+"أدناه."
+
+msgid "Nothing listed yet"
+msgstr "لا شيء معروضًا بعد"
+
+msgid "Nothing new was stored: every valid line already existed in the vault."
+msgstr "لم يُخزَّن جديد: كل سطر صالح كان موجودًا في الخزنة."
+
+msgid "One field, one value, resolved through the index on that field."
+msgstr "حقل واحد وقيمة واحدة، تُحلّ عبر الفهرس على ذلك الحقل."
+
+msgid ""
+"One pass over the data: every line is classified as a new record, an already"
+" stored record, or not a record."
+msgstr ""
+"مرور واحد على البيانات: يُصنَّف كل سطر بين سجل جديد أو سجل مخزَّن أو ليس "
+"سجلًا."
+
+msgid "Order"
+msgstr "الترتيب"
+
+msgid "Order the results"
+msgstr "ترتيب النتائج"
+
+msgid "Partial values are allowed here, so a domain is enough."
+msgstr "القيم الجزئية مسموحة هنا، لذا يكفي النطاق."
+
+msgid "Please choose a file or a folder to import."
+msgstr "اختر ملفًا أو مجلدًا للاستيراد."
+
+msgid "Prefer the command line for very large volumes:"
+msgstr "يفضَّل سطر الأوامر للكميات الكبيرة جدًا:"
+
+msgid "Queued"
+msgstr "في الانتظار"
+
+msgid "Quick search"
+msgstr "بحث سريع"
+
+msgid "Reading and storing"
+msgstr "القراءة والتخزين"
+
+msgid "Reading and storing records"
+msgstr "قراءة السجلات وتخزينها"
+
+msgid "Receiving files"
+msgstr "استلام الملفات"
+
+msgid "Recent"
+msgstr "الأخيرة"
+
+msgid "Record values"
+msgstr "قيم السجل"
+
+msgid ""
+"Records are never listed without a query, so a search stays fast no matter "
+"how large the workspace grows."
+msgstr ""
+"لا تُعرض السجلات أبدًا دون استعلام، فيبقى البحث سريعًا مهما كبُرت مساحة "
+"العمل."
+
+msgid ""
+"Records only point at these values. Deleting a value that is still used is "
+"refused, so a record can never lose part of its meaning."
+msgstr ""
+"تشير السجلات إلى هذه القيم فقط، ويُرفض حذف قيمة ما مستخدمة، فلا يفقد السجل "
+"جزءًا من معناه أبدًا."
+
+msgid "Remaining"
+msgstr "المتبقي"
+
+msgid "Remove"
+msgstr "إزالة"
+
+#, python-format
+msgid "Remove the %(label)s filter"
+msgstr "إزالة تصفية %(label)s"
+
+#, python-format
+msgid "Reused %(count)s records that were already stored."
+msgstr "أُعيد استخدام %(count)s سجلًا كانت مخزَّنة."
+
+msgid "Review files first"
+msgstr "مراجعة الملفات أولًا"
+
+msgid ""
+"Reviewing only counts and lists the files: no data is read and nothing is "
+"written."
+msgstr "تقتصر المراجعة على عدّ الملفات وحصرها: لا تُقرأ بيانات ولا يُكتب شيء."
+
+msgid "Search everywhere"
+msgstr "البحث في كل مكان"
+
+msgid "Search filters"
+msgstr "عوامل تصفية البحث"
+
+msgid "Search in"
+msgstr "البحث في"
+
+msgid "Search the stored values or pick one"
+msgstr "ابحث في القيم المخزَّنة أو اختر واحدة"
+
+#, python-format
+msgid "Search this %(label)s table"
+msgstr "ابحث في جدول %(label)s هذا"
+
+msgid "Sending files to the server"
+msgstr "إرسال الملفات إلى الخادم"
+
+#, python-format
+msgid "Server path: %(path)s"
+msgstr "مسار الخادم: %(path)s"
+
+msgid ""
+"Set at least one filter and the matching records are listed here, fully "
+"exportable."
+msgstr ""
+"اضبط تصفية واحدة على الأقل لتُعرض السجلات المطابقة هنا، قابلة للتصدير "
+"بالكامل."
+
+msgid ""
+"Set one filter above to see matching records, or open the advanced search to"
+" combine several."
+msgstr ""
+"اضبط تصفية واحدة أعلاه لرؤية السجلات المطابقة، أو افتح البحث المتقدم لجمع "
+"عدة عوامل."
+
+msgid "Shared values"
+msgstr "القيم المشتركة"
+
+#, python-brace-format
+msgid "Showing the first {a} of {b} files."
+msgstr "يُعرض أول {a} ملف من {b} ملف."
+
+msgid "Skipped"
+msgstr "مُتخطَّاة"
+
+msgid "Sort"
+msgstr "الترتيب"
+
+msgid "Speed"
+msgstr "السرعة"
+
+msgid "Start import"
+msgstr "ابدأ الاستيراد"
+
+msgid "Start with one value"
+msgstr "ابدأ بقيمة واحدة"
+
+msgid "Starts with"
+msgstr "يبدأ بـ"
+
+msgid ""
+"Starts with uses the index and stays instant on huge tables; contains scans "
+"every value."
+msgstr ""
+"«يبدأ بـ» يستخدم الفهرس فيبقى فوريًا في الجداول الضخمة، أما «يحتوي على» "
+"فيفحص كل قيمة."
+
+msgid "Stop import"
+msgstr "إيقاف الاستيراد"
+
+msgid "Stopping is safe: rows already committed stay committed."
+msgstr "الإيقاف آمن: الصفوف المكتوبة تبقى مكتوبة."
+
+msgid "Summary"
+msgstr "الملخص"
+
+msgid ""
+"Text rows separated by a colon, pipe, tab, or semicolon. Empty lines and # "
+"comments are ignored, and only rows that match the format become records."
+msgstr ""
+"أسطر نصية مفصولة بنقطتين رأسيتين أو خط عمودي أو Tab أو فاصلة منقوطة. تُتجاهل"
+" الأسطر الفارغة وتعليقات #، ولا تصبح السجلات إلا الأسطر المطابقة للتنسيق."
+
+msgid ""
+"The full table is never dumped: pick a field, enter a value, and the "
+"matching records appear."
+msgstr ""
+"لا يُفرَغ الجدول كاملًا أبدًا: اختر حقلًا وأدخل قيمة لتظهر السجلات المطابقة."
+
+msgid "The import could not be completed."
+msgstr "لم يكتمل الاستيراد."
+
+msgid "The import could not be finished"
+msgstr "لم يكتمل الاستيراد"
+
+msgid "The import could not be prepared."
+msgstr "تعذّر تجهيز الاستيراد."
+
+msgid "The import failed."
+msgstr "فشل الاستيراد."
+
+#, python-brace-format
+msgid "The import request failed (HTTP {status})."
+msgstr "فشلت عملية الاستيراد (HTTP {status})."
+
+msgid "The secret"
+msgstr "السر"
+
+msgid "The server stopped reporting this import."
+msgstr "توقف الخادم عن الإبلاغ عن هذا الاستيراد."
+
+msgid "The specified folder or file path does not exist."
+msgstr "مسار المجلد أو الملف المحدَّد غير موجود."
+
+msgid "This import is no longer being tracked."
+msgstr "لم يعد هذا الاستيراد متتبَّعًا."
+
+msgid ""
+"This import is no longer being tracked. Check the records list for what was "
+"stored."
+msgstr ""
+"لم يعد هذا الاستيراد متتبَّعًا. راجع قائمة السجلات لمعرفة ما خُزِّن منها."
+
+#, python-format
+msgid ""
+"This will remove <strong>%(name)s</strong> and its saved details from the "
+"workspace."
+msgstr ""
+"سيؤدي هذا إلى إزالة <strong>%(name)s</strong> وتفاصيله المحفوظة من مساحة "
+"العمل."
+
+msgid "Time"
+msgstr "الوقت"
+
+msgid "Total size"
+msgstr "الحجم الكلي"
+
+msgid "Transfer"
+msgstr "النقل"
+
+msgid ""
+"Type to filter the values already stored, or keep what you typed to create a"
+" new one."
+msgstr "اكتب لتصفية القيم المخزَّنة، أو أبقِ ما كتبته لإنشاء قيمة جديدة."
+
+msgid "Use POST to prepare an import."
+msgstr "استخدم POST لتجهيز استيراد."
+
+msgid "Use POST to stop an import."
+msgstr "استخدم POST لإيقاف استيراد."
+
+msgid "Value"
+msgstr "القيمة"
+
+msgid "View records"
+msgstr "عرض السجلات"
+
+msgid "Waiting for the server to start reading"
+msgstr "بانتظار أن يبدأ الخادم القراءة"
+
+msgid "Waiting to start"
+msgstr "بانتظار البدء"
+
+msgid "When it was stored"
+msgstr "وقت التخزين"
+
+msgid "Where the record points"
+msgstr "إلى أين يشير السجل"
+
+msgid "Who owns it"
+msgstr "من يملكه"
+
+msgid "Why they are separate"
+msgstr "لماذا هي منفصلة"
+
+msgid "excluded"
+msgstr "مستبعد"
+
+msgid "failed"
+msgstr "فشل"
+
+msgid "file(s) ready"
+msgstr "ملف جاهز"
+
+msgid "https://example.com/login or example.com"
+msgstr "https://example.com/login أو example.com"
+
+msgid "in this workspace"
+msgstr "في مساحة العمل هذه"
+
+msgid "no update from the server for a while"
+msgstr "لا تحديث من الخادم منذ فترة"
+
+msgid "of"
+msgstr "من"
+
+msgid "queued"
+msgstr "في الانتظار"
+
+msgid "reading"
+msgstr "قراءة"
+
+msgid "ready"
+msgstr "جاهز"
+
+#, python-brace-format
+msgid "rows {a}-{b} of {total}"
+msgstr "الصفوف {a}-{b} من {total}"
+
+msgid "stopped"
+msgstr "موقوف"
+
+msgid "stopping after the current batch"
+msgstr "الإيقاف بعد الدفعة الحالية"
+
+msgid "stored"
+msgstr "مخزَّن"
+
+msgid "the password or secret exactly as stored"
+msgstr "كلمة المرور أو السر كما خُزِّنا تمامًا"
+
+msgid "the username exactly as stored"
+msgstr "اسم المستخدم كما خُزِّن تمامًا"
+
+msgid "unreadable"
+msgstr "غير قابل للقراءة"
+
+#, python-brace-format
+msgid ""
+"{created} new record(s) from {lines} line(s) read · {duplicates} already "
+"stored · {invalid} not records"
+msgstr ""
+"{created} سجل جديد من {lines} سطرًا قُرئ · {duplicates} مخزَّن مسبقًا · "
+"{invalid} ليست سجلات"
+
+#, python-brace-format
+msgid "{done} of {total} files done"
+msgstr "أُنجز {done} من {total} ملف"
+
+#, python-brace-format
+msgid "{done} of {total} read"
+msgstr "قُرئ {done} من {total}"
+
+#, python-brace-format
+msgid "{done} of {total} uploaded"
+msgstr "رُفع {done} من {total}"
+
+#, python-brace-format
+msgid "{done} of {total} uploaded · reading starts when the last file lands"
+msgstr "رُفع {done} من {total} · تبدأ القراءة عند وصول آخر ملف"
+
+#, python-brace-format
+msgid "{h}h {m}m"
+msgstr "{h}س {m}د"
+
+#, python-brace-format
+msgid "{m}m {s}s"
+msgstr "{m}د {s}ث"
+
+#, python-brace-format
+msgid "{n} file(s)"
+msgstr "{n} ملف"
+
+#, python-brace-format
+msgid "{n} file(s) are not text and were excluded."
+msgstr "{n} ملف ليس نصيًا فاستُبعد."
+
+#, python-brace-format
+msgid "{n} file(s) could not be read."
+msgstr "تعذّرت قراءة {n} ملف."
+
+#, python-brace-format
+msgid "{n} line(s) waiting for the next write"
+msgstr "{n} سطرًا بانتظار الكتابة التالية"
+
+#, python-brace-format
+msgid "{n}s"
+msgstr "{n}ث"
+
+#, python-brace-format
+msgid "{percent}% of {total} read"
+msgstr "قُرئ {percent}٪ من {total}"
+
+#, python-format
+msgid "%(counter)s active filter"
+msgid_plural "%(counter)s active filters"
+msgstr[0] "لا تصفية نشطة"
+msgstr[1] "تصفية نشطة واحدة"
+msgstr[2] "تصفيتان نشطتان"
+msgstr[3] "%(counter)s تصفيات نشطة"
+msgstr[4] "%(counter)s تصفية نشطة"
+msgstr[5] "%(counter)s تصفية نشطة"
+
+#, python-format
+msgid "%(counter)s filter"
+msgid_plural "%(counter)s filters"
+msgstr[0] "لا تصفية"
+msgstr[1] "تصفية واحدة"
+msgstr[2] "تصفيتان"
+msgstr[3] "%(counter)s تصفيات"
+msgstr[4] "%(counter)s تصفية"
+msgstr[5] "%(counter)s تصفية"
+
+msgid "value listed"
+msgid_plural "values listed"
+msgstr[0] "قيمة معروضة"
+msgstr[1] "قيمة واحدة معروضة"
+msgstr[2] "قيمتان معروضان"
+msgstr[3] "قيمات معروضة"
+msgstr[4] "قيمة معروضة"
+msgstr[5] "قيمة معروضة"
+
+msgid "value matches"
+msgid_plural "values match"
+msgstr[0] "قيمة مطابقة"
+msgstr[1] "قيمة واحدة مطابقة"
+msgstr[2] "قيمتان مطابقتان"
+msgstr[3] "قيمات مطابقة"
+msgstr[4] "قيمة مطابقة"
+msgstr[5] "قيمة مطابقة"
+
+msgid "value stored"
+msgid_plural "values stored"
+msgstr[0] "قيمة مخزَّنة"
+msgstr[1] "قيمة واحدة مخزَّنة"
+msgstr[2] "قيمتان مخزَّنتان"
+msgstr[3] "قيمات مخزَّنة"
+msgstr[4] "قيمة مخزَّنة"
+msgstr[5] "قيمة مخزَّنة"

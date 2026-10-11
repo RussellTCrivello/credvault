@@ -1,4 +1,4 @@
-{% load i18n static %}
+{% load i18n static monitoring %}
 {% get_current_language as LANGUAGE_CODE %}
 {% get_current_language_bidi as LANGUAGE_BIDI %}
 <!doctype html>
@@ -9,12 +9,16 @@
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#f8faf8" />
     <title>{% block title %}{% trans "LogIntel" %}{% endblock %} · LogIntel</title>
+    <script>document.documentElement.classList.add('js');</script>
     <link rel="icon" type="image/svg+xml" href="{% static 'monitoring/favicon.svg' %}" />
     <link rel="stylesheet" href="{% static 'monitoring/app.css' %}" />
     <link rel="stylesheet" href="{% static 'monitoring/vault.css' %}" />
     <link rel="stylesheet" href="{% static 'monitoring/admin.css' %}" />
+    <link rel="stylesheet" href="{% static 'monitoring/filters.css' %}" />
+    {% block page_styles %}{% endblock %}
   </head>
   <body>
+    {% icon_sprite %}
     <a class="skip-link" href="#main-content">{% trans "Skip to content" %}</a>
     <div class="vault-shell">
       <aside class="vault-sidebar">
@@ -23,11 +27,11 @@
         </a>
         <p class="nav-label">{% trans "Workspace" %}</p>
         <nav aria-label="{% trans 'Main navigation' %}">
-          <a href="{% url 'vault:dashboard' %}" {% if request.resolver_match.url_name == 'dashboard' %}class="active" aria-current="page"{% endif %}>{% trans "Overview" %}</a>
-          <a href="{% url 'vault:browse' %}" {% if request.resolver_match.url_name == 'browse' or request.resolver_match.url_name == 'detail' or request.resolver_match.url_name == 'update' or request.resolver_match.url_name == 'delete' %}class="active" aria-current="page"{% endif %}>{% trans "Records" %}</a>
-          <a href="{% url 'vault:search' %}" {% if request.resolver_match.url_name == 'search' or request.resolver_match.url_name == 'advanced_search' %}class="active" aria-current="page"{% endif %}>{% trans "Search" %}</a>
-          <a href="{% url 'vault:import' %}" {% if request.resolver_match.url_name == 'import' %}class="active" aria-current="page"{% endif %}>{% trans "Import data" %}</a>
-          <a href="{% url 'vault:references_index' %}" {% if request.resolver_match.url_name == 'references_index' or request.resolver_match.url_name == 'references' or request.resolver_match.url_name == 'reference_delete' %}class="active" aria-current="page"{% endif %}>{% trans "References" %}</a>
+          <a href="{% url 'vault:dashboard' %}" {% if request.resolver_match.url_name == 'dashboard' %}class="active" aria-current="page"{% endif %}>{% icon "info" css_class="nav-icon" %}<span>{% trans "Overview" %}</span></a>
+          <a href="{% url 'vault:browse' %}" {% if request.resolver_match.url_name == 'browse' or request.resolver_match.url_name == 'detail' or request.resolver_match.url_name == 'update' or request.resolver_match.url_name == 'delete' %}class="active" aria-current="page"{% endif %}>{% icon "database" css_class="nav-icon" %}<span>{% trans "Records" %}</span></a>
+          <a href="{% url 'vault:search' %}" {% if request.resolver_match.url_name == 'search' or request.resolver_match.url_name == 'advanced_search' %}class="active" aria-current="page"{% endif %}>{% icon "search" css_class="nav-icon" %}<span>{% trans "Search" %}</span></a>
+          <a href="{% url 'vault:import' %}" {% if request.resolver_match.url_name == 'import' %}class="active" aria-current="page"{% endif %}>{% icon "upload" css_class="nav-icon" %}<span>{% trans "Import data" %}</span></a>
+          <a href="{% url 'vault:references_index' %}" {% if request.resolver_match.url_name == 'references_index' or request.resolver_match.url_name == 'references' or request.resolver_match.url_name == 'reference_delete' %}class="active" aria-current="page"{% endif %}>{% icon "layers" css_class="nav-icon" %}<span>{% trans "References" %}</span></a>
         </nav>
         <div class="vault-sidebar-bottom">
           <p><strong>{% trans "LogIntel workspace" %}</strong><br />{% trans "Review and manage your organization's records from one place." %}</p>
@@ -69,5 +73,6 @@
       </main>
     </div>
     <script src="{% static 'monitoring/admin.js' %}" defer></script>
+    {% block page_scripts %}{% endblock %}
   </body>
 </html>

@@ -4,6 +4,7 @@ import json
 import os
 from urllib.parse import urlparse
 
+from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
@@ -19,9 +20,11 @@ from .forms import (
     AccountForm, AdvancedSearchForm, ImportFileForm, QuickSearchForm,
     ReferenceForm,
 )
-from .importer import bulk_import_lines, import_path
+from . import import_jobs
+from .import_jobs import Source
+from .importer import is_candidate_file
 from .models import Account, Email, Ip, Pass, Url, User
-from .utils import extract_domain, parse_line
+from .utils import extract_domain
 
 
 class StreamableDownloadResponse(StreamingHttpResponse):
@@ -176,6 +179,137 @@ def _clean_query_string(request_get):
     params = request_get.copy()
     params.pop('page', None)
     return params.urlencode()
+
+
+# ---------------------------------------------------------------------------
+# Filter UI support
+# ---------------------------------------------------------------------------
+
+# Placeholder + hint per quick-search field. The segmented control in the
+# filter bar reads these, so the input explains itself the moment a field is
+# picked ('example.com' for a domain, 'user@example.com' for an email, ...).
+QUICK_SEARCH_HINTS = {
+    'all': _lazy('Any value -- exact match across URL, email, username, password, IP'),
+    'domain': _lazy('example.com'),
+    'url': _lazy('https://example.com/login or example.com'),
+    'email': _lazy('user@example.com'),
+    'user': _lazy('the username exactly as stored'),
+    'password': _lazy('the password or secret exactly as stored'),
+    'ip': _lazy('203.0.113.10'),
+}
+
+QUICK_SEARCH_ICONS = {
+    'all': 'search',
+    'domain': 'globe',
+    'url': 'link',
+    'email': 'mail',
+    'user': 'user',
+    'password': 'key',
+    'ip': 'hash',
+}
+
+# Query parameters that name a filter, in the order the chips show them.
+FILTER_CHIP_LABELS = {
+    'field': _lazy('Search in'),
+    'q': _lazy('Value'),
+    'keyword': _lazy('Keyword'),
+    'url': _lazy('URL contains'),
+    'account_type': _lazy('Account type'),
+    'email': _lazy('Email contains'),
+    'username': _lazy('Username contains'),
+    'password': _lazy('Password contains'),
+    'ip': _lazy('IP contains'),
+    'created_from': _lazy('Created from'),
+    'created_to': _lazy('Created to'),
+    'sort': _lazy('Sort'),
+    'match': _lazy('Match'),
+}
+
+_FILTER_ICONS = {
+    'q': 'search',
+    'keyword': 'search',
+    'url': 'link',
+    'ip': 'hash',
+    'email': 'mail',
+    'username': 'user',
+    'password': 'key',
+    'account_type': 'users',
+    'created_from': 'calendar',
+    'created_to': 'calendar',
+    'sort': 'sort',
+    'match': 'sliders',
+}
+
+ACCOUNT_TYPE_LABELS = dict(Account.ACCOUNT_TYPE_CHOICES)
+
+
+def _choice_rows(choices, hints=None, icons=None):
+    """Normalize Django choices into ``{'value','label','hint','icon'}`` rows."""
+    rows = []
+    for value, label in choices:
+        rows.append({
+            'value': value,
+            'label': str(label),
+            'hint': str((hints or {}).get(value, '')),
+            'icon': (icons or {}).get(value, 'search'),
+        })
+    return rows
+
+
+def _human_filter_value(key, value):
+    """Render a raw query value the way the control that produced it shows it."""
+    if key == 'field':
+        for choice_value, label in QuickSearchForm.FIELD_CHOICES:
+            if choice_value == value:
+                return str(label)
+    if key == 'account_type':
+        return str(ACCOUNT_TYPE_LABELS.get(value, value))
+    if key == 'sort':
+        for choice_value, label in AdvancedSearchForm.SORT_CHOICES:
+            if choice_value == value:
+                return str(label)
+    if key == 'match':
+        return str(_lazy('Contains') if value == 'contains' else _lazy('Starts with'))
+    return value
+
+
+def active_filters(request, *, skip=()):
+    """
+    The chips row above a result list: one per filter, each with its own
+    removal link.
+
+    Derived from the query string rather than the form, so a bookmarked or
+    shared URL shows exactly what is filtering the results even when a value
+    is not accepted by the form.
+    """
+    skip = set(skip) | {'page', 'adv'}
+    # The quick search needs two parameters to mean anything: choosing a field
+    # with no value typed is not yet a filter, so it gets no chip of its own.
+    has_query = bool((request.GET.get('q') or '').strip())
+    chips = []
+    for key in request.GET.keys():
+        if key in skip or (key == 'field' and not has_query):
+            continue
+        value = (request.GET.get(key) or '').strip()
+        if not value:
+            continue
+        remaining = request.GET.copy()
+        remaining.pop(key, None)
+        remaining.pop('page', None)
+        chips.append({
+            'key': key,
+            'label': str(FILTER_CHIP_LABELS.get(key, key.replace('_', ' ').title())),
+            'value': _human_filter_value(key, value),
+            'icon': _FILTER_ICONS.get(key, 'sliders'),
+            'clear': '?' + remaining.urlencode() if remaining else '?',
+        })
+    return chips
+
+
+def filter_summary(request, *, skip=()):
+    """Chips plus the count shown in the filter bar badge."""
+    chips = active_filters(request, skip=skip)
+    return {'chips': chips, 'count': len(chips)}
 
 
 def filter_accounts(params):
@@ -423,12 +557,36 @@ def dashboard(request):
     })
 
 
-def browse_all(request):
+def _quick_search_state(request, form):
+    """Context shared by every page that shows the quick filter bar."""
+    field_value = (request.GET.get('field') or '').strip() or 'all'
+    return {
+        'form': form,
+        'quick_fields': _choice_rows(
+            QuickSearchForm.FIELD_CHOICES, QUICK_SEARCH_HINTS,
+            QUICK_SEARCH_ICONS,
+        ),
+        'active_field': field_value,
+        'active_hint': QUICK_SEARCH_HINTS.get(field_value, ''),
+        'active_query': (
+            request.GET.get('q') or request.GET.get('keyword') or ''
+        ).strip(),
+        'filters': filter_summary(request),
+        'filter_title': _lazy('Quick search'),
+        'filter_hint': _lazy(
+            'Indexed and exact: paste a whole value, or pick a field to narrow '
+            'the match.'
+        ),
+    }
+
+
+def _search_results(request, form, *, skip_filters=()):
     """
-    Records view: never dumps unqueried records across millions of rows.
-    Displays matching records only when the user submits a search query.
+    Run a quick search and build its context, or return an empty result set.
+
+    Records are only queried when a filter is actually set -- dumping an
+    unfiltered result set across millions of rows is never what the user wants.
     """
-    form = QuickSearchForm(request.GET or None)
     has_query = has_search_query(request.GET)
     records = []
     page_obj = None
@@ -440,15 +598,31 @@ def browse_all(request):
         page_obj = _paginate(request, queryset)
         records = page_obj.object_list
 
-    return render(request, 'vault/browse.html', {
-        'form': form,
+    context = _quick_search_state(request, form)
+    context.update({
         'has_query': has_query,
         'records': records,
         'page_obj': page_obj,
         'total': total,
-        'total_records': Account.objects.count(),
         'query_string': _clean_query_string(request.GET),
     })
+    return context
+
+
+def browse_all(request):
+    """
+    Records view: never dumps unqueried records across millions of rows.
+    Displays matching records only when the user submits a search query.
+    """
+    form = QuickSearchForm(request.GET or None)
+    context = _search_results(request, form)
+    context['total_records'] = Account.objects.count()
+    context['filter_title'] = _lazy('Find records')
+    context['filter_hint'] = _lazy(
+        'The full table is never dumped: pick a field, enter a value, and the '
+        'matching records appear.'
+    )
+    return render(request, 'vault/browse.html', context)
 
 
 def search_records(request):
@@ -458,25 +632,133 @@ def search_records(request):
     the full matching dataset can be exported in CSV or JSON.
     """
     form = QuickSearchForm(request.GET or None)
-    has_query = has_search_query(request.GET)
-    records = []
-    page_obj = None
-    total = 0
+    context = _search_results(request, form)
+    context['filter_title'] = _lazy('Exact match search')
+    context['filter_hint'] = _lazy(
+        'One field, one value, resolved through the index on that field.'
+    )
+    return render(request, 'vault/search.html', context)
 
-    if has_query:
-        queryset = filter_accounts(request.GET)
-        total = queryset.count()
-        page_obj = _paginate(request, queryset)
-        records = page_obj.object_list
 
-    return render(request, 'vault/search.html', {
-        'form': form,
-        'has_query': has_query,
-        'records': records,
-        'page_obj': page_obj,
-        'total': total,
-        'query_string': _clean_query_string(request.GET),
-    })
+# Fields grouped the way an analyst reads them, not in model order.
+ADVANCED_GROUPS = (
+    {
+        'id': 'scope',
+        'title': _lazy('Search everywhere'),
+        'help': _lazy(
+            'Free text is matched against every stored value at once: URLs, '
+            'emails, usernames, passwords and IPs.'
+        ),
+        'icon': 'search',
+        'fields': ('keyword',),
+    },
+    {
+        'id': 'where',
+        'title': _lazy('Where the record points'),
+        'help': _lazy('Partial values are allowed here, so a domain is enough.'),
+        'icon': 'globe',
+        'fields': ('url', 'ip'),
+    },
+    {
+        'id': 'who',
+        'title': _lazy('Who owns it'),
+        'help': _lazy('Every filter below is combined with the others (AND).'),
+        'icon': 'users',
+        'fields': ('account_type', 'email', 'username'),
+    },
+    {
+        'id': 'secret',
+        'title': _lazy('The secret'),
+        'help': _lazy('Leave it empty to search by owner or location only.'),
+        'icon': 'key',
+        'fields': ('password',),
+    },
+    {
+        'id': 'when',
+        'title': _lazy('When it was stored'),
+        'help': _lazy('Dates are compared against the record creation date.'),
+        'icon': 'calendar',
+        'fields': ('created_from', 'created_to'),
+    },
+    {
+        'id': 'order',
+        'title': _lazy('Order the results'),
+        'help': _lazy('Applies to the result table and to the export files.'),
+        'icon': 'sort',
+        'fields': ('sort',),
+    },
+)
+
+_ADVANCED_FIELD_ICONS = {
+    'keyword': 'search',
+    'url': 'link',
+    'ip': 'hash',
+    'email': 'mail',
+    'username': 'user',
+    'password': 'key',
+    'account_type': 'users',
+    'created_from': 'calendar',
+    'created_to': 'calendar',
+    'sort': 'sort',
+}
+
+_SEGMENTED_FIELDS = {
+    'account_type': [
+        ('', _lazy('Any')),
+        ('email', _lazy('Email')),
+        ('user', _lazy('Username')),
+    ],
+    'sort': AdvancedSearchForm.SORT_CHOICES,
+}
+
+
+def _advanced_filter_groups(form, data):
+    """
+    Build the grouped filter panel.
+
+    Choice fields become segmented controls (real radio inputs, so the panel
+    still filters without JavaScript); everything else keeps its own widget
+    inside the shared field shell.
+    """
+    groups = []
+    for group in ADVANCED_GROUPS:
+        rows = []
+        for name in group['fields']:
+            bound = form[name]
+            if name in _SEGMENTED_FIELDS:
+                rows.append({
+                    'kind': 'segmented',
+                    'name': name,
+                    'label': str(bound.label),
+                    'icon': _ADVANCED_FIELD_ICONS.get(name, 'sliders'),
+                    'choices': [
+                        {'value': value, 'label': str(label)}
+                        for value, label in _SEGMENTED_FIELDS[name]
+                    ],
+                    'current': (data.get(name) or '').strip()
+                    or _default_segment(name),
+                })
+            else:
+                rows.append({
+                    'kind': 'field',
+                    'field': bound,
+                    'icon': _ADVANCED_FIELD_ICONS.get(name, 'sliders'),
+                    'wide': name in ('keyword', 'url'),
+                })
+        groups.append({
+            'id': group['id'],
+            'title': str(group['title']),
+            'help': str(group['help']),
+            'icon': group['icon'],
+            'rows': rows,
+        })
+    return groups
+
+
+def _default_segment(name):
+    if name == 'sort':
+        return 'newest'
+    return ''
 
 
 def advanced_search(request):
@@ -489,8 +771,9 @@ def advanced_search(request):
     records = []
     page_obj = None
     total = 0
+    has_query = has_search_query(request.GET)
 
-    if request.GET:
+    if request.GET and has_query:
         params = request.GET.copy()
         params['adv'] = '1'
         queryset = filter_accounts(params)
@@ -498,13 +781,21 @@ def advanced_search(request):
         page_obj = _paginate(request, queryset)
         records = page_obj.object_list
 
-    return render(request, 'vault/advanced_search.html', {
+    data = request.GET or {}
+
+    context = {
         'form': form,
         'records': records,
         'page_obj': page_obj,
         'total': total,
+        'has_query': has_query,
         'query_string': _clean_query_string(request.GET),
-    })
+        'filter_groups': _advanced_filter_groups(form, data),
+        'filters': filter_summary(request),
+        'sort_value': (data.get('sort') or 'newest'),
+        'account_type_value': (data.get('account_type') or ''),
+    }
+    return render(request, 'vault/advanced_search.html', context)
 
 
 def view_detail(request, pk):
@@ -659,8 +950,50 @@ def references_index(request):
     })
 
 
+# How a value typed into a reference filter is compared, and in what order
+# the table is listed. 'prefix' rides the functional LOWER(name) index, which
+# is what keeps a reference table of millions of values instant to filter;
+# 'contains' is offered too, but it is labelled as the slower choice.
+REFERENCE_MATCH_CHOICES = [
+    ('prefix', _lazy('Starts with')),
+    ('contains', _lazy('Contains')),
+]
+
+REFERENCE_SORT_CHOICES = [
+    ('name', _lazy('Name (A-Z)')),
+    ('name_desc', _lazy('Name (Z-A)')),
+    ('used', _lazy('Most used')),
+    ('recent', _lazy('Newest')),
+]
+
+
+def _reference_filter_context(request, model, qs, *, total_values, matched):
+    q = (request.GET.get('q') or '').strip()
+    mode = (request.GET.get('match') or 'prefix').strip()
+    sort = (request.GET.get('sort') or 'name').strip()
+    return {
+        'filter_q': q,
+        'filter_mode': mode if mode in dict(REFERENCE_MATCH_CHOICES) else 'prefix',
+        'filter_choices': _choice_rows(REFERENCE_MATCH_CHOICES),
+        'sort_value': sort if sort in dict(REFERENCE_SORT_CHOICES) else 'name',
+        'sort_choices': _choice_rows(REFERENCE_SORT_CHOICES),
+        'has_filter': bool(q),
+        'matched': matched,
+        'total_values': total_values,
+        # The match and order controls are visible right above the table, so a
+        # chip for either would only repeat what the segments already say.
+        'filters': filter_summary(request, skip=('match', 'sort')),
+    }
+
+
 def reference_list(request, kind):
-    """List and add values in one of the five reference tables."""
+    """
+    List, filter and extend one of the five reference tables.
+
+    The filter box is part of the shared filter system, so typing here behaves
+    exactly like typing in the records and search screens -- same field shell,
+    same chips, same clear links.
+    """
     if kind not in REFERENCE_REGISTRY:
         return redirect('vault:dashboard')
 
@@ -688,20 +1021,48 @@ def reference_list(request, kind):
     else:
         form = ReferenceForm()
 
+    q = (request.GET.get('q') or '').strip()
+    mode = (request.GET.get('match') or 'prefix').strip()
+    sort = (request.GET.get('sort') or 'name').strip()
+
+    qs = model.objects.annotate(usage=Count('accounts'))
+    if q:
+        if mode == 'contains':
+            qs = qs.filter(name__icontains=q)
+        else:
+            lowered = q.lower()
+            qs = (
+                qs.annotate(name_lower=Lower('name'))
+                .filter(name_lower__gte=lowered, name_lower__lt=lowered + '\uffff')
+            )
+
     total_values = model.objects.count()
-    qs = model.objects.annotate(usage=Count('accounts')).order_by('name')
+    matched = qs.count() if q else total_values
+
+    if sort == 'used':
+        qs = qs.order_by('-usage', 'name')
+    elif sort == 'recent':
+        qs = qs.order_by('-created_at', 'id')
+    elif sort == 'name_desc':
+        qs = qs.order_by('-name')
+    else:
+        qs = qs.order_by('name')
+
     page_obj = _paginate(request, qs, per_page=100)
 
-    return render(request, 'vault/references.html', {
+    context = {
         'kind': kind,
         'registry': registry,
         'reference_registry': REFERENCE_REGISTRY,
         'form': form,
         'entities': page_obj.object_list,
         'page_obj': page_obj,
-        'total_values': total_values,
         'query_string': _clean_query_string(request.GET),
-    })
+    }
+    context.update(_reference_filter_context(
+        request, model, qs, total_values=total_values, matched=matched
+    ))
+    return render(request, 'vault/references.html', context)
 
 
 def reference_delete(request, kind, pk):
@@ -755,85 +1116,497 @@ def reference_delete(request, kind, pk):
     })
 
 
+# ---------------------------------------------------------------------------
+# Import: browser uploads and server paths, with live progress
+# ---------------------------------------------------------------------------
+
+IMPORT_TEMPLATE = 'vault/import.html'
+
+
+def _wants_json(request):
+    """True for the workspace XHR calls, as opposed to a plain form post."""
+    if (request.headers.get('x-requested-with') or '').lower() == 'xmlhttprequest':
+        return True
+    accept = request.headers.get('accept') or ''
+    return 'application/json' in accept and 'text/html' not in accept
+
+
+def local_import_paths_allowed():
+    """
+    Whether a folder/file path on the server may be imported from the browser.
+
+    On a host where the workspace is reachable by people who should not read
+    arbitrary paths, set ``VAULT_ALLOW_LOCAL_IMPORT_PATHS = False`` and only
+    browser uploads stay available.
+    """
+    return getattr(settings, 'VAULT_ALLOW_LOCAL_IMPORT_PATHS', True)
+
+
+def _upload_sources(request):
+    """
+    Build import sources from the uploaded files.
+
+    The folder picker also sends ``relpath`` for each file so a progress row
+    can read ``sub/dir/records.txt`` instead of a bare ``records.txt``; when
+    the counts do not line up the plain names are used. Known binary files are
+    dropped and reported, because parsing them cannot produce records and
+    would stretch the progress bar for nothing.
+    """
+    uploads = list(request.FILES.getlist('file'))
+    uploads += list(request.FILES.getlist('folder'))
+    relpaths = request.POST.getlist('relpath')
+    if len(relpaths) != len(uploads):
+        relpaths = []
+
+    sources = []
+    skipped = []
+    for index, uploaded in enumerate(uploads):
+        name = getattr(uploaded, 'name', '') or ''
+        if not is_candidate_file(name):
+            skipped.append(name or _('(unnamed file)'))
+            continue
+        sources.append(Source.from_upload(
+            uploaded, relpath=relpaths[index] if relpaths else name
+        ))
+    return sources, skipped
+
+
+def _path_sources(folder_path):
+    """
+    Sources, byte total and file count for a server-side path.
+
+    ``stats['skipped']`` carries how many files were seen but not text, which
+    is reported to the user instead of silently shrinking the list.
+    """
+    stats = {'skipped': 0}
+    paths, total_bytes = import_jobs.scan(folder_path, stats=stats)
+    root = folder_path if os.path.isdir(folder_path) else None
+    sources = import_jobs.sources_for_paths(paths, root=root)
+    return sources, total_bytes, len(paths), stats['skipped']
+
+
+def _import_job_label(source_count, folder_path):
+    if folder_path:
+        return _lazy("Server path: %(path)s") % {'path': folder_path}
+    return ngettext(
+        '%(count)s uploaded file', '%(count)s uploaded files', source_count
+    ) % {'count': source_count}
+
+
+def _import_labels():
+    """
+    Strings the progress panel needs, translated on the server.
+
+    The readout is rendered by JavaScript, so its labels are handed over as
+    data instead of being hardcoded in the script -- the panel speaks the same
+    language as the rest of the workspace.
+    """
+    return {
+        'start': _('Start import'),
+        'importing': _('Importing…'),
+        'sending': _('Sending files to the server'),
+        'listing': _('Listing files…'),
+        'noFiles': _('Add at least one file to import.'),
+        'noPath': _('Enter a folder or file path first.'),
+        'binaryExcluded': _('{n} file(s) are not text and were excluded.'),
+        'moreFiles': _('+ {n} more file(s) in the list'),
+        'notTextFile': _('Listed as a non-text file — excluded'),
+        'include': _('Include'),
+        'exclude': _('Exclude'),
+        'remove': _('Remove'),
+        'ready': _('ready'),
+        'excluded': _('excluded'),
+        'files': _('Files'),
+        'totalSize': _('Total size'),
+        'skipped': _('Skipped'),
+        'firstOf': _('Showing the first {a} of {b} files.'),
+        'scanNothing': _(
+            'Nothing has been read yet. Start import reads exactly these '
+            'files.'
+        ),
+        'prepareFailed': _('The import could not be prepared.'),
+        'requestFailed': _('The import request failed (HTTP {status}).'),
+        'stoppedReporting': _('The server stopped reporting this import.'),
+        'lostJob': _(
+            'This import is no longer being tracked. Check the records '
+            'list for what was stored.'
+        ),
+        'uploadedOf': _('{done} of {total} uploaded'),
+        'transferSub': _(
+            '{done} of {total} uploaded · reading starts when the last '
+            'file lands'
+        ),
+        'percentRead': _('{percent}% of {total} read'),
+        'readOf': _('{done} of {total} read'),
+        'filesDone': _('{done} of {total} files done'),
+        'pendingLines': _('{n} line(s) waiting for the next write'),
+        'stale': _('no update from the server for a while'),
+        'stopping': _('stopping after the current batch'),
+        'waitingForServer': _('Waiting for the server to start reading'),
+        'rowsOf': _('rows {a}-{b} of {total}'),
+        'filesCount': _('{n} file(s)'),
+        'filesUnreadable': _('{n} file(s) could not be read.'),
+        'moreNotes': _('+{n} more note(s) not shown.'),
+        'unreadable': _('unreadable'),
+        'queuedState': _('queued'),
+        'readingState': _('reading'),
+        'storedState': _('stored'),
+        'failedState': _('failed'),
+        'stoppedState': _('stopped'),
+        'finishedIn': _('Import finished in {time}'),
+        'stoppedAfter': _('Import stopped after {time}'),
+        'couldNotFinish': _('The import could not be finished'),
+        'summaryLine': _('{created} new record(s) from {lines} line(s) read · '
+                         '{duplicates} already stored · {invalid} not records'),
+        'newRecords': _('New records'),
+        'alreadyStored': _('Already stored'),
+        'notRecords': _('Not records'),
+        'emptyLines': _('Empty or comment'),
+        'linesRead': _('Lines read'),
+        'dataRead': _('Data read'),
+        'time': _('Time'),
+        'nothingNew': _(
+            'Nothing new was stored: every valid line already existed in '
+            'the vault.'
+        ),
+        'measured': _(
+            'Every number above was measured while reading the files, not '
+            'estimated.'
+        ),
+        'failedLabel': _('Import failed'),
+        'nothingAfterFailure': _('Nothing else was written after the failure.'),
+        'finishingBatch': _('Finishing the current batch, then stopping…'),
+        'secondsShort': _('{n}s'),
+        'minutesShort': _('{m}m {s}s'),
+        'hoursShort': _('{h}h {m}m'),
+    }
+
+
+def _import_page(request, form, status=None):
+    context = {
+        'form': form,
+        'allow_local_paths': local_import_paths_allowed(),
+        'import_labels': _import_labels(),
+        'import_urls': {
+            'import': reverse('vault:import'),
+            'prepare': reverse('vault:import_prepare'),
+            'status': reverse('vault:import_job_status', args=['__JOB_ID__']),
+            'stop': reverse('vault:import_job_stop', args=['__JOB_ID__']),
+            'browse': reverse('vault:browse'),
+        },
+    }
+    if status is None:
+        return render(request, IMPORT_TEMPLATE, context)
+    return render(request, IMPORT_TEMPLATE, context, status=status)
+
+
 def import_from_file(request):
     """
-    Replaces: import_from_file() -- uploads one file, a whole folder of files,
-    or reads a local/server directory or file path directly from disk, storing
-    every line that meets the record format requirements and deduplicating
-    referenced values in bulk.
+    Import one file, a whole folder of files, or a path on the server.
+
+    The same view answers both kinds of client:
+
+    * the plain form posts normally and the user lands back on Records with a
+      summary message once the import is over;
+    * the workspace screen posts with ``X-Requested-With`` and polls
+      :func:`import_job_status` *while this call is still running*, so it can
+      show a byte-accurate bar, the live counters behind it, and a Stop button
+      for imports of any size.
     """
-    if request.method == 'POST':
-        form = ImportFileForm(request.POST, request.FILES)
-        if form.is_valid():
-            files = []
-            files.extend(request.FILES.getlist('file'))
-            files.extend(request.FILES.getlist('folder'))
-            folder_path = (form.cleaned_data.get('folder_path') or '').strip()
+    if request.method != 'POST':
+        return _import_page(request, ImportFileForm())
 
-            if not files and not folder_path:
-                form.add_error(
-                    None,
-                    _('Please choose a file or a folder to import.')
-                )
-                return render(request, 'vault/import.html', {'form': form})
+    as_json = _wants_json(request)
+    form = ImportFileForm(request.POST, request.FILES)
+    if not form.is_valid():
+        if as_json:
+            return JsonResponse(
+                {'ok': False, 'errors': form.errors}, status=422
+            )
+        return _import_page(request, form)
 
-            created_total = 0
-            skipped_total = 0
+    def reject(message, field=None):
+        if as_json:
+            return JsonResponse(
+                {'ok': False, 'error': str(message), 'field': field},
+                status=400,
+            )
+        form.add_error(field, str(message))
+        return _import_page(request, form)
 
-            if folder_path:
-                if not (os.path.isdir(folder_path) or os.path.isfile(folder_path)):
-                    form.add_error(
-                        'folder_path',
-                        _('The specified folder or file path does not exist.')
-                    )
-                    return render(request, 'vault/import.html', {'form': form})
-                created_path, skipped_path, matched_files = import_path(
-                    folder_path, ext="*"
-                )
-                if matched_files == 0 and not files:
-                    form.add_error(
-                        'folder_path',
-                        _('No readable files were found in the specified path.')
-                    )
-                    return render(request, 'vault/import.html', {'form': form})
-                created_total += created_path
-                skipped_total += skipped_path
+    folder_path = (form.cleaned_data.get('folder_path') or '').strip()
+    sources, skipped_names = _upload_sources(request)
+    path_notice = None
 
-            if files:
-                parsed_stream = (
-                    parse_line(line)
-                    for uploaded_file in files
-                    for line in uploaded_file
-                )
-                created_files, skipped_files = bulk_import_lines(parsed_stream)
-                created_total += created_files
-                skipped_total += skipped_files
-
-            if created_total == 0 and skipped_total > 0:
-                messages.warning(
-                    request,
-                    _('No new records were created. Existing values were '
-                      'reused and %d line(s) were not valid records.')
-                    % skipped_total
-                )
+    if folder_path:
+        if not local_import_paths_allowed():
+            return reject(
+                _('Importing from a server path is disabled in this workspace.'),
+                'folder_path',
+            )
+        if not (os.path.isdir(folder_path) or os.path.isfile(folder_path)):
+            return reject(
+                _('The specified folder or file path does not exist.'),
+                'folder_path',
+            )
+        job = import_jobs.get(request.POST.get('job'))
+        reused = job.reuse_scan(folder_path) if job else None
+        if reused is not None:
+            path_sources, path_bytes = reused
+            path_skipped = 0
+        else:
+            path_sources, path_bytes, _count, path_skipped = _path_sources(
+                folder_path
+            )
+        if not path_sources:
+            if sources:
+                path_notice = _(
+                    'No readable files were found in %(path)s, so only the '
+                    'uploaded files were imported.'
+                ) % {'path': folder_path}
             else:
-                messages.success(
-                    request,
-                    ngettext(
-                        'Successfully imported %(count)s record.',
-                        'Successfully imported %(count)s records.',
-                        created_total,
-                    )
-                    % {'count': created_total}
-                    + ' '
-                    + _('Filtered out %(count)s non-record lines.')
-                    % {'count': skipped_total}
+                return reject(
+                    _('No readable files were found in the specified path.'),
+                    'folder_path',
                 )
-            return redirect('vault:browse')
-    else:
-        form = ImportFileForm()
+        else:
+            sources.extend(path_sources)
 
-    return render(request, 'vault/import.html', {'form': form})
+    if not sources:
+        return reject(_('Please choose a file or a folder to import.'))
+
+    job = import_jobs.get(request.POST.get('job'))
+    if job is None:
+        job = import_jobs.create(
+            label='', source_kind='path' if folder_path else 'upload',
+            register_files=False, files_total=len(sources),
+        )
+    job.label = str(_import_job_label(len(sources), folder_path))
+    job.replace_sources(sources)
+    if folder_path and path_skipped:
+        job.warn(_("%(count)s file(s) in %(path)s are not text and were "
+                   "ignored.") % {'count': path_skipped, 'path': folder_path})
+    for name in skipped_names:
+        job.warn(_("%(name)s was skipped: not a text file.") % {'name': name})
+    if path_notice:
+        job.warn(path_notice)
+
+    import_jobs.run(job, sources)
+    stats = job.stats
+
+    if as_json:
+        return JsonResponse({
+            'ok': job.state != import_jobs.STATE_ERROR,
+            'job_id': job.id,
+            'state': job.state,
+            'summary': job.snapshot(include_files=False),
+        })
+
+    if job.state == import_jobs.STATE_CANCELLED:
+        messages.info(
+            request,
+            _('Import stopped after %(count)s record.')
+            % {'count': stats.created}
+            if stats.created == 1
+            else _('Import stopped after %(count)s records.')
+            % {'count': stats.created}
+        )
+    elif job.state == import_jobs.STATE_ERROR:
+        messages.error(request, job.error or _('The import failed.'))
+    elif stats.created == 0 and (stats.skipped or stats.duplicates):
+        messages.warning(
+            request,
+            _('No new records were created. %(duplicates)s line(s) already '
+              'existed and %(invalid)s line(s) were not valid records.')
+            % {'duplicates': stats.duplicates, 'invalid': stats.skipped}
+        )
+    else:
+        outcome = ngettext(
+            'Successfully imported %(count)s record.',
+            'Successfully imported %(count)s records.',
+            stats.created,
+        ) % {'count': stats.created}
+        outcome += ' ' + _(
+            'Filtered out %(count)s non-record lines.'
+        ) % {'count': stats.skipped}
+        if stats.duplicates:
+            outcome += ' ' + _(
+                'Reused %(count)s records that were already stored.'
+            ) % {'count': stats.duplicates}
+        messages.success(request, outcome)
+    return redirect('vault:browse')
+
+
+def import_prepare(request):
+    """
+    Register an import before its data arrives.
+
+    The screen calls this first so that progress is read from a real job for
+    the whole run -- including the transfer phase, when the browser still knows
+    best how many bytes it has pushed. A server path is listed here, which also
+    gives the user a dry run: how many files, how many bytes, and which ones,
+    before anything is read.
+    """
+    if request.method != 'POST':
+        return JsonResponse(
+            {'ok': False, 'error': _('Use POST to prepare an import.')},
+            status=405,
+        )
+
+    try:
+        payload = json.loads((request.body or b'{}').decode('utf-8'))
+    except (ValueError, UnicodeDecodeError):
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    mode = 'path' if payload.get('mode') == 'path' else 'upload'
+    folder_path = str(payload.get('folder_path') or '').strip()
+
+    if mode == 'path' and not local_import_paths_allowed():
+        return JsonResponse({
+            'ok': False,
+            'error': _('Importing from a server path is disabled in this workspace.'),
+        }, status=403)
+
+    job = import_jobs.create(
+        label=str(payload.get('label') or '')[:120],
+        source_kind=mode,
+        register_files=False,
+        files_total=0,
+    )
+
+    entries = []
+    total_bytes = 0
+    skipped = 0
+
+    if mode == 'path':
+        if not (folder_path and (os.path.isdir(folder_path)
+                                 or os.path.isfile(folder_path))):
+            import_jobs.forget(job.id)
+            return JsonResponse({
+                'ok': False,
+                'error': _('The specified folder or file path does not exist.'),
+            }, status=400)
+        job.mark_scanning()
+        scan_stats = {'skipped': 0}
+        paths, total_bytes = import_jobs.scan(
+            folder_path,
+            on_found=lambda count, found: job.report_scan(count, found),
+            stats=scan_stats,
+        )
+        root = folder_path if os.path.isdir(folder_path) else None
+        sources = import_jobs.sources_for_paths(paths, root=root)
+        skipped = scan_stats['skipped']
+        if not sources:
+            import_jobs.forget(job.id)
+            return JsonResponse({
+                'ok': False,
+                'error': _('No readable files were found in the specified path.'),
+            }, status=400)
+        for source in sources[:import_jobs.MAX_LISTED_FILES]:
+            entries.append({
+                'name': source.name,
+                'path': source.path,
+                'relpath': source.relpath,
+                'bytes': source.size,
+            })
+        job.remember_scan(folder_path, sources, total_bytes)
+    else:
+        declared = payload.get('files') or []
+        for item in declared[:import_jobs.MAX_LISTED_FILES]:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get('name') or '').replace('\\', '/').split('/')[-1]
+            if not name or not is_candidate_file(name):
+                skipped += 1
+                continue
+            try:
+                size = max(int(item.get('bytes') or 0), 0)
+            except (TypeError, ValueError):
+                size = 0
+            total_bytes += size
+            entries.append({'name': name[:200], 'path': None, 'bytes': size})
+
+    job.load_roster(entries)
+    job.mark_waiting(total_bytes=total_bytes, files_total=len(entries))
+
+    return JsonResponse({
+        'ok': True,
+        'job_id': job.id,
+        'files': len(entries),
+        'bytes': total_bytes,
+        'skipped': skipped,
+        'truncated': len(entries) >= import_jobs.MAX_LISTED_FILES,
+        'sample': [entry.get('relpath') or entry['name']
+                   for entry in entries[:50]],
+        'progress': job.snapshot(include_files=False),
+    })
+
+
+def import_job_status(request, job_id):
+    """
+    Live progress for an import in flight.
+
+    Returns the counters the workspace renders: overall and per-file byte
+    percentages, the line/record breakdown, throughput and ETA. A 404 simply
+    means the job is not (or no longer) being tracked, and the screen then
+    falls back to the summary the import response itself carried.
+    """
+    job = import_jobs.get(job_id)
+    if job is None:
+        return JsonResponse({
+            'ok': False,
+            'error': 'unknown_job',
+            'message': str(_('This import is no longer being tracked.')),
+        }, status=404)
+
+    raw_offset = request.GET.get('files')
+    file_offset = None
+    include_files = raw_offset != 'none'
+    if raw_offset not in (None, '', 'none'):
+        try:
+            file_offset = max(int(raw_offset), 0)
+        except (TypeError, ValueError):
+            file_offset = None
+
+    return JsonResponse({
+        'ok': True,
+        'job_id': job.id,
+        'state': job.state,
+        'finished': job.is_terminal,
+        'progress': job.snapshot(
+            file_offset=file_offset, include_files=include_files
+        ),
+    })
+
+
+def import_job_stop(request, job_id):
+    """
+    Ask a running import to stop.
+
+    The importer checks for this between batches, so the rows already committed
+    stay committed and the summary reports what was actually stored.
+    """
+    if request.method != 'POST':
+        return JsonResponse(
+            {'ok': False, 'error': _('Use POST to stop an import.')},
+            status=405,
+        )
+    job = import_jobs.get(job_id)
+    if job is None:
+        return JsonResponse({
+            'ok': False,
+            'error': 'unknown_job',
+            'message': str(_('This import is no longer being tracked.')),
+        }, status=404)
+    job.cancel()
+    return JsonResponse({
+        'ok': True,
+        'job_id': job.id,
+        'stopping': not job.is_terminal,
+        'progress': job.snapshot(include_files=False),
+    })
 
 
 def _export_account_rows(request):

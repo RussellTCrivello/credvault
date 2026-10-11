@@ -1,0 +1,18 @@
+{% load i18n monitoring %}
+{# A single filter input: icon, label, field shell, help, errors. #}
+{# Usage: {% include "vault/partials/filter_field.html" with field=form.url icon="link" %} #}
+<div class="filter-field{% if wide %} filter-field--wide{% endif %}{% if field.errors %} filter-field--error{% endif %}">
+  <label class="field-label" for="{{ field.id_for_label }}">
+    {% if icon %}{% icon icon css_class="field-icon" %}{% endif %}
+    <span>{{ field.label }}</span>
+    {% if field.field.required %}<span class="required-mark" aria-hidden="true">&thinsp;*</span><span class="sr-only">{% trans "required" %}</span>{% endif %}
+  </label>
+  <div class="input-shell" data-input-shell>
+    {{ field }}
+    {% if field.field.widget.input_type %}
+      <button type="button" class="input-clear" data-input-clear hidden>{% icon "x" %}<span class="sr-only">{% trans "Clear this field" %}</span></button>
+    {% endif %}
+  </div>
+  {% if field.help_text %}<p class="field-help">{{ field.help_text }}</p>{% endif %}
+  {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+</div>

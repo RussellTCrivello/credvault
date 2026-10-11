@@ -1,0 +1,24 @@
+{% load i18n monitoring %}
+{# One chip per active filter, each removable on its own. #}
+{% if filters.count %}
+  <div class="active-filters">
+    <span class="active-filters-label">
+      {% icon "sliders" css_class="chip-icon" %}
+      {% blocktrans count counter=filters.count %}{{ counter }} active filter{% plural %}{{ counter }} active filters{% endblocktrans %}
+    </span>
+    <ul class="filter-chips">
+      {% for chip in filters.chips %}
+        <li class="filter-chip active">
+          {% icon chip.icon css_class="chip-icon" %}
+          <span class="chip-label">{{ chip.label }}</span>
+          <span class="chip-value" dir="auto">{{ chip.value }}</span>
+          <a class="chip-remove" href="{{ chip.clear }}"
+             aria-label="{% blocktrans with label=chip.label %}Remove the {{ label }} filter{% endblocktrans %}">
+            {% icon "x" %}
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+    <a class="active-filters-clear" href="?">{% icon "refresh" %}{% trans "Clear all" %}</a>
+  </div>
+{% endif %}

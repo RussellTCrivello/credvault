@@ -1,0 +1,59 @@
+{% load i18n monitoring %}
+{#
+  Shared by Add and Edit: one definition for the combobox field shell, so the
+  two forms can never drift apart. Each value is typed or picked from the
+  stored ones, and the icon in front of the label matches the same field
+  everywhere else in the workspace.
+#}
+<div class="panel-head">
+  <div>
+    <h2>{{ form_heading }}</h2>
+    <p class="vault-muted">{{ form_hint }}</p>
+  </div>
+  {% if record %}
+    <span class="badge outline mono" dir="ltr">#{{ record.id }}</span>
+  {% endif %}
+</div>
+
+<form method="post" class="vault-form record-form" id="account-form">
+  {% csrf_token %}
+  {% if form.non_field_errors %}<div class="form-error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+  <div class="form-grid record-form-grid">
+    {% for field in form %}
+      <div class="field{% if field.name == 'url_name' or field.name == 'password_name' %} field-wide{% endif %}{% if field.errors %} field--error{% endif %}" data-record-field="{{ field.name }}">
+        <label class="field-label" for="{{ field.id_for_label }}">
+          {% include "vault/partials/field_icon.html" with name=field.name %}
+          <span>{{ field.label }}</span>
+          {% if field.field.required %}<span class="required-mark" aria-hidden="true">&thinsp;*</span><span class="sr-only">{% trans "required" %}</span>{% endif %}
+        </label>
+        <div class="input-shell">
+          <div class="combobox" data-combobox-wrap>
+            {{ field }}
+            <button type="button" class="combobox-toggle" tabindex="-1" aria-label="{% trans 'Search the stored values or pick one' %}">
+              {% icon "chevron-down" css_class="toggle-icon" %}
+            </button>
+            <div class="combobox-dropdown" role="listbox" hidden></div>
+          </div>
+        </div>
+        {% if field.help_text %}<p class="field-help">{{ field.help_text }}</p>{% endif %}
+        {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+      </div>
+    {% endfor %}
+  </div>
+
+  <p class="reuse-note">
+    {% icon "info" css_class="reuse-icon" %}
+    <span>{% trans "A value that already exists is reused; a new one is created in its reference table. Nothing is stored twice." %}</span>
+  </p>
+
+  <div class="form-actions">
+    <a class="button ghost" href="{{ cancel_url }}">{% trans "Cancel" %}</a>
+    <button class="button primary" type="submit">{% icon "check" %}{{ submit_label }}</button>
+  </div>
+</form>
+
+<datalist id="url-list">{% for option in url_options %}<option value="{{ option }}">{% endfor %}</datalist>
+<datalist id="email-list">{% for option in email_options %}<option value="{{ option }}">{% endfor %}</datalist>
+<datalist id="user-list">{% for option in user_options %}<option value="{{ option }}">{% endfor %}</datalist>
+<datalist id="pass-list">{% for option in pass_options %}<option value="{{ option }}">{% endfor %}</datalist>
+<datalist id="ip-list">{% for option in ip_options %}<option value="{{ option }}">{% endfor %}</datalist>

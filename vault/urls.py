@@ -19,6 +19,11 @@ Plus the normalized relationship management:
     /references/<kind>/                 →  reference_list
     /references/<kind>/delete/<id>/     →  reference_delete
     /advanced-search/                   →  advanced_search
+
+Import progress (the import screen polls these while its own request runs):
+    /import/prepare/                    →  import_prepare
+    /import/status/<job_id>/            →  import_job_status
+    /import/stop/<job_id>/              →  import_job_stop
 """
 
 urlpatterns = [
@@ -37,6 +42,11 @@ urlpatterns = [
     path('references/<str:kind>/delete/<int:pk>/',
          views.reference_delete, name='reference_delete'),
     path('import/', views.import_from_file, name='import'),
+    path('import/prepare/', views.import_prepare, name='import_prepare'),
+    path('import/status/<str:job_id>/', views.import_job_status,
+         name='import_job_status'),
+    path('import/stop/<str:job_id>/', views.import_job_stop,
+         name='import_job_stop'),
     path('export/csv/', views.export_csv, name='export_csv'),
     path('export/json/', views.export_json, name='export_json'),
 ]

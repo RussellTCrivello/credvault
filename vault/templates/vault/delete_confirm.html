@@ -1,10 +1,10 @@
-{% extends "vault/base.html" %}{% load i18n %}
+{% extends "vault/base.html" %}{% load i18n monitoring %}
 {% block title %}{{ confirm_heading }}{% endblock %}
 {% block heading %}{{ confirm_heading }}{% endblock %}
 {% block intro %}<p class="page-intro">{% trans "This action cannot be undone." %}</p>{% endblock %}
 {% block content %}
   <section class="vault-panel confirm-panel">
-    <div class="confirm-icon" aria-hidden="true">!</div>
+    <div class="confirm-icon" aria-hidden="true">{% icon "alert" %}</div>
     {% if mode == 'reference' %}
       <h2>{% blocktrans with name=object_name count counter=usage %}You're about to permanently delete {{ name }}, used by {{ counter }} record.{% plural %}You're about to permanently delete {{ name }}, used by {{ counter }} records.{% endblocktrans %}</h2>
       <p>{% trans "Reassign or delete those records first if you want to keep them." %}</p>
@@ -14,8 +14,8 @@
     {% endif %}
     <form method="post" class="form-actions">
       {% csrf_token %}
-      <a class="button" href="{{ back_href }}">{% trans "Cancel" %}</a>
-      <button class="button danger" type="submit">{% trans "Delete permanently" %}</button>
+      <a class="button ghost" href="{{ back_href }}">{% trans "Cancel" %}</a>
+      <button class="button danger" type="submit">{% icon "trash" %}{% trans "Delete permanently" %}</button>
     </form>
   </section>
 {% endblock %}

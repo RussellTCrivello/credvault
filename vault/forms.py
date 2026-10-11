@@ -204,8 +204,9 @@ class ReferenceForm(forms.Form):
         label=_('Name'),
         max_length=2048,
         widget=forms.TextInput(attrs={
-            'class': 'form-control',
+            'class': 'filter-input',
             'placeholder': _('Enter a value'),
+            'autocomplete': 'off',
         }),
     )
 
@@ -220,6 +221,11 @@ class ImportFileForm(forms.Form):
     file = forms.FileField(
         label=_("Select data file to import"),
         required=False,
+        widget=forms.ClearableFileInput(attrs={
+            'class': 'file-input',
+            'data-import-input': 'files',
+            'accept': '.txt,.csv,.tsv,.log,.json,text/plain',
+        }),
         help_text=_(
             "Supported formats: TXT with colon, pipe, tab, or semicolon "
             "delimiters"
@@ -230,9 +236,12 @@ class ImportFileForm(forms.Form):
         max_length=2048,
         required=False,
         widget=forms.TextInput(attrs={
-            'class': 'form-control',
+            'class': 'filter-input',
             'dir': 'ltr',
             'placeholder': _('/path/to/folder'),
+            'data-import-path': 'true',
+            'autocomplete': 'off',
+            'spellcheck': 'false',
         }),
         help_text=_(
             "For very large folders already on disk, enter the directory "
@@ -285,10 +294,12 @@ class QuickSearchForm(forms.Form):
         label=_('Value'),
         max_length=2048,
         required=False,
-        widget=forms.TextInput(attrs={
-            'class': 'form-control',
+        widget=forms.SearchInput(attrs={
+            'class': 'filter-input',
             'placeholder': _('Enter the exact value to find'),
             'dir': 'ltr',
+            'autocomplete': 'off',
+            'data-filter-value': 'true',
         }),
     )
 
@@ -318,58 +329,67 @@ class AdvancedSearchForm(forms.Form):
 
     keyword = forms.CharField(
         max_length=200, required=False, label=_('Keyword'),
+        help_text=_('Matched anywhere: URL, email, username, password or IP.'),
         widget=forms.TextInput(attrs={
-            'class': 'form-control',
+            'class': 'filter-input',
             'placeholder': _('Any of the values above'),
+            'autocomplete': 'off',
         }),
     )
     url = forms.CharField(
         max_length=2048, required=False, label=_('URL contains'),
+        help_text=_('A domain is enough -- every URL under it matches.'),
         widget=forms.TextInput(attrs={
-            'class': 'form-control', 'dir': 'ltr',
+            'class': 'filter-input', 'dir': 'ltr',
             'placeholder': _('example.com'),
+            'autocomplete': 'off',
         }),
     )
+    ACCOUNT_TYPE_CHOICES = [
+        ('', _('Any')), ('email', _('Email')), ('user', _('Username')),
+    ]
     account_type = forms.ChoiceField(
         required=False, label=_('Account type'),
-        choices=[('', _('Any')), ('email', _('Email')), ('user', _('Username'))],
+        choices=ACCOUNT_TYPE_CHOICES,
         widget=forms.Select(attrs={'class': 'form-control'}),
     )
     email = forms.CharField(
         max_length=255, required=False, label=_('Email contains'),
         widget=forms.TextInput(attrs={
-            'class': 'form-control', 'dir': 'ltr',
+            'class': 'filter-input', 'dir': 'ltr',
             'placeholder': _('user@example.com'),
+            'autocomplete': 'off',
         }),
     )
     username = forms.CharField(
         max_length=255, required=False, label=_('Username contains'),
         widget=forms.TextInput(attrs={
-            'class': 'form-control', 'dir': 'auto',
+            'class': 'filter-input', 'dir': 'auto', 'autocomplete': 'off',
         }),
     )
     password = forms.CharField(
         max_length=500, required=False, label=_('Password contains'),
         widget=forms.TextInput(attrs={
-            'class': 'form-control', 'dir': 'auto',
+            'class': 'filter-input', 'dir': 'auto', 'autocomplete': 'off',
         }),
     )
     ip = forms.CharField(
         max_length=45, required=False, label=_('IP contains'),
         widget=forms.TextInput(attrs={
-            'class': 'form-control', 'dir': 'ltr', 'placeholder': _('N/A'),
+            'class': 'filter-input', 'dir': 'ltr', 'placeholder': _('N/A'),
+            'autocomplete': 'off',
         }),
     )
     created_from = forms.DateField(
         required=False, label=_('Created from'),
         widget=forms.DateInput(attrs={
-            'class': 'form-control', 'type': 'date',
+            'class': 'filter-input', 'type': 'date', 'dir': 'ltr',
         }),
     )
     created_to = forms.DateField(
         required=False, label=_('Created to'),
         widget=forms.DateInput(attrs={
-            'class': 'form-control', 'type': 'date',
+            'class': 'filter-input', 'type': 'date', 'dir': 'ltr',
         }),
     )
     sort = forms.ChoiceField(

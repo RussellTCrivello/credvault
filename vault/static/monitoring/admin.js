@@ -457,3 +457,182 @@ themeToggle?.addEventListener("click", () => {
     });
   });
 })();
+
+/* ==========================================================================
+   Filter controls
+   --------------------------------------------------------------------------
+   Small behaviours that make the filter fields feel like one system rather
+   than a pile of inputs: clear buttons, segmented controls that keep their
+   active state and their hints in sync, recent values per filter, and "/" to
+   jump to the field. None of it is required to search -- every control is a
+   real input or radio, so the same pages work without JavaScript.
+   ========================================================================== */
+
+(function setupFilterControls() {
+  const shells = document.querySelectorAll("[data-input-shell]");
+
+  function syncClear(shell) {
+    const input = shell.querySelector("input, textarea");
+    const clear = shell.querySelector("[data-input-clear]");
+    if (!input || !clear) return;
+    clear.hidden = !input.value;
+  }
+
+  shells.forEach((shell) => {
+    const input = shell.querySelector("input, textarea");
+    const clear = shell.querySelector("[data-input-clear]");
+    if (!input || !clear) return;
+    syncClear(shell);
+    input.addEventListener("input", () => syncClear(shell));
+    input.addEventListener("change", () => syncClear(shell));
+    clear.addEventListener("click", () => {
+      input.value = "";
+      syncClear(shell);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.focus();
+    });
+    if (input.type === "search" || input.type === "text") {
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && input.value) {
+          event.preventDefault();
+          input.value = "";
+          syncClear(shell);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+      });
+    }
+  });
+})();
+
+(function setupSegmentedControls() {
+  document.querySelectorAll(".segmented").forEach((group) => {
+    const inputs = Array.from(group.querySelectorAll(".segment-input"));
+    if (!inputs.length) return;
+    const form = group.closest("form");
+    const valueInput = form && form.querySelector("[data-filter-value]");
+    const help = form && form.querySelector("[data-filter-help]");
+
+    function apply(active) {
+      inputs.forEach((input) => {
+        const label = input.closest(".segment");
+        if (label) label.classList.toggle("is-active", input.checked);
+        input.setAttribute("aria-checked", String(input.checked));
+      });
+      if (!active || !valueInput || active.dataset.hint === undefined) return;
+      if (active.dataset.hint) {
+        valueInput.setAttribute("placeholder", active.dataset.hint);
+        if (help) help.textContent = active.dataset.hint;
+      }
+    }
+
+    inputs.forEach((input) => {
+      input.addEventListener("change", () => {
+        apply(input);
+        const hasValue = !valueInput || valueInput.value.trim();
+        if (form && form.dataset.autoSubmit === "true" && hasValue) {
+          form.submit();
+        }
+      });
+    });
+
+    apply(inputs.find((input) => input.checked));
+  });
+})();
+
+(function setupRecentSearches() {
+  const STORAGE_PREFIX = "logintel-recent:";
+  const MAX_ENTRIES = 6;
+
+  function read(key) {
+    try {
+      const raw = localStorage.getItem(key);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  function write(key, entries) {
+    try {
+      localStorage.setItem(key, JSON.stringify(entries));
+    } catch (error) {
+      // Private-mode storage failures only cost the user their history.
+    }
+  }
+
+  document.querySelectorAll("[data-recent-searches]").forEach((panel) => {
+    const form = panel.closest("form");
+    if (!form) return;
+    const input = form.querySelector("[data-filter-value]");
+    if (!input) return;
+    const list = panel.querySelector("[data-recent-list]");
+    const clearButton = panel.querySelector("[data-recent-clear]");
+    const storageKey = STORAGE_PREFIX + (form.getAttribute("action") || location.pathname);
+
+    function currentField() {
+      const checked = form.querySelector(".segment-input:checked");
+      return checked ? checked.value : "all";
+    }
+
+    function render() {
+      const entries = read(storageKey);
+      if (!list) return;
+      list.textContent = "";
+      panel.hidden = entries.length === 0;
+      entries.forEach((entry) => {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "recent-item";
+        const label = document.createElement("em");
+        label.textContent = entry.field;
+        chip.appendChild(label);
+        const value = document.createElement("span");
+        value.textContent = entry.value;
+        chip.appendChild(value);
+        chip.title = entry.value;
+        chip.addEventListener("click", () => {
+          input.value = entry.value;
+          const radio = form.querySelector(`.segment-input[value="${entry.field}"]`);
+          if (radio) radio.checked = true;
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          form.submit();
+        });
+        list.appendChild(chip);
+      });
+      if (clearButton) clearButton.hidden = entries.length === 0;
+    }
+
+    form.addEventListener("submit", () => {
+      const value = input.value.trim();
+      if (!value) return;
+      const field = currentField();
+      const entries = read(storageKey).filter(
+        (entry) => !(entry.value === value && entry.field === field)
+      );
+      entries.unshift({ value, field });
+      write(storageKey, entries.slice(0, MAX_ENTRIES));
+    });
+
+    clearButton?.addEventListener("click", () => {
+      write(storageKey, []);
+      render();
+      input.focus();
+    });
+
+    render();
+  });
+})();
+
+(function setupSearchShortcut() {
+  const input = document.querySelector("[data-filter-value]");
+  if (!input) return;
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+    const tag = event.target && event.target.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    event.preventDefault();
+    input.focus();
+    input.select();
+  });
+})();

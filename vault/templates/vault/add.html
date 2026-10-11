@@ -1,34 +1,16 @@
-{% extends "vault/base.html" %}{% load i18n %}
+{% extends "vault/base.html" %}{% load i18n monitoring %}
 {% block title %}{% trans "Add record" %}{% endblock %}
 {% block heading %}{% trans "Add a record" %}{% endblock %}
 {% block intro %}<p class="page-intro">{% trans "Enter the record details below. Existing URLs, emails, usernames, passwords, and IPs are reused automatically -- nothing is stored twice." %}</p>{% endblock %}
+{% block header_actions %}
+  <a class="button" href="{% url 'vault:browse' %}">{% icon "database" %}{% trans "Records" %}</a>
+{% endblock %}
 {% block content %}
-  <section class="vault-panel form-panel">
-    <form method="post" class="vault-form record-form" id="account-form">
-      {% csrf_token %}
-      {% if form.non_field_errors %}<div class="form-error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
-      <div class="form-grid">
-        {% for field in form %}
-          <div class="field{% if field.name == 'url_name' or field.name == 'password_name' %} field-wide{% endif %}">
-            <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %}<span class="required-mark" aria-hidden="true"> *</span><span class="sr-only">{% trans "required" %}</span>{% endif %}</label>
-            <div class="combobox" data-combobox-wrap>
-              {{ field }}
-              <button type="button" class="combobox-toggle" tabindex="-1" aria-label="{% trans 'Toggle options' %}">
-                <span aria-hidden="true">▾</span>
-              </button>
-              <div class="combobox-dropdown" role="listbox" hidden></div>
-            </div>
-            {% if field.help_text %}<p class="field-help">{{ field.help_text }}</p>{% endif %}
-            {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
-          </div>
-        {% endfor %}
-      </div>
-      <div class="form-actions"><a class="button" href="{% url 'vault:browse' %}">{% trans "Cancel" %}</a><button class="button primary" type="submit">{% trans "Save record" %}</button></div>
-    </form>
-    <datalist id="url-list">{% for option in url_options %}<option value="{{ option }}">{% endfor %}</datalist>
-    <datalist id="email-list">{% for option in email_options %}<option value="{{ option }}">{% endfor %}</datalist>
-    <datalist id="user-list">{% for option in user_options %}<option value="{{ option }}">{% endfor %}</datalist>
-    <datalist id="pass-list">{% for option in pass_options %}<option value="{{ option }}">{% endfor %}</datalist>
-    <datalist id="ip-list">{% for option in ip_options %}<option value="{{ option }}">{% endfor %}</datalist>
+  <section class="vault-panel form-panel record-form-panel">
+    {% translate "Record values" as form_heading %}
+    {% translate "Type to filter the values already stored, or keep what you typed to create a new one." as form_hint %}
+    {% translate "Save record" as submit_label %}
+    {% url 'vault:browse' as cancel_url %}
+    {% include "vault/partials/record_form.html" with form_heading=form_heading form_hint=form_hint submit_label=submit_label cancel_url=cancel_url %}
   </section>
 {% endblock %}

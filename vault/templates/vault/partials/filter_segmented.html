@@ -1,0 +1,21 @@
+{% load i18n monitoring %}
+{# Segmented choice control backed by real radios: works with and without JS. #}
+{# Usage: {% include "vault/templates/vault/partials/filter_segmented.html" with name="sort" ... %} #}
+<div class="filter-field filter-field--segmented{% if wide %} filter-field--wide{% endif %}">
+  <span class="field-label" id="{{ group_id }}-label">
+    {% if icon %}{% icon icon css_class="field-icon" %}{% endif %}
+    <span>{{ label }}</span>
+  </span>
+  <div class="segmented" role="radiogroup" aria-labelledby="{{ group_id }}-label">
+    {% for choice in choices %}
+      <label class="segment{% if choice.value == current %} is-active{% endif %}">
+        <input class="sr-only segment-input" type="radio" name="{{ name }}" value="{{ choice.value }}"
+               id="{{ group_id }}-{{ forloop.counter0 }}"{% if choice.value == current %} checked{% endif %}
+               {% if choice.hint %}data-hint="{{ choice.hint }}"{% endif %}>
+        {% if choice.icon %}{% icon choice.icon css_class="segment-icon" %}{% endif %}
+        <span class="segment-text">{{ choice.label }}</span>
+      </label>
+    {% endfor %}
+  </div>
+  {% if help %}<p class="field-help">{{ help }}</p>{% endif %}
+</div>

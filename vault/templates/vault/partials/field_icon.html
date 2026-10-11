@@ -1,0 +1,15 @@
+{% load monitoring %}
+{# One icon per logical field, so a field looks the same wherever it appears.#}
+{# Usage: {% include "vault/partials/field_icon.html" with name=field.name %} #}
+{% if name == 'url_name' or name == 'url' %}{% icon "link" css_class="field-icon" %}
+{% elif name == 'email_name' or name == 'email' %}{% icon "mail" css_class="field-icon" %}
+{% elif name == 'user_name' or name == 'username' or name == 'identifier' %}{% icon "user" css_class="field-icon" %}
+{% elif name == 'password_name' or name == 'password' or name == 'secret_data' %}{% icon "key" css_class="field-icon" %}
+{% elif name == 'ip_name' or name == 'ip' or name == 'ip_address' %}{% icon "hash" css_class="field-icon" %}
+{% elif name == 'account_type' %}{% icon "users" css_class="field-icon" %}
+{% elif name == 'created_from' or name == 'created_to' %}{% icon "calendar" css_class="field-icon" %}
+{% elif name == 'folder_path' %}{% icon "terminal" css_class="field-icon" %}
+{% elif name == 'keyword' or name == 'q' %}{% icon "search" css_class="field-icon" %}
+{% elif name == 'sort' %}{% icon "sort" css_class="field-icon" %}
+{% elif name == 'file' or name == 'folder' %}{% icon "file" css_class="field-icon" %}
+{% else %}{% icon "sliders" css_class="field-icon" %}{% endif %}

@@ -1,27 +1,220 @@
-{% extends "vault/base.html" %}{% load i18n %}
+{% extends "vault/base.html" %}{% load i18n static monitoring %}
 {% block title %}{% trans "Import records" %}{% endblock %}
 {% block heading %}{% trans "Import records" %}{% endblock %}
-{% block intro %}<p class="page-intro">{% trans "Add records in bulk from a text file -- or a whole folder of files." %}</p>{% endblock %}
+{% block intro %}<p class="page-intro">{% trans "Add records in bulk from a text file -- or a whole folder of files. Progress is measured byte by byte, so the bar tells the truth about large imports." %}</p>{% endblock %}
+{% block page_styles %}
+  <link rel="stylesheet" href="{% static 'monitoring/import.css' %}" />
+{% endblock %}
+{% block header_actions %}
+  <a class="button" href="{% url 'vault:browse' %}">{% icon "database" %}{% trans "Records" %}</a>
+{% endblock %}
 {% block content %}
-  <section class="vault-panel form-panel import-panel">
-    <div class="vault-note import-note"><strong>{% trans "Supported file formats" %}</strong><br />{% trans "Text files with colon, pipe, tab, or semicolon-delimited rows are supported. Empty lines and comments are ignored. Every line of every selected file is read; only lines that match the format are stored." %}</div>
-    <form method="post" enctype="multipart/form-data" class="vault-form import-form">
-      {% csrf_token %}
-      {% if form.non_field_errors %}<div class="form-error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
-      {% for field in form %}
-        <div class="field">
-          <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-          {{ field }}
-          {% if field.help_text %}<p class="field-help">{{ field.help_text }}</p>{% endif %}
-          {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+  {{ import_urls|json_script:"import-urls" }}
+  {{ import_labels|json_script:"import-labels" }}
+  <div class="import-workspace" data-import-workspace>
+    <div class="import-columns">
+      <section class="vault-panel import-card" data-import-source>
+        <div class="panel-head panel-head--switch">
+          <div>
+            <h2>{% trans "Choose what to import" %}</h2>
+            <p class="vault-muted">{% trans "One pass over the data: every line is classified as a new record, an already stored record, or not a record." %}</p>
+          </div>
+          <div class="mode-switch" role="tablist" aria-label="{% trans 'Import source' %}">
+            <button type="button" class="mode-button is-active" role="tab" aria-selected="true" data-import-mode="upload">
+              {% icon "upload" %}<span>{% trans "From this device" %}</span>
+            </button>
+            <button type="button" class="mode-button" role="tab" aria-selected="false" data-import-mode="path"{% if not allow_local_paths %} disabled{% endif %}>
+              {% icon "terminal" %}<span>{% trans "From a server path" %}</span>
+            </button>
+          </div>
         </div>
-      {% endfor %}
-      <div class="field">
-        <label class="field-label" for="id_folder">{% trans "Or select a whole folder" %}</label>
-        <input type="file" name="folder" id="id_folder" class="form-control" webkitdirectory multiple directory mozdirectory />
-        <p class="field-help">{% trans "Pick a folder and every text file inside it (including subfolders) will be imported. For very large volumes, prefer the importfolder management command." %}</p>
-      </div>
-      <div class="form-actions"><a class="button" href="{% url 'vault:browse' %}">{% trans "Cancel" %}</a><button class="button primary" type="submit">{% trans "Import" %}</button></div>
-    </form>
-  </section>
+
+        <form method="post" action="{% url 'vault:import' %}" enctype="multipart/form-data" class="import-form" data-import-form>
+          {% csrf_token %}
+          <input type="hidden" name="job" value="" data-import-job />
+          {% if form.non_field_errors %}<div class="form-error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+
+          <div class="import-pane" data-import-pane="upload">
+            <div class="source-pickers">
+              <label class="picker">
+                <span class="picker-icon">{% icon "file" %}</span>
+                <span class="picker-text">
+                  <strong>{% trans "Add a file" %}</strong>
+                  <small>{% trans "Colon, pipe, tab or semicolon delimited text" %}</small>
+                </span>
+                {{ form.file }}
+              </label>
+              <label class="picker">
+                <span class="picker-icon">{% icon "folder" %}</span>
+                <span class="picker-text">
+                  <strong>{% trans "Add a folder" %}</strong>
+                  <small>{% trans "Every text file inside, subfolders included" %}</small>
+                </span>
+                <input type="file" name="folder" id="id_folder" class="file-input"
+                       data-import-input="folder" webkitdirectory multiple directory mozdirectory />
+              </label>
+            </div>
+
+            <div class="dropzone-zone" data-import-dropzone>
+              {% icon "upload" css_class="dropzone-mark" %}
+              <strong>{% trans "Drop files or a folder here" %}</strong>
+              <small>{% trans "Nothing is read until you press Start import, and only the files listed below are sent." %}</small>
+            </div>
+
+            <div class="queue-bar" data-import-summary hidden>
+              <p class="queue-count">
+                <strong data-import-count>0</strong>
+                <span>{% trans "file(s) ready" %}</span>
+                <span class="queue-sep" aria-hidden="true">·</span>
+                <span class="mono" data-import-size>0 B</span>
+              </p>
+              <div class="queue-tools">
+                <button type="button" class="text-button" data-import-select-all>{% trans "Include all" %}</button>
+                <button type="button" class="text-button" data-import-select-none>{% trans "Exclude all" %}</button>
+                <button type="button" class="text-button is-danger" data-import-clear>{% icon "trash" %}{% trans "Remove" %}</button>
+              </div>
+            </div>
+
+            <ul class="file-queue" data-import-queue role="list"></ul>
+            <p class="queue-empty" data-import-empty>{% trans "No file selected yet." %}</p>
+            {% for error in form.file.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+          </div>
+
+          <div class="import-pane" data-import-pane="path" hidden>
+            {% if allow_local_paths %}
+              {% include "vault/partials/filter_field.html" with field=form.folder_path icon="terminal" wide=True %}
+              <div class="scan-row">
+                <button type="button" class="button" data-import-scan>{% icon "search" %}{% trans "Review files first" %}</button>
+                <p class="field-help">{% trans "Reviewing only counts and lists the files: no data is read and nothing is written." %}</p>
+              </div>
+              <div class="scan-summary" data-import-scan-result hidden></div>
+            {% else %}
+              <p class="vault-note">{% trans "Importing from a server path is disabled in this workspace." %}</p>
+            {% endif %}
+          </div>
+
+          <div class="form-actions import-actions">
+            <p class="import-footnote">{% trans "Prefer the command line for very large volumes:" %} <code>python manage.py importfolder /path/to/folder</code></p>
+            <a class="button ghost" href="{% url 'vault:browse' %}">{% trans "Cancel" %}</a>
+            <button class="button primary" type="submit" data-import-start>{% icon "bolt" %}<span>{% trans "Start import" %}</span></button>
+          </div>
+        </form>
+
+        <noscript>
+          <p class="vault-note import-noscript">{% trans "JavaScript is off, so this form imports in one go and reports a summary when it finishes. Everything below needs JavaScript to animate." %}</p>
+        </noscript>
+      </section>
+
+      <section class="vault-panel import-card import-progress-card" data-import-progress hidden aria-labelledby="progress-title">
+        <div class="panel-head">
+          <div>
+            <h2 id="progress-title">{% trans "Import progress" %}</h2>
+            <p class="vault-muted" data-progress-label>&nbsp;</p>
+            <p class="current-file" data-progress-file hidden></p>
+          </div>
+          <span class="badge queued" data-progress-state>{% trans "Queued" %}</span>
+        </div>
+
+        <ol class="stage-rail" data-progress-rail>
+          <li data-stage="uploading"><span class="rail-dot" aria-hidden="true"></span><span>{% trans "Transfer" %}</span></li>
+          <li data-stage="scanning"><span class="rail-dot" aria-hidden="true"></span><span>{% trans "Listing files" %}</span></li>
+          <li data-stage="importing"><span class="rail-dot" aria-hidden="true"></span><span>{% trans "Reading and storing" %}</span></li>
+          <li data-stage="finalizing"><span class="rail-dot" aria-hidden="true"></span><span>{% trans "Summary" %}</span></li>
+        </ol>
+
+        <div class="meter-figure">
+          <div class="meter-percent" data-progress-percent>0%</div>
+          <div class="meter-detail">
+            <p class="meter-line"><span>{% trans "Reading and storing" %}</span><strong data-progress-stage>{% trans "Waiting to start" %}</strong></p>
+            <div class="progress-track" data-progress-track>
+              <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-labelledby="progress-title" data-progress-bar>
+                <span data-progress-fill></span>
+              </div>
+            </div>
+            <p class="meter-sub" data-progress-sub>&nbsp;</p>
+          </div>
+        </div>
+
+        <dl class="meter-grid" data-progress-stats>
+          <div class="meter meter--primary">
+            <dt>{% icon "check" %}<span>{% trans "New records" %}</span></dt>
+            <dd data-stat-created>0</dd>
+          </div>
+          <div class="meter">
+            <dt>{% icon "refresh" %}<span>{% trans "Already stored" %}</span></dt>
+            <dd data-stat-duplicates>0</dd>
+          </div>
+          <div class="meter">
+            <dt>{% icon "file" %}<span>{% trans "Lines read" %}</span></dt>
+            <dd data-stat-lines>0</dd>
+          </div>
+          <div class="meter">
+            <dt>{% icon "alert" %}<span>{% trans "Not records" %}</span></dt>
+            <dd data-stat-invalid>0</dd>
+          </div>
+          <div class="meter">
+            <dt>{% icon "hash" %}<span>{% trans "Empty or comment" %}</span></dt>
+            <dd data-stat-blank>0</dd>
+          </div>
+          <div class="meter">
+            <dt>{% icon "folder" %}<span>{% trans "Files done" %}</span></dt>
+            <dd data-stat-files>0 / 0</dd>
+          </div>
+          <div class="meter">
+            <dt>{% icon "activity" %}<span>{% trans "Speed" %}</span></dt>
+            <dd data-stat-speed>&mdash;</dd>
+          </div>
+          <div class="meter">
+            <dt>{% icon "clock" %}<span>{% trans "Remaining" %}</span></dt>
+            <dd data-stat-eta>&mdash;</dd>
+          </div>
+          <div class="meter">
+            <dt>{% icon "calendar" %}<span>{% trans "Elapsed" %}</span></dt>
+            <dd data-stat-elapsed>0s</dd>
+          </div>
+          <div class="meter">
+            <dt>{% icon "download" %}<span>{% trans "Bytes read" %}</span></dt>
+            <dd data-stat-bytes>0 B</dd>
+          </div>
+        </dl>
+
+        <div class="progress-files" data-progress-files-wrap hidden>
+          <div class="progress-files-head">
+            <strong>{% trans "Files" %}</strong>
+            <span class="vault-muted" data-progress-files-range></span>
+          </div>
+          <ul class="file-list" data-progress-files role="list"></ul>
+        </div>
+
+        <div class="progress-notes" data-progress-notes hidden></div>
+
+        <div class="progress-result" data-import-result hidden></div>
+
+        <div class="progress-foot">
+          <p class="progress-live" data-progress-live aria-live="polite"></p>
+          <div class="vault-actions">
+            <button class="button danger" type="button" data-import-stop hidden>{% icon "stop" %}{% trans "Stop import" %}</button>
+            <button class="button" type="button" data-import-again hidden>{% icon "refresh" %}{% trans "Import again" %}</button>
+            <a class="button primary" href="{% url 'vault:browse' %}" data-progress-view hidden>{% trans "View records" %}</a>
+          </div>
+        </div>
+      </section>
+
+      <aside class="vault-panel import-card import-help-card">
+        <div class="panel-head"><div><h2>{% trans "Supported file formats" %}</h2></div></div>
+        <div class="help-body">
+          <p>{% trans "Text rows separated by a colon, pipe, tab, or semicolon. Empty lines and # comments are ignored, and only rows that match the format become records." %}</p>
+          <p class="sample-row" dir="ltr"><code>https://example.com/login|user@example.com|secret|203.0.113.10</code></p>
+          <ul class="help-list">
+            <li>{% icon "check" %}<span>{% trans "Existing URLs, emails, usernames, passwords and IPs are reused, never written twice." %}</span></li>
+            <li>{% icon "check" %}<span>{% trans "Duplicate rows are counted separately, so a quiet import is distinguishable from a broken file." %}</span></li>
+            <li>{% icon "check" %}<span>{% trans "Stopping is safe: rows already committed stay committed." %}</span></li>
+          </ul>
+        </div>
+      </aside>
+    </div>
+  </div>
+{% endblock %}
+{% block page_scripts %}
+  <script src="{% static 'monitoring/import.js' %}" defer></script>
 {% endblock %}

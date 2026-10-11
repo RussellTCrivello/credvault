@@ -1,31 +1,80 @@
-{% extends "vault/base.html" %}{% load i18n %}
+{% extends "vault/base.html" %}{% load i18n monitoring %}
 {% block title %}{{ registry.label_plural }}{% endblock %}
 {% block heading %}{{ registry.label_plural }}{% endblock %}
 {% block intro %}<p class="page-intro">{% blocktrans with label=registry.label %}Each {{ label }} is stored once and reused by every record that needs it.{% endblocktrans %}</p>{% endblock %}
 {% block header_actions %}
-  <a class="button" href="{% url 'vault:references_index' %}">{% trans "All reference tables" %}</a>
+  <a class="button" href="{% url 'vault:references_index' %}">{% icon "database" %}{% trans "All reference tables" %}</a>
 {% endblock %}
 {% block content %}
-  <section class="vault-panel form-panel import-panel">
-    <div class="vault-note import-note"><strong>{% trans "Add a value" %}</strong><br />{% blocktrans with label=registry.label %}Enter a new {{ label }} below. If it already exists, it will be reused.{% endblocktrans %}</div>
-    <form method="post" class="vault-form import-form">
-      {% csrf_token %}
-      {% if form.non_field_errors %}<div class="form-error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
-      {% for field in form %}
-        <div class="field">
-          <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-          {{ field }}
-          {% if field.help_text %}<p class="field-help">{{ field.help_text }}</p>{% endif %}
-          {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+  <section class="vault-panel filter-panel">
+    <div class="filter-panel-head">
+      <div>
+        <h2>{% trans "Find a value" %}</h2>
+        <p class="vault-muted">
+          {% if has_filter %}
+            {{ matched }} {% trans "of" %} {{ total_values }} {% blocktrans count record_count=total_values %}value matches{% plural %}values match{% endblocktrans %}
+          {% else %}
+            {{ total_values }} {% blocktrans count record_count=total_values %}value stored{% plural %}values stored{% endblocktrans %}
+          {% endif %}
+        </p>
+      </div>
+      {% if has_filter %}<a class="button ghost" href="?">{% icon "refresh" %}{% trans "Clear filter" %}</a>{% endif %}
+    </div>
+
+    <form method="get" action="" class="filter-bar" data-filter-bar data-auto-submit="true">
+      <div class="filter-bar-body">
+        <div class="filter-field filter-field--value">
+          <label class="field-label" for="ref-q">
+            {% icon "search" css_class="field-icon" %}<span>{% trans "Value" %}</span>
+          </label>
+          <div class="input-shell" data-input-shell>
+            <input type="search" class="filter-input" id="ref-q" name="q" value="{{ filter_q }}"
+                   data-filter-value
+                   placeholder="{% blocktrans with label=registry.label %}Search this {{ label }} table{% endblocktrans %}"
+                   autocomplete="off" dir="auto">
+            <button type="button" class="input-clear" data-input-clear {% if not filter_q %}hidden{% endif %}>
+              {% icon "x" %}<span class="sr-only">{% trans "Clear the value" %}</span>
+            </button>
+          </div>
+          <p class="field-help" data-filter-help>{% trans "Starts with uses the index and stays instant on huge tables; contains scans every value." %}</p>
         </div>
-      {% endfor %}
-      <div class="form-actions"><button class="button primary" type="submit">{% trans "Add" %}</button></div>
+
+        {% translate "Match" as match_label %}
+        {% include "vault/partials/filter_segmented.html" with name="match" label=match_label choices=filter_choices current=filter_mode icon="sliders" group_id="ref-match" %}
+
+        <div class="filter-bar-actions">
+          <button class="button primary" type="submit">{% icon "search" %}{% trans "Apply" %}</button>
+        </div>
+      </div>
     </form>
   </section>
 
-  <section class="vault-panel">
+  {% include "vault/partials/active_filters.html" %}
+
+  <section class="vault-panel form-panel value-form-panel">
+    <div class="panel-head">
+      <div>
+        <h2>{% trans "Add a value" %}</h2>
+        <p class="vault-muted">{% blocktrans with label=registry.label %}Enter a new {{ label }} below. If it already exists, it will be reused.{% endblocktrans %}</p>
+      </div>
+    </div>
+    <form method="post" class="vault-form record-form value-form">
+      {% csrf_token %}
+      {% if form.non_field_errors %}<div class="form-error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+      <div class="form-grid">
+        {% for field in form %}
+          {% include "vault/partials/filter_field.html" with field=field icon="plus" wide=True %}
+        {% endfor %}
+      </div>
+      <div class="form-actions"><button class="button primary" type="submit">{% icon "plus" %}{% trans "Add" %}</button></div>
+    </form>
+  </section>
+
+  <section class="vault-panel results-panel">
     <div class="table-toolbar">
-      <div><h2>{{ registry.label_plural }}</h2><p class="vault-muted">{{ total_values }} {% blocktrans count record_count=total_values %}value{% plural %}values{% endblocktrans %}</p></div>
+      <div><h2>{{ registry.label_plural }}</h2><p class="vault-muted">{{ matched }} {% blocktrans count record_count=matched %}value listed{% plural %}values listed{% endblocktrans %}</p></div>
+      {% translate "Order" as order_label %}
+              {% include "vault/partials/filter_segmented.html" with name="sort" label=order_label choices=sort_choices current=sort_value icon="sort" group_id="ref-sort" compact=True only %}
     </div>
     <div class="vault-table-wrap">
       <table class="vault-table reference-table">
@@ -33,9 +82,9 @@
         <thead>
           <tr>
             <th scope="col">{% trans "Name" %}</th>
+            <th scope="col">{% trans "Used by" %}</th>
             <th scope="col">{% trans "Construction date" %}</th>
             <th scope="col">{% trans "Date of adjustment" %}</th>
-            <th scope="col">{% trans "Used by" %}</th>
             <th scope="col">{% trans "Actions" %}</th>
           </tr>
         </thead>
@@ -43,13 +92,13 @@
           {% for entity in entities %}
             <tr>
               <td dir="auto">{{ entity.name }}</td>
+              <td><span class="badge outline">{{ entity.usage }}</span></td>
               <td class="mono" dir="ltr">{{ entity.created_at }}</td>
               <td class="mono" dir="ltr">{{ entity.updated_at }}</td>
-              <td class="mono">{{ entity.usage }}</td>
-              <td><a class="button small-button danger" href="{% url 'vault:reference_delete' kind=kind pk=entity.id %}">{% trans "Delete" %}</a></td>
+              <td><a class="button small-button danger" href="{% url 'vault:reference_delete' kind=kind pk=entity.id %}">{% icon "trash" %}{% trans "Delete" %}</a></td>
             </tr>
           {% empty %}
-            <tr><td colspan="5"><div class="empty-state"><h2>{% blocktrans with label_plural=registry.label_plural %}No {{ label_plural }} yet{% endblocktrans %}</h2><p>{% trans "Add the first value using the form above." %}</p></div></td></tr>
+            <tr><td colspan="5"><div class="empty-state"><span class="empty-icon">{% icon "database" %}</span><h2>{% blocktrans with label_plural=registry.label_plural %}No {{ label_plural }} yet{% endblocktrans %}</h2><p>{% if has_filter %}{% trans "No value in this table matches the filter." %}{% else %}{% trans "Add the first value using the form above." %}{% endif %}</p></div></td></tr>
           {% endfor %}
         </tbody>
       </table>

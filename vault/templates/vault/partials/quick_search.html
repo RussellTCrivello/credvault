@@ -1,0 +1,60 @@
+{% load i18n monitoring %}
+{# The quick filter bar shared by the Records and Search screens. #}
+{# Needs: form, quick_fields, active_field, active_hint, search_action, filters #}
+<form method="get" action="{{ search_action }}" class="filter-bar" data-filter-bar>
+  <div class="filter-bar-head">
+    <span class="filter-bar-title">
+      {% icon "funnel" css_class="filter-bar-icon" %}
+      <strong>{{ filter_title }}</strong>
+    </span>
+    <span class="filter-bar-hint">{{ filter_hint }}</span>
+  </div>
+
+  <div class="filter-bar-body">
+    <div class="filter-field filter-field--segmented filter-field--wide">
+      <span class="field-label" id="{{ form.q.id_for_label }}-scope">
+        {% icon "search" css_class="field-icon" %}<span>{% trans "Search in" %}</span>
+      </span>
+      <div class="segmented" role="radiogroup" aria-labelledby="{{ form.q.id_for_label }}-scope">
+        {% for choice in quick_fields %}
+          <label class="segment{% if choice.value == active_field %} is-active{% endif %}">
+            <input class="sr-only segment-input" type="radio" name="field" value="{{ choice.value }}"
+                   id="field-{{ choice.value }}"{% if choice.value == active_field %} checked{% endif %}
+                   data-hint="{{ choice.hint }}">
+            {% icon choice.icon css_class="segment-icon" %}
+            <span class="segment-text">{{ choice.label }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="filter-field filter-field--value">
+      <label class="field-label" for="{{ form.q.id_for_label }}">
+        {% icon "search" css_class="field-icon" %}<span>{% trans "Value" %}</span>
+      </label>
+      <div class="input-shell" data-input-shell>
+        {{ form.q }}
+        <button type="button" class="input-clear" data-input-clear {% if not active_query %}hidden{% endif %}>
+          {% icon "x" %}<span class="sr-only">{% trans "Clear the value" %}</span>
+        </button>
+      </div>
+      <p class="field-help" data-filter-help>{{ form.q.help_text|default:active_hint }}</p>
+      {% for error in form.q.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+      {% for error in form.field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    </div>
+
+    <div class="filter-bar-actions">
+      <button class="button primary" type="submit">{% icon "search" %}{% trans "Search" %}</button>
+      {% if has_query %}
+        <a class="button ghost" href="{{ search_action }}?">{% icon "refresh" %}{% trans "Reset" %}</a>
+      {% endif %}
+      <a class="button ghost" href="{% url 'vault:advanced_search' %}">{% icon "sliders" %}{% trans "Advanced search" %}</a>
+    </div>
+  </div>
+
+  <div class="filter-bar-foot" data-recent-searches hidden>
+    <span class="recent-label">{% icon "clock" %}{% trans "Recent" %}</span>
+    <div class="recent-list" data-recent-list></div>
+    <button type="button" class="recent-clear" data-recent-clear>{% trans "Clear" %}</button>
+  </div>
+</form>
