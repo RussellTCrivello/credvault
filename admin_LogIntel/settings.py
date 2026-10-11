@@ -91,6 +91,18 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
         'OPTIONS': {
             'timeout': 30,
+            # Throughput tuning for multi-million-row imports and fast reads.
+            # WAL lets readers run during an import; NORMAL sync is safe in
+            # WAL mode (only the last commit can roll back after a power
+            # loss); temp tables live in RAM; the page cache holds ~256 MB and
+            # mmap serves hot index pages without copying.
+            'init_command': (
+                'PRAGMA journal_mode=WAL;'
+                'PRAGMA synchronous=NORMAL;'
+                'PRAGMA temp_store=MEMORY;'
+                'PRAGMA cache_size=-262144;'
+                'PRAGMA mmap_size=1073741824;'
+            ),
         },
     }
 }

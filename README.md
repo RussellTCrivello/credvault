@@ -63,3 +63,71 @@ The workspace uses Django's translation framework. English is the default langua
 5. Add or update interface tests for the new language, especially direction and translated form labels.
 
 New templates and Python interface strings should use Django's `{% trans %}` / `{% blocktrans %}` tags and `gettext_lazy` / `gettext`, respectively, so they remain available to translators.
+
+# Performance
+
+All numbers below were measured with the code in this repository on a
+development box (2 vCPU, 4 GB RAM, SQLite 3.40, WAL mode) using synthetic data
+(about 2 million URLs, 4 million passwords, 3.5 million IP addresses). Your
+hardware and data will differ; run the same steps on your own machine to get
+your own numbers.
+
+## Import speed
+
+| Run | Records | Time | Speed |
+| --- | --- | --- | --- |
+| Earlier ORM importer, empty database | 1,000,000 | 8 min 30 s | about 2,000 / s |
+| SQL loader, empty database | 1,000,000 | 1 min 35 s | about 10,500 / s |
+| SQL loader, database already holding 1,000,000 | 3,000,000 | 13 min 7 s | about 3,800 / s |
+
+Parsing alone runs at about 60,000 lines per second on one core, so the
+remaining time is database work. Speed falls as the database grows past the
+page cache, because each new record touches several random index pages.
+
+## Query speed
+
+Each time is one request through the Django test client, including template
+rendering.
+
+| Page | 1M records | 4M records |
+| --- | --- | --- |
+| Overview (dashboard) | 41 ms | 82 ms |
+| Search, exact email | 16 ms | 36 ms |
+| Search, exact password | 8 ms | 8 ms |
+| Search, exact IP | 7 ms | 7 ms |
+| Search, domain | 36 ms | 301 ms |
+| Reference table page (with usage) | 29 ms | 30 ms |
+| Advanced search, substring keyword | 1.2 s | 14.2 s |
+
+Exact lookups stay in milliseconds because every reference value is found
+through its unique index. Substring searches (`LIKE '%text%'`) cannot use a
+B-tree index, so they read the whole table and grow with it.
+
+## Storage
+
+About 3.6 GB for 4 million records (roughly 900 bytes per record including
+the reference tables and indexes).
+
+## What changed
+
+* Import: records are staged in a temporary table, then reference values and
+  records are inserted with set-based `INSERT OR IGNORE ... SELECT`. The
+  fingerprint is computed the same way as `Account.save()`, so records loaded
+  in bulk and records saved one by one are identical (see
+  `vault/tests_performance.py`).
+* Counts: list, search and overview totals stop at `VAULT_COUNT_CAP` (default
+  10,000) and show "10,000+", so a page never runs a full `COUNT(*)`. Exports
+  still stream every matching record.
+* Reference pages: "usage" is counted only for the values on the current page,
+  not for the whole reference table.
+* SQLite is configured in `admin_LogIntel/settings.py` (WAL journal, a 256 MB
+  page cache, in-memory temporary tables).
+
+## Limits
+
+SQLite on one machine is a good fit for tens of millions of records. At the
+measured rates, a billion records would take days to import (import speed
+falls as the data grows) and about 900 GB of storage, and substring search
+would take hours. Reaching billions with few-second imports and searches needs
+a server database with bulk-load tools (such as PostgreSQL `COPY`), enough RAM
+to keep the indexes in memory, and a text index for substring search.

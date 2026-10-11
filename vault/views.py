@@ -6,7 +6,6 @@ from urllib.parse import urlparse
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
-from django.core.paginator import Paginator
 from django.db.models import Count, ProtectedError, Q
 from django.db.models.functions import Lower
 from django.http import JsonResponse, StreamingHttpResponse
@@ -15,6 +14,7 @@ from django.urls import reverse
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy as _lazy, ngettext
 
+from .counts import CappedPaginator, capped_count, count_label
 from .forms import (
     AccountForm, AdvancedSearchForm, ImportFileForm, QuickSearchForm,
     ReferenceForm,
@@ -362,9 +362,43 @@ def filter_accounts(params):
 
 
 def _paginate(request, queryset, per_page=100):
-    paginator = Paginator(queryset, per_page)
+    paginator = CappedPaginator(queryset, per_page)
     page_number = request.GET.get('page', '1')
     return paginator.get_page(page_number)
+
+
+# Foreign key on Account that points at each reference table.
+REFERENCE_FK = {
+    'url': 'url_id', 'email': 'email_id', 'user': 'user_id',
+    'pass': 'password_id', 'ip': 'ip_id',
+}
+
+
+def _attach_usage(kind, entities):
+    """
+    Set `usage` (number of records) on each entity of one page.
+
+    Replaces an annotate(Count('accounts')) over the whole reference
+    table, which grouped every record on each page load. Here only the
+    page's ids are counted, through the foreign-key index.
+    """
+    fk = REFERENCE_FK[kind]
+    ids = [entity.pk for entity in entities]
+    counts = {}
+    if ids:
+        rows = (
+            Account.objects.filter(**{f'{fk}__in': ids})
+            .values(fk).annotate(n=Count('id')).order_by()
+        )
+        counts = {row[fk]: row['n'] for row in rows}
+    for entity in entities:
+        entity.usage = counts.get(entity.pk, 0)
+
+
+def _records_total_context():
+    """Capped number of all records, for the Records and Overview pages."""
+    number, capped = capped_count(Account.objects.all())
+    return {'total_records': number, 'total_records_capped': capped}
 
 
 def _reference_choices(kind):
@@ -375,21 +409,21 @@ def _reference_choices(kind):
 
 def dashboard(request):
     """Replaces: main_menu() -- the landing page with workspace stats."""
-    total_accounts = Account.objects.count()
+    total_accounts, total_capped = capped_count(Account.objects.all())
     reference_counts = {
-        kind: REFERENCE_REGISTRY[kind]['model'].objects.count()
+        kind: capped_count(REFERENCE_REGISTRY[kind]['model'].objects.all())
         for kind in REFERENCE_REGISTRY
     }
     reference_rows = [
         {
             'kind': kind,
             'label_plural': REFERENCE_REGISTRY[kind]['label_plural'],
-            'count': reference_counts[kind],
+            'count': count_label(*reference_counts[kind]),
         }
         for kind in REFERENCE_REGISTRY
     ]
     return render(request, 'vault/dashboard.html', {
-        'total_records': total_accounts,
+        'total_records': count_label(total_accounts, total_capped),
         'reference_rows': reference_rows,
         'reference_registry': REFERENCE_REGISTRY,
     })
@@ -405,10 +439,11 @@ def browse_all(request):
     records = []
     page_obj = None
     total = 0
+    total_capped = False
 
     if has_query:
         queryset = filter_accounts(request.GET)
-        total = queryset.count()
+        total, total_capped = capped_count(queryset)
         page_obj = _paginate(request, queryset)
         records = page_obj.object_list
 
@@ -418,7 +453,8 @@ def browse_all(request):
         'records': records,
         'page_obj': page_obj,
         'total': total,
-        'total_records': Account.objects.count(),
+        'total_capped': total_capped,
+        **_records_total_context(),
         'query_string': _clean_query_string(request.GET),
     })
 
@@ -434,10 +470,11 @@ def search_records(request):
     records = []
     page_obj = None
     total = 0
+    total_capped = False
 
     if has_query:
         queryset = filter_accounts(request.GET)
-        total = queryset.count()
+        total, total_capped = capped_count(queryset)
         page_obj = _paginate(request, queryset)
         records = page_obj.object_list
 
@@ -447,6 +484,7 @@ def search_records(request):
         'records': records,
         'page_obj': page_obj,
         'total': total,
+        'total_capped': total_capped,
         'query_string': _clean_query_string(request.GET),
     })
 
@@ -461,12 +499,13 @@ def advanced_search(request):
     records = []
     page_obj = None
     total = 0
+    total_capped = False
 
     if request.GET:
         params = request.GET.copy()
         params['adv'] = '1'
         queryset = filter_accounts(params)
-        total = queryset.count()
+        total, total_capped = capped_count(queryset)
         page_obj = _paginate(request, queryset)
         records = page_obj.object_list
 
@@ -475,6 +514,7 @@ def advanced_search(request):
         'records': records,
         'page_obj': page_obj,
         'total': total,
+        'total_capped': total_capped,
         'query_string': _clean_query_string(request.GET),
     })
 
@@ -612,7 +652,7 @@ def delete_account(request, pk):
 def references_index(request):
     """Overview of the five reference tables and how many values each holds."""
     reference_counts = {
-        kind: REFERENCE_REGISTRY[kind]['model'].objects.count()
+        kind: capped_count(REFERENCE_REGISTRY[kind]['model'].objects.all())
         for kind in REFERENCE_REGISTRY
     }
     reference_rows = [
@@ -620,14 +660,15 @@ def references_index(request):
             'kind': kind,
             'label': REFERENCE_REGISTRY[kind]['label'],
             'label_plural': REFERENCE_REGISTRY[kind]['label_plural'],
-            'count': reference_counts[kind],
+            'count': count_label(*reference_counts[kind]),
         }
         for kind in REFERENCE_REGISTRY
     ]
-    total_records = Account.objects.count()
+    total_records, total_capped = capped_count(Account.objects.all())
     return render(request, 'vault/references_index.html', {
         'reference_rows': reference_rows,
         'total_records': total_records,
+        'total_capped': total_capped,
     })
 
 
@@ -661,18 +702,21 @@ def reference_list(request, kind):
     else:
         form = ReferenceForm(kind=kind)
 
-    total_values = model.objects.count()
-    qs = model.objects.annotate(usage=Count('accounts')).order_by('name')
+    total_values, total_capped = capped_count(model.objects.all())
+    qs = model.objects.order_by('name')
     page_obj = _paginate(request, qs, per_page=100)
+    entities = list(page_obj.object_list)
+    _attach_usage(kind, entities)
 
     return render(request, 'vault/references.html', {
         'kind': kind,
         'registry': registry,
         'reference_registry': REFERENCE_REGISTRY,
         'form': form,
-        'entities': page_obj.object_list,
+        'entities': entities,
         'page_obj': page_obj,
         'total_values': total_values,
+        'total_capped': total_capped,
         'query_string': _clean_query_string(request.GET),
     })
 
