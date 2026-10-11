@@ -21,6 +21,36 @@
         <input type="file" name="folder" id="id_folder" class="form-control" webkitdirectory multiple directory mozdirectory />
         <p class="field-help">{% trans "Pick a folder and every text file inside it (including subfolders) will be imported. For very large volumes, prefer the importfolder management command." %}</p>
       </div>
+      <section class="field wide import-progress" data-import-progress hidden
+           data-uploading-label="{% trans 'Uploading files…' %}"
+           data-counting-label="{% trans 'Counting lines before import…' %}"
+           data-processing-label="{% trans 'Importing records…' %}"
+           data-complete-label="{% trans 'Import complete.' %}"
+           data-failed-label="{% trans 'Import could not be completed.' %}"
+           data-upload-detail="{% trans 'Uploaded' %}"
+           data-lines-label="{% trans 'lines processed' %}"
+           data-scanned-label="{% trans 'files scanned' %}"
+           data-files-label="{% trans 'files' %}"
+           data-files-complete-label="{% trans 'files processed' %}"
+           data-file-label="{% trans 'File' %}"
+           data-created-label="{% trans 'records imported' %}"
+           data-skipped-label="{% trans 'non-record lines skipped' %}">
+        <div class="import-progress-heading">
+          <div>
+            <p class="eyebrow">{% trans "IMPORT STATUS" %}</p>
+            <p class="import-progress-status" role="status" aria-live="polite"></p>
+          </div>
+          <output class="import-progress-percent" data-import-percent>0%</output>
+        </div>
+        <ol class="import-progress-steps" aria-label="{% trans 'Import stages' %}">
+          <li data-import-step="upload">{% trans "Upload" %}</li>
+          <li data-import-step="count">{% trans "Scan files" %}</li>
+          <li data-import-step="process">{% trans "Import records" %}</li>
+          <li data-import-step="complete">{% trans "Complete" %}</li>
+        </ol>
+        <progress class="import-progress-bar" max="100" aria-label="{% trans 'Import progress' %}"></progress>
+        <p class="field-help import-progress-detail"></p>
+      </section>
       <div class="form-actions"><a class="button" href="{% url 'vault:browse' %}">{% trans "Cancel" %}</a><button class="button primary" type="submit">{% trans "Import" %}</button></div>
     </form>
   </section>

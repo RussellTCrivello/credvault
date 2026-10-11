@@ -28,7 +28,7 @@ from .utils import parse_line
 # Chunk IN(...) queries to stay well below SQLite's 999-variable limit.
 _CHUNK = 500
 _BATCH = 2000
-_STREAM_BATCH = 50000
+STREAM_BATCH_SIZE = 50000
 
 _BINARY_EXTS = {
     ".sqlite3", ".db", ".pyc", ".pyo", ".mo", ".png", ".jpg", ".jpeg",
@@ -201,7 +201,7 @@ def bulk_import_lines(parsed_iter):
 
         keys.add((url, account_type, ident, secret, ip_key))
 
-        if len(keys) >= _STREAM_BATCH:
+        if len(keys) >= STREAM_BATCH_SIZE:
             total_created += _flush_batch(
                 keys, urls, emails, users, passes, ips
             )

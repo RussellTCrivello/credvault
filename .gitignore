@@ -1,0 +1,20 @@
+.env
+.local/
+.venv/
+__pycache__/
+*.py[cod]
+*.sqlite3*
+data/private/
+.staticfiles/
+.pytest_cache/
+test-results/
+node_modules/
+*.zip
+.ruff_cache/
+reports/
+db.sqlite3
+*db.sqlite3
+
+# Protected native-host configuration files
+*.env
+

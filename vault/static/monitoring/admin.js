@@ -1,6 +1,179 @@
 const themeToggle = document.querySelector("#theme-toggle");
 const themeStorageKey = "logintel-theme";
 
+(function setupImportProgress() {
+  const form = document.querySelector(".import-form");
+  const progressPanel = document.querySelector("[data-import-progress]");
+  if (!form || !progressPanel) return;
+
+  const progressBar = progressPanel.querySelector("progress");
+  const status = progressPanel.querySelector(".import-progress-status");
+  const detail = progressPanel.querySelector(".import-progress-detail");
+  const percentOutput = progressPanel.querySelector("[data-import-percent]");
+  const steps = [...progressPanel.querySelectorAll("[data-import-step]")];
+  const submitButton = form.querySelector('button[type="submit"]');
+  const label = (name) => progressPanel.dataset[name];
+  const number = (value) => new Intl.NumberFormat().format(value);
+  const stepOrder = ["upload", "count", "process", "complete"];
+
+  function setStep(activeStep) {
+    const activeIndex = stepOrder.indexOf(activeStep);
+    steps.forEach((step) => {
+      const stepIndex = stepOrder.indexOf(step.dataset.importStep);
+      step.classList.toggle("is-complete", stepIndex < activeIndex);
+      step.classList.toggle("is-active", stepIndex === activeIndex);
+      if (stepIndex === activeIndex) {
+        step.setAttribute("aria-current", "step");
+      } else {
+        step.removeAttribute("aria-current");
+      }
+    });
+  }
+
+  function setPercent(value) {
+    const percent = Math.max(0, Math.min(100, value));
+    progressBar.value = percent;
+    progressBar.setAttribute("aria-valuenow", String(Math.round(percent)));
+    progressBar.setAttribute("aria-valuetext", `${Math.round(percent)}%`);
+    percentOutput.textContent = `${Math.floor(percent)}%`;
+  }
+
+  function setIndeterminate() {
+    progressBar.removeAttribute("value");
+    progressBar.removeAttribute("aria-valuenow");
+    progressBar.setAttribute("aria-valuetext", label("countingLabel"));
+    percentOutput.textContent = "…";
+  }
+
+  function showError(message) {
+    status.textContent = label("failedLabel");
+    detail.textContent = message;
+    form.setAttribute("aria-busy", "false");
+    if (submitButton) submitButton.disabled = false;
+  }
+
+  function handleEvent(event, xhr) {
+    if (event.type === "phase" && event.phase === "counting") {
+      setStep("count");
+      status.textContent = label("countingLabel");
+      detail.textContent = "";
+      setIndeterminate();
+      return;
+    }
+
+    if (event.type === "count_progress") {
+      detail.textContent = `${number(event.files_scanned)} / ${number(event.total_files)} ${label("scannedLabel")}`;
+      return;
+    }
+
+    if (event.type === "progress") {
+      setStep("process");
+      status.textContent = label("processingLabel");
+      if (event.total > 0) {
+        setPercent(event.processed / event.total * 100);
+      } else {
+        setIndeterminate();
+      }
+      const fileProgress = event.total_files
+        ? ` · ${label("fileLabel")} ${number(event.file_number)} / ${number(event.total_files)}`
+        : "";
+      detail.textContent = `${number(event.processed)} / ${number(event.total)} ${label("linesLabel")}${fileProgress}`;
+      return;
+    }
+
+    if (event.type === "error") {
+      showError(event.message);
+      xhr.abort();
+      return;
+    }
+
+    if (event.type === "done") {
+      setStep("complete");
+      setPercent(100);
+      status.textContent = label("completeLabel");
+      detail.textContent = `${number(event.created)} ${label("createdLabel")}; ${number(event.skipped)} ${label("skippedLabel")}; ${number(event.files)} ${label("filesCompleteLabel")}`;
+      form.setAttribute("aria-busy", "false");
+      window.setTimeout(() => window.location.assign(event.redirect), 900);
+    }
+  }
+
+  form.addEventListener("submit", (submitEvent) => {
+    submitEvent.preventDefault();
+    progressPanel.hidden = false;
+    setStep("upload");
+    setPercent(0);
+    status.textContent = label("uploadingLabel");
+    detail.textContent = `${label("uploadDetail")}: 0%`;
+    form.setAttribute("aria-busy", "true");
+    if (submitButton) submitButton.disabled = true;
+
+    const xhr = new XMLHttpRequest();
+    let responseOffset = 0;
+    let responseBuffer = "";
+
+    function readEvents() {
+      const nextText = xhr.responseText.slice(responseOffset);
+      responseOffset = xhr.responseText.length;
+      responseBuffer += nextText;
+      const lines = responseBuffer.split("\n");
+      responseBuffer = lines.pop();
+      for (const line of lines) {
+        if (!line) continue;
+        try {
+          handleEvent(JSON.parse(line), xhr);
+        } catch {
+          showError(label("failedLabel"));
+          xhr.abort();
+          return;
+        }
+      }
+    }
+
+    xhr.upload.addEventListener("progress", (event) => {
+      if (!event.lengthComputable) return;
+      const percent = event.loaded / event.total * 100;
+      setPercent(percent);
+      detail.textContent = `${label("uploadDetail")}: ${Math.floor(percent)}%`;
+    });
+    xhr.upload.addEventListener("load", () => {
+      setStep("count");
+      status.textContent = label("countingLabel");
+      detail.textContent = "";
+      setIndeterminate();
+    });
+    xhr.addEventListener("progress", readEvents);
+    xhr.addEventListener("load", () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        let message = label("failedLabel");
+        try {
+          message = JSON.parse(xhr.responseText).error || message;
+        } catch {
+          // Keep the localized fallback for unexpected server responses.
+        }
+        showError(message);
+        return;
+      }
+      readEvents();
+      if (responseBuffer.trim()) {
+        try {
+          handleEvent(JSON.parse(responseBuffer), xhr);
+        } catch {
+          showError(label("failedLabel"));
+        }
+      }
+    });
+    xhr.addEventListener("error", () => showError(label("failedLabel")));
+    xhr.addEventListener("abort", () => {
+      if (form.getAttribute("aria-busy") === "true") {
+        showError(label("failedLabel"));
+      }
+    });
+    xhr.open("POST", form.action || window.location.href);
+    xhr.setRequestHeader("X-Import-Progress", "1");
+    xhr.send(new FormData(form));
+  });
+})();
+
 function setTheme(theme) {
   document.documentElement.dataset.theme = theme;
   if (themeToggle) {

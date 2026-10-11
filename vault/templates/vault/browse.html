@@ -15,8 +15,14 @@
     </div>
     <form method="get" action="{% url 'vault:browse' %}" class="search-form">
       <div class="search-controls">
-        {{ form.field }}
-        {{ form.q }}
+        <div class="search-filter">
+          <label class="field-label" for="{{ form.field.id_for_label }}">{% trans "Search in" %}</label>
+          {{ form.field }}
+        </div>
+        <div class="search-filter search-filter-value">
+          <label class="field-label" for="{{ form.q.id_for_label }}">{% trans "Exact value" %}</label>
+          {{ form.q }}
+        </div>
         <button class="button primary" type="submit">{% trans "Search" %}</button>
       </div>
       {% for error in form.q.errors %}<p class="field-error">{{ error }}</p>{% endfor %}

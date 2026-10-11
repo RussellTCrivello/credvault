@@ -45,6 +45,22 @@ class WorkspaceInterfaceTests(TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertContains(response, expected_text)
                 self.assertContains(response, 'monitoring/admin.css')
+                if route_name == 'vault:import':
+                    self.assertContains(response, 'data-import-progress')
+                    self.assertContains(response, 'data-import-step="complete"')
+                    self.assertContains(response, 'data-import-percent')
+
+    def test_search_filters_have_visible_field_labels(self):
+        for route_name in ('vault:browse', 'vault:search'):
+            with self.subTest(page=route_name):
+                response = self.client.get(reverse(route_name))
+                self.assertContains(response, 'Search in')
+                self.assertContains(response, 'Exact value')
+
+        response = self.client.get(reverse('vault:advanced_search'))
+        self.assertContains(response, 'advanced-search-form')
+        self.assertContains(response, 'URL contains')
+        self.assertContains(response, 'Created from')
 
     def test_record_detail_edit_and_delete_pages_render(self):
         pages = (
@@ -226,6 +242,84 @@ class WorkspaceInterfaceTests(TestCase):
         self.assertTrue(
             Account.objects.filter(user__name='import-user').exists()
         )
+
+    def test_import_progress_reports_exact_lines_for_uploaded_folders(self):
+        first_file = SimpleUploadedFile(
+            'first.txt',
+            b'# comment\nhttps://progress.example/login|progress-user|secret\n',
+            content_type='text/plain',
+        )
+        second_file = SimpleUploadedFile(
+            'second.txt',
+            b'invalid line\nhttps://progress.example/login|other-user|secret',
+            content_type='text/plain',
+        )
+
+        response = self.client.post(
+            reverse('vault:import'),
+            {'folder': [first_file, second_file]},
+            HTTP_X_IMPORT_PROGRESS='1',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.streaming)
+        events = [
+            json.loads(chunk.decode('utf-8'))
+            for chunk in response.streaming_content
+        ]
+        progress_events = [
+            event for event in events if event['type'] == 'progress'
+        ]
+        count_events = [
+            event for event in events if event['type'] == 'count_progress'
+        ]
+        self.assertEqual(progress_events[0]['total'], 4)
+        self.assertEqual(progress_events[-1]['processed'], 4)
+        self.assertEqual(count_events[-1]['files_scanned'], 2)
+        self.assertEqual(count_events[-1]['total_files'], 2)
+        self.assertEqual(events[-1]['type'], 'done')
+        self.assertEqual(events[-1]['created'], 2)
+        self.assertEqual(events[-1]['skipped'], 2)
+        self.assertEqual(events[-1]['files'], 2)
+        self.assertEqual(
+            Account.objects.filter(url__name='https://progress.example/login')
+            .count(),
+            2,
+        )
+
+    def test_import_progress_counts_lines_from_folder_paths(self):
+        tmp_dir = tempfile.mkdtemp()
+        try:
+            nested_dir = os.path.join(tmp_dir, 'nested')
+            os.makedirs(nested_dir, exist_ok=True)
+            with open(os.path.join(tmp_dir, 'root.txt'), 'w') as handle:
+                handle.write('https://path-progress.example/login|one|secret\n')
+                handle.write('invalid line\n')
+            with open(os.path.join(nested_dir, 'nested.txt'), 'w') as handle:
+                handle.write(
+                    'https://path-progress.example/login|two|secret'
+                )
+
+            response = self.client.post(
+                reverse('vault:import'),
+                {'folder_path': tmp_dir},
+                HTTP_X_IMPORT_PROGRESS='1',
+            )
+            events = [
+                json.loads(chunk.decode('utf-8'))
+                for chunk in response.streaming_content
+            ]
+
+            progress_events = [
+                event for event in events if event['type'] == 'progress'
+            ]
+            self.assertEqual(progress_events[-1]['total'], 3)
+            self.assertEqual(progress_events[-1]['processed'], 3)
+            self.assertEqual(events[-1]['created'], 2)
+            self.assertEqual(events[-1]['skipped'], 1)
+            self.assertEqual(events[-1]['files'], 2)
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
     def test_import_page_accepts_full_folder_upload_and_folder_path(self):
         # 1. Browser folder upload with multiple files and invalid lines
