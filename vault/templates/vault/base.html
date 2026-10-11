@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="{% static 'monitoring/app.css' %}" />
     <link rel="stylesheet" href="{% static 'monitoring/vault.css' %}" />
     <link rel="stylesheet" href="{% static 'monitoring/admin.css' %}" />
+    <link rel="stylesheet" href="{% static 'monitoring/profile.css' %}" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">{% trans "Skip to content" %}</a>
@@ -30,32 +31,89 @@
           <a href="{% url 'vault:references_index' %}" {% if request.resolver_match.url_name == 'references_index' or request.resolver_match.url_name == 'references' or request.resolver_match.url_name == 'reference_delete' %}class="active" aria-current="page"{% endif %}>{% trans "References" %}</a>
         </nav>
         <div class="vault-sidebar-bottom">
-          <p><strong>{% trans "LogIntel workspace" %}</strong><br />{% trans "Review and manage your organization's records from one place." %}</p>
           {% if request.user.is_authenticated %}
-          <div class="account-box">
-            <p class="vault-muted">{% trans "Signed in as" %} <strong>{{ request.user.get_username }}</strong></p>
-            <form method="post" action="{% url 'vault:logout' %}">
-              {% csrf_token %}
-              <button class="button" type="submit">{% trans "Log out" %}</button>
-            </form>
-          </div>
-          {% endif %}
-          <form class="language-form" action="{% url 'set_language' %}" method="post">
-            {% csrf_token %}
-            <input type="hidden" name="next" value="{{ request.get_full_path }}" />
-            <label class="field-label" for="language-select">{% trans "Language" %}</label>
-            <div class="language-controls">
-              <select id="language-select" name="language" class="select-input">
-                {% get_available_languages as available_languages %}
-                {% get_language_info_list for available_languages as language_info_list %}
+          {% get_available_languages as available_languages %}
+          {% get_language_info_list for available_languages as language_info_list %}
+          {% with username=request.user.get_username %}
+          <button type="button" class="profile-trigger" id="profile-trigger" popovertarget="profile-popover" aria-haspopup="dialog" aria-expanded="false" aria-controls="profile-popover" aria-label="{% trans 'Account and settings' %}">
+            <span class="profile-avatar" aria-hidden="true">{{ username|first|upper }}</span>
+            <span class="profile-trigger-text">
+              <strong>{{ username }}</strong>
+              <small>{% if request.user.is_staff %}{% trans "Administrator" %}{% else %}{% trans "Signed in" %}{% endif %}</small>
+            </span>
+            <svg class="profile-chevron" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 6.5 8 10.5 12 6.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+
+          <div id="profile-popover" class="profile-popover" popover="auto" role="dialog" aria-labelledby="profile-popover-title">
+            <header class="profile-head">
+              <span class="profile-avatar profile-avatar-lg" aria-hidden="true">{{ username|first|upper }}</span>
+              <div class="profile-identity">
+                <h2 id="profile-popover-title">{{ username }}</h2>
+                <p class="vault-muted">{{ request.user.email|default:_("No email on file") }}</p>
+                {% if request.user.last_login %}
+                <p class="profile-meta">{% trans "Last sign-in" %}: {{ request.user.last_login|date:"M j, Y H:i" }}</p>
+                {% endif %}
+              </div>
+            </header>
+
+            <section class="profile-section" aria-labelledby="profile-actions-title">
+              <h3 id="profile-actions-title" class="profile-section-title">{% trans "Quick actions" %}</h3>
+              <div class="profile-links">
+                <a class="profile-link" href="{% url 'vault:add' %}">
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/></svg>
+                  <span>{% trans "Add record" %}</span>
+                </a>
+                <a class="profile-link" href="{% url 'vault:import' %}">
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 10V2.5M5 5.5 8 2.5l3 3M3 10v3h10v-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+                  <span>{% trans "Import data" %}</span>
+                </a>
+                <a class="profile-link" href="{% url 'vault:references_index' %}">
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/></svg>
+                  <span>{% trans "References" %}</span>
+                </a>
+                {% if request.user.is_staff %}
+                <a class="profile-link" href="{% url 'admin:index' %}">
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2 13 4v3.8c0 3-2.1 5.1-5 6-2.9-.9-5-3-5-6V4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" fill="none"/></svg>
+                  <span>{% trans "Django admin" %}</span>
+                </a>
+                {% endif %}
+              </div>
+            </section>
+
+            <section class="profile-section" aria-labelledby="profile-language-title">
+              <h3 id="profile-language-title" class="profile-section-title">{% trans "Language" %}</h3>
+              <form method="post" action="{% url 'set_language' %}" class="profile-segmented">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}" />
                 {% for language in language_info_list %}
-                  <option value="{{ language.code }}"{% if language.code == LANGUAGE_CODE %} selected{% endif %}>{{ language.name_local }}</option>
+                  <button type="submit" name="language" value="{{ language.code }}" class="profile-segment{% if language.code == LANGUAGE_CODE %} is-selected{% endif %}"{% if language.code == LANGUAGE_CODE %} aria-pressed="true"{% else %} aria-pressed="false"{% endif %} lang="{{ language.code }}">{{ language.name_local }}</button>
                 {% endfor %}
-              </select>
-              <button class="button" type="submit">{% trans "Apply" %}</button>
-            </div>
-          </form>
-          <button class="button theme-toggle" id="theme-toggle" type="button" aria-pressed="false" data-dark-label="{% trans 'Use dark theme' %}" data-light-label="{% trans 'Use light theme' %}">{% trans "Use dark theme" %}</button>
+              </form>
+            </section>
+
+            <section class="profile-section" aria-labelledby="profile-appearance-title">
+              <h3 id="profile-appearance-title" class="profile-section-title">{% trans "Appearance" %}</h3>
+              <div class="profile-segmented" role="group" aria-label="{% trans 'Appearance' %}">
+                <button type="button" class="profile-segment" data-theme-choice="light" aria-pressed="true">{% trans "Light" %}</button>
+                <button type="button" class="profile-segment" data-theme-choice="dark" aria-pressed="false">{% trans "Dark" %}</button>
+              </div>
+            </section>
+
+            <footer class="profile-foot">
+              <form method="post" action="{% url 'vault:logout' %}">
+                {% csrf_token %}
+                <button class="button profile-logout" type="submit">
+                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M6 2.5H3.5v11H6M9.5 5 12.5 8l-3 3M12.5 8H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+                  {% trans "Log out" %}
+                </button>
+              </form>
+              <p class="profile-about">{% trans "LogIntel workspace" %} · {% trans "Review and manage your organization's records from one place." %}</p>
+            </footer>
+          </div>
+          {% endwith %}
+          {% else %}
+          <a class="button" href="{% url 'vault:login' %}">{% trans "Sign in" %}</a>
+          {% endif %}
         </div>
       </aside>
       <main id="main-content" class="vault-main" tabindex="-1">
@@ -78,5 +136,6 @@
       </main>
     </div>
     <script src="{% static 'monitoring/admin.js' %}" defer></script>
+    <script src="{% static 'monitoring/profile.js' %}" defer></script>
   </body>
 </html>

@@ -463,7 +463,9 @@ class WorkspaceInterfaceTests(TestCase):
         self.assertContains(response, '<html lang="ar" dir="rtl">')
         self.assertContains(response, 'مساحة عملك')
         self.assertContains(response, 'اللغة')
-        self.assertContains(response, 'استخدام المظهر الداكن')
+        self.assertContains(response, 'id="profile-popover"')
+        self.assertContains(response, 'data-theme-choice="dark"')
+        self.assertContains(response, 'تسجيل الخروج')
 
         translated_pages = (
             ('vault:browse', (), 'كل السجلات'),

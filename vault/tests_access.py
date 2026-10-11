@@ -79,7 +79,7 @@ class AdministratorLoginTests(TestCase):
         )
         page = self.client.get(reverse('vault:browse'))
         self.assertEqual(page.status_code, 200)
-        self.assertContains(page, 'Signed in as')
+        self.assertContains(page, 'id="profile-popover"')
         self.assertContains(page, 'admin')
 
     def test_sign_in_returns_visitor_to_the_page_they_asked_for(self):

@@ -2,12 +2,6 @@
 .vault-topbar{align-items:flex-start}
 .header-actions{justify-content:flex-end}
 .nav-label{margin:0;color:var(--subtle);font-size:9px;font-weight:650;letter-spacing:1.4px;text-transform:uppercase}
-.theme-toggle{justify-content:flex-start;font-size:11px}
-.language-form{display:grid;gap:6px}
-.language-form .field-label{margin:0}
-.language-controls{display:flex;gap:6px}
-.language-controls .select-input{min-width:0;flex:1;height:36px;padding-block:6px;font-size:11px}
-.language-controls .button{min-height:36px;padding:6px 10px}
 .message-stack{display:grid;gap:9px;margin:-8px 0 20px}
 .message-banner{padding:12px 15px;border:1px solid var(--line);border-radius:7px;background:var(--panel);font-size:12px}
 .message-banner.success{color:var(--green);background:var(--green-soft);border-color:transparent}
@@ -101,7 +95,6 @@ html[lang^=ar] .eyebrow{letter-spacing:0}
 .vault-sidebar nav a{border:1px solid transparent;border-radius:9px;font-weight:540;transition:background .16s,border-color .16s,color .16s}
 .vault-sidebar nav a:hover{border-color:var(--line)}
 .vault-sidebar nav a.active{border-color:var(--line);box-shadow:0 2px 8px #1833200a}
-.vault-sidebar-bottom p{border-radius:10px;background:var(--bg);line-height:1.7}
 .vault-main{padding-block:36px 52px}
 .vault-topbar{align-items:center;padding-bottom:23px;margin-bottom:25px;border-bottom:1px solid var(--line)}
 .vault-topbar .eyebrow{margin-bottom:8px}
