@@ -19,8 +19,8 @@
       {% endif %}
       <div class="detail-wide"><dt>{% trans "Password" %}</dt><dd><code class="secret-value" dir="ltr">{{ record.password.name }}</code></dd></div>
       <div><dt>{% trans "IP address" %}</dt><dd dir="ltr">{{ record.ip.name|default:"—" }}</dd></div>
-      <div><dt>{% trans "Construction date" %}</dt><dd dir="ltr">{{ record.created_at }}</dd></div>
-      <div><dt>{% trans "Date of adjustment" %}</dt><dd dir="ltr">{{ record.updated_at }}</dd></div>
+      <div><dt>{% trans "Created at" %}</dt><dd dir="ltr">{{ record.created_at }}</dd></div>
+      <div><dt>{% trans "Updated at" %}</dt><dd dir="ltr">{{ record.updated_at }}</dd></div>
     </dl>
     <div class="vault-note">{% trans "This record may contain sensitive information. Limit access to the details and any exports to authorized people." %}</div>
   </section>

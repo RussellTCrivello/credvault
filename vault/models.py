@@ -92,15 +92,15 @@ class Url(CanonicalNameModel):
 
     Exactly three fields, as requested:
         * Name of the URL
-        * Construction date
-        * Date of adjustment
+        * Created at
+        * Updated at
     """
 
     KIND = 'url'
 
     name = models.CharField(_('Name of the URL'), max_length=MAX_URL_LENGTH, unique=True)
-    created_at = models.DateTimeField(_('Construction date'), auto_now_add=True)
-    updated_at = models.DateTimeField(_('Date of adjustment'), auto_now=True)
+    created_at = models.DateTimeField(_('Created at'), auto_now_add=True)
+    updated_at = models.DateTimeField(_('Updated at'), auto_now=True)
 
     class Meta:
         ordering = ['name']
@@ -115,13 +115,13 @@ class Url(CanonicalNameModel):
 
 
 class Email(CanonicalNameModel):
-    """Email reference table (name, construction date, adjustment date)."""
+    """Email reference table (name, created at, updated at)."""
 
     KIND = 'email'
 
     name = models.CharField(_('Name of the email'), max_length=MAX_EMAIL_LENGTH, unique=True)
-    created_at = models.DateTimeField(_('Construction date'), auto_now_add=True)
-    updated_at = models.DateTimeField(_('Date of adjustment'), auto_now=True)
+    created_at = models.DateTimeField(_('Created at'), auto_now_add=True)
+    updated_at = models.DateTimeField(_('Updated at'), auto_now=True)
 
     class Meta:
         ordering = ['name']
@@ -136,13 +136,13 @@ class Email(CanonicalNameModel):
 
 
 class User(CanonicalNameModel):
-    """Username reference table (name, construction date, adjustment date)."""
+    """Username reference table (name, created at, updated at)."""
 
     KIND = 'user'
 
     name = models.CharField(_('Name of the user'), max_length=MAX_USERNAME_LENGTH, unique=True)
-    created_at = models.DateTimeField(_('Construction date'), auto_now_add=True)
-    updated_at = models.DateTimeField(_('Date of adjustment'), auto_now=True)
+    created_at = models.DateTimeField(_('Created at'), auto_now_add=True)
+    updated_at = models.DateTimeField(_('Updated at'), auto_now=True)
 
     class Meta:
         ordering = ['name']
@@ -157,13 +157,13 @@ class User(CanonicalNameModel):
 
 
 class Pass(CanonicalNameModel):
-    """Password reference table (name, construction date, adjustment date)."""
+    """Password reference table (name, created at, updated at)."""
 
     KIND = 'pass'
 
     name = models.CharField(_('Name of the pass'), max_length=MAX_PASSWORD_LENGTH, unique=True)
-    created_at = models.DateTimeField(_('Construction date'), auto_now_add=True)
-    updated_at = models.DateTimeField(_('Date of adjustment'), auto_now=True)
+    created_at = models.DateTimeField(_('Created at'), auto_now_add=True)
+    updated_at = models.DateTimeField(_('Updated at'), auto_now=True)
 
     class Meta:
         ordering = ['name']
@@ -178,13 +178,13 @@ class Pass(CanonicalNameModel):
 
 
 class Ip(CanonicalNameModel):
-    """IP address reference table (name, construction date, adjustment date)."""
+    """IP address reference table (name, created at, updated at)."""
 
     KIND = 'ip'
 
     name = models.CharField(_('Name of the IP'), max_length=MAX_IP_LENGTH, unique=True)
-    created_at = models.DateTimeField(_('Construction date'), auto_now_add=True)
-    updated_at = models.DateTimeField(_('Date of adjustment'), auto_now=True)
+    created_at = models.DateTimeField(_('Created at'), auto_now_add=True)
+    updated_at = models.DateTimeField(_('Updated at'), auto_now=True)
 
     class Meta:
         ordering = ['name']
@@ -246,8 +246,8 @@ class Account(models.Model):
     fingerprint = models.CharField(
         _('Record fingerprint'), max_length=64, unique=True, editable=False,
     )
-    created_at = models.DateTimeField(_('Construction date'), auto_now_add=True)
-    updated_at = models.DateTimeField(_('Date of adjustment'), auto_now=True)
+    created_at = models.DateTimeField(_('Created at'), auto_now_add=True)
+    updated_at = models.DateTimeField(_('Updated at'), auto_now=True)
 
     class Meta:
         ordering = ['-created_at', 'id']

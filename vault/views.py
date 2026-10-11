@@ -1100,7 +1100,7 @@ def _account_csv_stream(accounts):
     writer.writerow([
         _('ID'), _('URL'), _('Account Type'),
         _('Identifier'), _('Password'), _('IP address'),
-        _('Construction date'), _('Date of adjustment'),
+        _('Created at'), _('Updated at'),
     ])
     yield buffer.getvalue()
     buffer.seek(0)
