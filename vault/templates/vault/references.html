@@ -1,0 +1,59 @@
+{% extends "vault/base.html" %}{% load i18n %}
+{% block title %}{{ registry.label_plural }}{% endblock %}
+{% block heading %}{{ registry.label_plural }}{% endblock %}
+{% block intro %}<p class="page-intro">{% blocktrans with label=registry.label %}Each {{ label }} is stored once and reused by every record that needs it.{% endblocktrans %}</p>{% endblock %}
+{% block header_actions %}
+  <a class="button" href="{% url 'vault:references_index' %}">{% trans "All reference tables" %}</a>
+{% endblock %}
+{% block content %}
+  <section class="vault-panel form-panel import-panel">
+    <div class="vault-note import-note"><strong>{% trans "Add a value" %}</strong><br />{% blocktrans with label=registry.label %}Enter a new {{ label }} below. If it already exists, it will be reused.{% endblocktrans %}</div>
+    <form method="post" class="vault-form import-form">
+      {% csrf_token %}
+      {% if form.non_field_errors %}<div class="form-error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+      {% for field in form %}
+        <div class="field">
+          <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% if field.help_text %}<p class="field-help">{{ field.help_text }}</p>{% endif %}
+          {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+        </div>
+      {% endfor %}
+      <div class="form-actions"><button class="button primary" type="submit">{% trans "Add" %}</button></div>
+    </form>
+  </section>
+
+  <section class="vault-panel">
+    <div class="table-toolbar">
+      <div><h2>{{ registry.label_plural }}</h2><p class="vault-muted">{{ total_values }} {% blocktrans count record_count=total_values %}value{% plural %}values{% endblocktrans %}</p></div>
+    </div>
+    <div class="vault-table-wrap">
+      <table class="vault-table reference-table">
+        <caption class="sr-only">{{ registry.label_plural }}</caption>
+        <thead>
+          <tr>
+            <th scope="col">{% trans "Name" %}</th>
+            <th scope="col">{% trans "Construction date" %}</th>
+            <th scope="col">{% trans "Date of adjustment" %}</th>
+            <th scope="col">{% trans "Used by" %}</th>
+            <th scope="col">{% trans "Actions" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for entity in entities %}
+            <tr>
+              <td dir="auto">{{ entity.name }}</td>
+              <td class="mono" dir="ltr">{{ entity.created_at }}</td>
+              <td class="mono" dir="ltr">{{ entity.updated_at }}</td>
+              <td class="mono">{{ entity.usage }}</td>
+              <td><a class="button small-button danger" href="{% url 'vault:reference_delete' kind=kind pk=entity.id %}">{% trans "Delete" %}</a></td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5"><div class="empty-state"><h2>{% blocktrans with label_plural=registry.label_plural %}No {{ label_plural }} yet{% endblocktrans %}</h2><p>{% trans "Add the first value using the form above." %}</p></div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% include "vault/pagination.html" %}
+  </section>
+{% endblock %}

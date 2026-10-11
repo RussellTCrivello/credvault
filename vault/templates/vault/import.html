@@ -1,22 +1,27 @@
 {% extends "vault/base.html" %}{% load i18n %}
 {% block title %}{% trans "Import records" %}{% endblock %}
 {% block heading %}{% trans "Import records" %}{% endblock %}
-{% block intro %}<p class="page-intro">{% trans "Add records in bulk from a text file." %}</p>{% endblock %}
+{% block intro %}<p class="page-intro">{% trans "Add records in bulk from a text file -- or a whole folder of files." %}</p>{% endblock %}
 {% block content %}
   <section class="vault-panel form-panel import-panel">
-    <div class="vault-note import-note"><strong>{% trans "Supported file formats" %}</strong><br />{% trans "Text files with colon, pipe, tab, or semicolon-delimited rows are supported. Empty lines and comments are ignored." %}</div>
+    <div class="vault-note import-note"><strong>{% trans "Supported file formats" %}</strong><br />{% trans "Text files with colon, pipe, tab, or semicolon-delimited rows are supported. Empty lines and comments are ignored. Every line of every selected file is read; only lines that match the format are stored." %}</div>
     <form method="post" enctype="multipart/form-data" class="vault-form import-form">
       {% csrf_token %}
       {% if form.non_field_errors %}<div class="form-error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
       {% for field in form %}
         <div class="field">
-          <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %}<span class="required-mark" aria-hidden="true"> *</span><span class="sr-only">{% trans "required" %}</span>{% endif %}</label>
+          <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
           {{ field }}
           {% if field.help_text %}<p class="field-help">{{ field.help_text }}</p>{% endif %}
           {% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
         </div>
       {% endfor %}
-      <div class="form-actions"><a class="button" href="{% url 'vault:browse' %}">{% trans "Cancel" %}</a><button class="button primary" type="submit">{% trans "Import file" %}</button></div>
+      <div class="field">
+        <label class="field-label" for="id_folder">{% trans "Or select a whole folder" %}</label>
+        <input type="file" name="folder" id="id_folder" class="form-control" webkitdirectory multiple directory mozdirectory />
+        <p class="field-help">{% trans "Pick a folder and every text file inside it (including subfolders) will be imported. For very large volumes, prefer the importfolder management command." %}</p>
+      </div>
+      <div class="form-actions"><a class="button" href="{% url 'vault:browse' %}">{% trans "Cancel" %}</a><button class="button primary" type="submit">{% trans "Import" %}</button></div>
     </form>
   </section>
 {% endblock %}

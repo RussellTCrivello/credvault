@@ -27,3 +27,24 @@ themeToggle?.addEventListener("click", () => {
     // Theme switching remains available when storage is disabled.
   }
 });
+
+// Account form: show only the identifier field that matches the
+// selected account type (email -> Email, user -> Username).
+(function setupAccountTypeToggle() {
+  const form = document.querySelector("#account-form");
+  if (!form) return;
+  const typeSelect = form.querySelector("#id_account_type");
+  if (!typeSelect) return;
+
+  const emailField = form.querySelector("#id_email_name")?.closest(".field");
+  const userField = form.querySelector("#id_user_name")?.closest(".field");
+
+  function applyToggle() {
+    const isEmail = typeSelect.value === "email";
+    if (emailField) emailField.style.display = isEmail ? "" : "none";
+    if (userField) userField.style.display = isEmail ? "none" : "";
+  }
+
+  typeSelect.addEventListener("change", applyToggle);
+  applyToggle();
+})();
