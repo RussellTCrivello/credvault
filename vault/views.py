@@ -150,9 +150,8 @@ def _match_url_ids(raw_value, force_domain=False):
     if not ids.exists() and force_domain:
         dom = extract_domain(q_lower)
         if dom:
-            ids = (
+            ids = _id_filter_values(
                 Url.objects.filter(name__icontains=dom)
-                .values('id')
             )
     return ids
 
@@ -181,6 +180,30 @@ def _clean_query_string(request_get):
     return params.urlencode()
 
 
+#: Above this many matching reference ids, a subquery is used instead of a
+#: literal list (keeps the SQL size bounded for very broad matches).
+ID_LIST_LIMIT = 5000
+
+
+def _id_filter_values(source):
+    """
+    Ids of matching reference rows, as a list when there are few of them.
+
+    PostgreSQL combines index scans with OR only when the values are literals,
+    so a short list lets the record query use the foreign-key indexes for
+    every term. A broad match (more than ID_LIST_LIMIT ids) keeps the subquery.
+    """
+    if isinstance(source, (list, tuple)):
+        return list(source)
+    ids = list(source.values_list('id', flat=True)[: ID_LIST_LIMIT + 1])
+    return ids if len(ids) <= ID_LIST_LIMIT else source.values('id')
+
+
+def _has_any(ids):
+    """True when a list or a subquery from _id_filter_values matches anything."""
+    return bool(ids) if isinstance(ids, list) else ids.exists()
+
+
 def filter_accounts(params):
     """
     Build an Account queryset from URL query parameters.
@@ -200,25 +223,20 @@ def filter_accounts(params):
 
     if params.get('adv') == '1':
         if keyword:
-            url_ids = (
+            url_ids = _id_filter_values(
                 Url.objects.filter(name__icontains=keyword)
-                .values('id')
             )
-            email_ids = (
+            email_ids = _id_filter_values(
                 Email.objects.filter(name__icontains=keyword)
-                .values('id')
             )
-            user_ids = (
+            user_ids = _id_filter_values(
                 User.objects.filter(name__icontains=keyword)
-                .values('id')
             )
-            pass_ids = (
+            pass_ids = _id_filter_values(
                 Pass.objects.filter(name__icontains=keyword)
-                .values('id')
             )
-            ip_ids = (
+            ip_ids = _id_filter_values(
                 Ip.objects.filter(name__icontains=keyword)
-                .values('id')
             )
             qs = qs.filter(
                 Q(url_id__in=url_ids)
@@ -230,9 +248,8 @@ def filter_accounts(params):
 
         url = (params.get('url') or '').strip()
         if url:
-            ids = (
+            ids = _id_filter_values(
                 Url.objects.filter(name__icontains=url)
-                .values('id')
             )
             qs = qs.filter(url_id__in=ids)
 
@@ -242,33 +259,29 @@ def filter_accounts(params):
 
         email = (params.get('email') or '').strip()
         if email:
-            ids = (
+            ids = _id_filter_values(
                 Email.objects.filter(name__icontains=email)
-                .values('id')
             )
             qs = qs.filter(email_id__in=ids)
 
         username = (params.get('username') or '').strip()
         if username:
-            ids = (
+            ids = _id_filter_values(
                 User.objects.filter(name__icontains=username)
-                .values('id')
             )
             qs = qs.filter(user_id__in=ids)
 
         password = (params.get('password') or '').strip()
         if password:
-            ids = (
+            ids = _id_filter_values(
                 Pass.objects.filter(name__icontains=password)
-                .values('id')
             )
             qs = qs.filter(password_id__in=ids)
 
         ip = (params.get('ip') or '').strip()
         if ip:
-            ids = (
+            ids = _id_filter_values(
                 Ip.objects.filter(name__icontains=ip)
-                .values('id')
             )
             qs = qs.filter(ip_id__in=ids)
 
@@ -315,6 +328,12 @@ def filter_accounts(params):
     pass_ids = _match_exact_ids(Pass, search_term)
     ip_ids = _match_exact_ids(Ip, search_term)
 
+    url_ids = _id_filter_values(url_ids)
+    email_ids = _id_filter_values(email_ids)
+    user_ids = _id_filter_values(user_ids)
+    pass_ids = _id_filter_values(pass_ids)
+    ip_ids = _id_filter_values(ip_ids)
+
     clauses = Q()
     clauses |= Q(url_id__in=url_ids)
     clauses |= Q(email_id__in=email_ids)
@@ -322,7 +341,7 @@ def filter_accounts(params):
     clauses |= Q(password_id__in=pass_ids)
     clauses |= Q(ip_id__in=ip_ids)
 
-    if any(ids.exists() for ids in (
+    if any(_has_any(ids) for ids in (
         url_ids, email_ids, user_ids, pass_ids, ip_ids,
     )):
         return qs.filter(clauses)
@@ -330,25 +349,20 @@ def filter_accounts(params):
     # If invoked via free-text keyword and no exact/domain match was found,
     # fall back to reference-table substring lookup.
     if keyword and not q:
-        url_ids = (
+        url_ids = _id_filter_values(
             Url.objects.filter(name__icontains=keyword)
-            .values('id')
         )
-        email_ids = (
+        email_ids = _id_filter_values(
             Email.objects.filter(name__icontains=keyword)
-            .values('id')
         )
-        user_ids = (
+        user_ids = _id_filter_values(
             User.objects.filter(name__icontains=keyword)
-            .values('id')
         )
-        pass_ids = (
+        pass_ids = _id_filter_values(
             Pass.objects.filter(name__icontains=keyword)
-            .values('id')
         )
-        ip_ids = (
+        ip_ids = _id_filter_values(
             Ip.objects.filter(name__icontains=keyword)
-            .values('id')
         )
         return qs.filter(
             Q(url_id__in=url_ids)
@@ -359,6 +373,27 @@ def filter_accounts(params):
         )
 
     return qs.none()
+
+
+def _paginate_accounts(request, queryset, per_page=100):
+    """
+    One page of Account rows, loaded in two steps.
+
+    Sorting the matches and joining the five reference tables for every match
+    is what makes broad searches slow, so only the ids are paged and sorted.
+    Full rows (with their URL, identifier, password and IP) are loaded for the
+    records on the page alone, in the same order.
+    """
+    paginator = CappedPaginator(
+        queryset.values_list('pk', flat=True), per_page
+    )
+    page_obj = paginator.get_page(request.GET.get('page', '1'))
+    ids = list(page_obj.object_list)
+    loaded = Account.objects.select_related(
+        'url', 'email', 'user', 'password', 'ip'
+    ).in_bulk(ids)
+    page_obj.object_list = [loaded[pk] for pk in ids if pk in loaded]
+    return page_obj
 
 
 def _paginate(request, queryset, per_page=100):
@@ -444,7 +479,7 @@ def browse_all(request):
     if has_query:
         queryset = filter_accounts(request.GET)
         total, total_capped = capped_count(queryset)
-        page_obj = _paginate(request, queryset)
+        page_obj = _paginate_accounts(request, queryset)
         records = page_obj.object_list
 
     return render(request, 'vault/browse.html', {
@@ -475,7 +510,7 @@ def search_records(request):
     if has_query:
         queryset = filter_accounts(request.GET)
         total, total_capped = capped_count(queryset)
-        page_obj = _paginate(request, queryset)
+        page_obj = _paginate_accounts(request, queryset)
         records = page_obj.object_list
 
     return render(request, 'vault/search.html', {
@@ -506,7 +541,7 @@ def advanced_search(request):
         params['adv'] = '1'
         queryset = filter_accounts(params)
         total, total_capped = capped_count(queryset)
-        page_obj = _paginate(request, queryset)
+        page_obj = _paginate_accounts(request, queryset)
         records = page_obj.object_list
 
     return render(request, 'vault/advanced_search.html', {

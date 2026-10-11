@@ -64,6 +64,66 @@ The workspace uses Django's translation framework. English is the default langua
 
 New templates and Python interface strings should use Django's `{% trans %}` / `{% blocktrans %}` tags and `gettext_lazy` / `gettext`, respectively, so they remain available to translators.
 
+# Database: PostgreSQL
+
+The workspace stores its data in PostgreSQL (version 14 or newer). The
+PostgreSQL contrib modules must be installed; they are included in the
+standard packages, and the migration enables `pg_trgm` for substring search.
+
+## Set up a database
+
+Run these as a PostgreSQL superuser (for example `sudo -u postgres psql`),
+choosing your own password:
+
+```sql
+CREATE ROLE credvault LOGIN PASSWORD 'choose-a-password' CREATEDB;
+CREATE DATABASE credvault OWNER credvault;
+```
+
+`CREATEDB` lets the test suite create its temporary test database.
+
+Connection settings come from environment variables (defaults in brackets):
+
+| Variable | Meaning |
+| --- | --- |
+| `POSTGRES_DB` | database name (`credvault`) |
+| `POSTGRES_USER` | role that owns the database (`credvault`) |
+| `POSTGRES_PASSWORD` | role password (empty) |
+| `POSTGRES_HOST` | server host or socket directory (`127.0.0.1`) |
+| `POSTGRES_PORT` | server port (`5432`) |
+
+Then install the Python dependencies and create the schema:
+
+```bash
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt
+export POSTGRES_PASSWORD='choose-a-password'
+.venv/bin/python manage.py migrate
+.venv/bin/python manage.py createsuperuser
+.venv/bin/python manage.py runserver 0.0.0.0:8000
+```
+
+## Move existing SQLite data
+
+If you have an older `db.sqlite3`, copy it into an empty PostgreSQL database
+(run `migrate` first, as above):
+
+```bash
+.venv/bin/python manage.py copy_from_sqlite /path/to/db.sqlite3
+```
+
+The command copies every table in one transaction, including the
+administrator accounts, groups, sessions and admin history, and keeps the
+original ids. It stops if the target already holds records, and it checks
+that the row counts match and that every stored fingerprint is correct. If any
+check fails, nothing is saved.
+
+## Tests
+
+```bash
+POSTGRES_PASSWORD='choose-a-password' .venv/bin/python manage.py test vault
+```
+
 # Performance
 
 All numbers below were measured with the code in this repository on a

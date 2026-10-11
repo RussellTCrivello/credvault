@@ -127,3 +127,45 @@ class ReferenceUsageTests(TestCase):
         response = self.client.get(reverse('vault:references', args=['url']))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'https://a.example.com/x')
+
+
+class PostgresLimitTests(TestCase):
+    """Values PostgreSQL cannot index must be refused, not crash a batch."""
+
+    def test_long_multibyte_url_is_skipped_and_batch_still_loads(self):
+        long_url = 'https://example.com/' + ''.join(
+            chr(0x4E00 + (i * 7919) % 3000) for i in range(1000)
+        )
+        created, skipped = bulk_import_lines(iter([
+            parse_line(f'{long_url}|user1|pw1'),
+            parse_line('https://example.com/ok|user2|pw2'),
+        ]))
+        self.assertEqual((created, skipped), (1, 1))
+        self.assertEqual(Url.objects.count(), 1)
+
+    def test_long_ascii_url_within_the_limit_is_stored(self):
+        url = 'https://example.com/' + 'a' * 1900
+        created, skipped = bulk_import_lines(iter([parse_line(f'{url}|user1|pw1')]))
+        self.assertEqual((created, skipped), (1, 0))
+
+
+class CopyConversionTests(TestCase):
+    def test_boolean_and_datetime_conversion(self):
+        import datetime as dt
+        from vault.management.commands.copy_from_sqlite import converter_for
+
+        self.assertIs(converter_for('boolean')(1), True)
+        self.assertIs(converter_for('boolean')(0), False)
+        self.assertIsNone(converter_for('boolean')(None))
+
+        aware = converter_for('timestamp with time zone')('2026-10-11 18:04:39.610975')
+        self.assertEqual(aware.tzinfo, dt.timezone.utc)
+        self.assertEqual(aware.microsecond, 610975)
+
+        naive = converter_for('timestamp without time zone')('2026-10-11 18:04:39')
+        self.assertIsNone(naive.tzinfo)
+
+        self.assertEqual(
+            converter_for('date')('2026-10-11'), dt.date(2026, 10, 11)
+        )
+        self.assertEqual(converter_for('bigint')(42), 42)

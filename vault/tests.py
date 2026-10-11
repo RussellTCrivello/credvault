@@ -1,14 +1,12 @@
 import json
 import os
 import shutil
-import sqlite3
 import tempfile
 import time
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
-from django.db import connection
 from django.test import TestCase
 from django.urls import reverse
 
@@ -231,7 +229,7 @@ class WorkspaceInterfaceTests(TestCase):
         )
         self.assertContains(response, 'No matching records')
 
-    def test_search_with_many_matching_urls_avoids_sqlite_variable_limit(self):
+    def test_search_with_many_matching_urls_returns_them(self):
         urls = Url.objects.bulk_create([
             Url(name=f'https://bulk-search.example/login/{index}')
             for index in range(100)
@@ -244,24 +242,16 @@ class WorkspaceInterfaceTests(TestCase):
             ip=self.ip,
         )
 
-        db_connection = connection.connection
-        old_limit = db_connection.getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER)
-        db_connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 80)
-        try:
-            responses = (
-                self.client.get(
-                    reverse('vault:advanced_search'),
-                    {'keyword': 'bulk-search'},
-                ),
-                self.client.get(
-                    reverse('vault:search'),
-                    {'field': 'domain', 'q': 'bulk-search.example'},
-                ),
-            )
-        finally:
-            db_connection.setlimit(
-                sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, old_limit
-            )
+        responses = (
+            self.client.get(
+                reverse('vault:advanced_search'),
+                {'keyword': 'bulk-search'},
+            ),
+            self.client.get(
+                reverse('vault:search'),
+                {'field': 'domain', 'q': 'bulk-search.example'},
+            ),
+        )
 
         for response in responses:
             with self.subTest(path=response.request['PATH_INFO']):
