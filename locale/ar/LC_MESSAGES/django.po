@@ -656,3 +656,54 @@ msgstr "ابحث عن كلمة مرور أو اخترها"
 msgid "Search or select IP address (or N/A)"
 msgstr "ابحث عن عنوان IP أو اختره (أو N/A)"
 
+#: vault/validators.py
+msgid "Enter a valid URL: http:// or https://, then a host name with a domain extension such as example.com."
+msgstr "أدخل رابطًا صحيحًا: http:// أو https:// ثم اسم مضيف مع امتداد نطاق مثل example.com."
+
+#: vault/validators.py
+msgid "Enter a valid email address in the form name@domain.com (letters, digits and . _ + - before the @)."
+msgstr "أدخل بريدًا إلكترونيًا صحيحًا بالصيغة name@domain.com (حروف وأرقام و . _ + - قبل علامة @)."
+
+#: vault/validators.py
+msgid "Enter a valid username: letters, digits and . _ - + only, starting and ending with a letter or digit, and without @."
+msgstr "أدخل اسم مستخدم صحيحًا: حروف وأرقام و . _ - + فقط، يبدأ وينتهي بحرف أو رقم، وبدون @."
+
+#: vault/validators.py
+msgid "Enter a password of 1 to 500 printable characters."
+msgstr "أدخل كلمة مرور من 1 إلى 500 حرف قابل للطباعة."
+
+#: vault/validators.py
+msgid "Enter a valid IP address such as 192.168.1.1 (four numbers of 0-255 separated by dots), or leave it blank."
+msgstr "أدخل عنوان IP صحيحًا مثل 192.168.1.1 (أربعة أرقام من 0 إلى 255 مفصولة بنقاط)، أو اتركه فارغًا."
+
+#: vault/validators.py
+msgid "Format: https://example.com/login"
+msgstr "الصيغة: https://example.com/login"
+
+#: vault/validators.py
+msgid "Format: name@domain.com"
+msgstr "الصيغة: name@domain.com"
+
+#: vault/validators.py
+msgid "Format: name, name123 or first.last"
+msgstr "الصيغة: name أو name123 أو first.last"
+
+#: vault/validators.py
+msgid "Format: any printable text, up to 500 characters"
+msgstr "الصيغة: أي نص قابل للطباعة حتى 500 حرف"
+
+#: vault/validators.py
+msgid "Format: 192.168.1.1 (or N/A)"
+msgstr "الصيغة: 192.168.1.1 (أو N/A)"
+
+#: vault/models.py
+msgid "Record fingerprint"
+msgstr "بصمة السجل"
+
+#: vault/models.py
+msgid "This %(kind)s is already stored."
+msgstr "%(kind)s مخزّن بالفعل."
+
+#: vault/forms.py
+msgid "One record per line: URL, then email or username, then password, then the IP address, separated by | ; tab or : -- for example https://example.com/login|name@example.com|secret|192.168.1.1. Each value must match its own format and is stored once, however it is written."
+msgstr "سجل واحد في كل سطر: الرابط، ثم البريد الإلكتروني أو اسم المستخدم، ثم كلمة المرور، ثم عنوان IP، مفصولة بـ | أو ; أو مسافة جدولة أو : -- مثال: https://example.com/login|name@example.com|secret|192.168.1.1. يجب أن تطابق كل قيمة صيغتها الخاصة، وتُخزّن مرة واحدة مهما اختلفت كتابتها."

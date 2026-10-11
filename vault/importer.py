@@ -6,12 +6,20 @@ which is far too slow for millions of lines. This module batches the work:
 
   1. Stream the input in bounded batches so memory stays flat even across
      millions of lines and thousands of files.
-  2. Collect the *distinct* referenced values (URLs, emails, usernames,
-     passwords, IPs) seen in each batch.
+  2. Validate every field against its format and keep only its canonical
+     spelling (see vault.validators), then collect the *distinct* referenced
+     values (URLs, emails, usernames, passwords, IPs) seen in each batch.
   3. Bulk-create the missing reference rows (chunked to stay under the
      SQLite variable limit).
-  4. Build the Account rows in memory, deduplicate against only the
-     matching URL/password subset in the database, and bulk-create them.
+  4. Build the Account rows in memory, keyed by the record fingerprint, drop
+     the ones already stored with a single indexed lookup per chunk, and
+     bulk-create the rest.
+
+Canonicalizing in step 2 is what keeps the reference tables free of
+duplicates: the same email written as ``Person@Example.COM`` or
+``person@example.com`` becomes one row, and a value that does not match its
+format (``not-an-ip`` in the IP column, ``b@@ad`` in the identifier column)
+is counted as skipped instead of being stored.
 
 It is used by the web file/folder import flows and by the importfolder
 management command.
@@ -22,8 +30,11 @@ from itertools import islice
 
 from django.db import transaction
 
-from .models import Account, Email, Ip, Pass, Url, User
-from .utils import parse_line
+from .models import Account, Email, Ip, Pass, Url, User, record_fingerprint
+from .utils import NO_IP, CanonicalRecord, parse_line
+from .validators import (
+    classify_identifier, normalize_ip, normalize_password, normalize_url,
+)
 
 # Chunk IN(...) queries to stay well below SQLite's 999-variable limit.
 _CHUNK = 500
@@ -47,7 +58,13 @@ def _chunks(iterable, size):
 
 
 def _bulk_get_or_create_names(model, names):
-    """Return a {name: id} map for every name, creating missing rows."""
+    """
+    Return a {name: id} map for every canonical name, creating missing rows.
+
+    The names arriving here are already canonical, so the lookup is an exact
+    match on the unique `name` column: a value that is already stored is
+    reused, never inserted a second time.
+    """
     name_set = set(names)
     mapping = {}
     if not name_set:
@@ -87,31 +104,12 @@ def _flush_batch(keys, urls, emails, users, passes, ips):
     pass_map = _bulk_get_or_create_names(Pass, passes)
     ip_map = _bulk_get_or_create_names(Ip, ips)
 
-    url_ids = list(url_map.values())
-    pass_ids = list(pass_map.values())
-
-    # Query existing accounts only for the URLs (or passwords) in this batch,
-    # never scanning the entire Account table.
-    existing = set()
-    if len(url_ids) <= len(pass_ids):
-        for chunk in _chunks(url_ids, _CHUNK):
-            existing.update(
-                Account.objects.filter(url_id__in=chunk).values_list(
-                    'url_id', 'account_type', 'email_id', 'user_id',
-                    'password_id', 'ip_id'
-                )
-            )
-    else:
-        for chunk in _chunks(pass_ids, _CHUNK):
-            existing.update(
-                Account.objects.filter(password_id__in=chunk).values_list(
-                    'url_id', 'account_type', 'email_id', 'user_id',
-                    'password_id', 'ip_id'
-                )
-            )
-
-    objs = []
-    for (url, account_type, ident, secret, ip_key) in keys:
+    # One Account per fingerprint: the same URL + identifier + password + IP
+    # combination appears once in the batch no matter how many lines carried
+    # it, and the unique fingerprint column keeps that true across batches,
+    # files and imports.
+    candidates = {}
+    for (url, account_type, ident, secret, ip_value) in keys:
         url_id = url_map.get(url)
         pass_id = pass_map.get(secret)
         if not (url_id and pass_id):
@@ -128,27 +126,75 @@ def _flush_batch(keys, urls, emails, users, passes, ips):
             if not user_id:
                 continue
 
-        ip_id = ip_map.get(ip_key) if ip_key else None
-        row_key = (url_id, account_type, email_id, user_id, pass_id, ip_id)
-        if row_key in existing:
+        ip_id = ip_map.get(ip_value) if ip_value else None
+        fingerprint = record_fingerprint(
+            url_id, account_type, email_id, user_id, pass_id, ip_id
+        )
+        if fingerprint in candidates:
             continue
-
-        existing.add(row_key)
-        objs.append(Account(
+        candidates[fingerprint] = Account(
             url_id=url_id,
             account_type=account_type,
             email_id=email_id,
             user_id=user_id,
             password_id=pass_id,
             ip_id=ip_id,
-        ))
+            fingerprint=fingerprint,
+        )
 
+    # Drop the records already stored -- one indexed lookup per chunk instead
+    # of scanning every account that shares a URL or a password with the batch.
+    already_stored = set()
+    for chunk in _chunks(list(candidates), _CHUNK):
+        already_stored.update(
+            Account.objects.filter(
+                fingerprint__in=chunk
+            ).values_list('fingerprint', flat=True)
+        )
+
+    objs = [
+        account for fingerprint, account in candidates.items()
+        if fingerprint not in already_stored
+    ]
     if objs:
         Account.objects.bulk_create(
             objs, batch_size=_BATCH, ignore_conflicts=True
         )
 
     return len(objs)
+
+
+def canonical_record(result):
+    """
+    Validate one parsed-line dict and return it with canonical values.
+
+    Returns None when any of the five values does not match its format, so
+    that a bad line is counted as skipped instead of stored half-parsed.
+    Records that arrive from `parse_line` are already validated and are
+    passed straight through.
+    """
+    if not result:
+        return None
+    if isinstance(result, CanonicalRecord):
+        return result
+
+    url = normalize_url(result.get('url'))
+    password = normalize_password(result.get('secret_data'))
+    account_type, identifier = classify_identifier(
+        result.get('account_identifier')
+    )
+    ip_value = normalize_ip(result.get('ip_address'))
+
+    if not (url and password and identifier and account_type):
+        return None
+
+    return {
+        'url': url,
+        'account_type': account_type,
+        'account_identifier': identifier,
+        'secret_data': password,
+        'ip_address': ip_value,
+    }
 
 
 def bulk_import_lines(parsed_iter):
@@ -169,23 +215,19 @@ def bulk_import_lines(parsed_iter):
     skipped = 0
 
     for result in parsed_iter:
-        if not result:
+        record = canonical_record(result)
+        if record is None:
             skipped += 1
             continue
 
-        url = (result.get('url') or '').strip()
-        secret = result.get('secret_data') or ''
-        ident = (result.get('account_identifier') or '').strip()
-        account_type = result.get('account_type') or 'user'
-        ip_value = (result.get('ip_address') or '').strip()
-
-        if not (url and secret and ident):
-            skipped += 1
-            continue
-
-        if len(url) > 2048 or len(ident) > 255 or len(secret) > 500:
-            skipped += 1
-            continue
+        url = record['url']
+        secret = record['secret_data']
+        ident = record['account_identifier']
+        account_type = record['account_type']
+        # parse_line reports a missing address as 'N/A'; store no relation.
+        ip_value = record['ip_address']
+        if not ip_value or ip_value == NO_IP:
+            ip_value = None
 
         urls.add(url)
         passes.add(secret)
@@ -193,13 +235,10 @@ def bulk_import_lines(parsed_iter):
             emails.add(ident)
         else:
             users.add(ident)
-
-        ip_key = None
-        if ip_value and ip_value.upper() != 'N/A' and len(ip_value) <= 45:
+        if ip_value:
             ips.add(ip_value)
-            ip_key = ip_value
 
-        keys.add((url, account_type, ident, secret, ip_key))
+        keys.add((url, account_type, ident, secret, ip_value))
 
         if len(keys) >= STREAM_BATCH_SIZE:
             total_created += _flush_batch(

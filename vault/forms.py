@@ -5,6 +5,12 @@ from django.utils.translation import gettext_lazy as _
 from .models import (
     Account, Email, Ip, Pass, Url, User,
 )
+from .validators import (
+    CANONICALIZERS, ERROR_MESSAGES, FORMAT_HINTS, MAX_EMAIL_LENGTH,
+    MAX_IP_LENGTH, MAX_LENGTHS, MAX_PASSWORD_LENGTH, MAX_URL_LENGTH,
+    MAX_USERNAME_LENGTH, EmailFormatValidator, IPAddressFormatValidator,
+    PasswordFormatValidator, URLFormatValidator, UsernameFormatValidator,
+)
 
 
 class AccountForm(forms.ModelForm):
@@ -14,13 +20,20 @@ class AccountForm(forms.ModelForm):
     so an existing URL / email / username / password / IP is reused
     instead of being entered a second time.
 
+    Every component is checked against the format of its kind before it is
+    stored, and stored in canonical form (see vault.validators), so
+    ``HTTPS://Example.COM/login`` and ``https://example.com/login`` reuse the
+    same row instead of creating a second one.
+
     All fields are configured as searchable and selectable drop-down
     comboboxes with live filtering and selection.
     """
 
     url_name = forms.CharField(
         label=_('URL'),
-        max_length=2048,
+        max_length=MAX_URL_LENGTH,
+        validators=[URLFormatValidator()],
+        help_text=FORMAT_HINTS['url'],
         widget=forms.TextInput(attrs={
             'class': 'form-control combobox-input',
             'dir': 'ltr',
@@ -30,9 +43,12 @@ class AccountForm(forms.ModelForm):
             'placeholder': _('Search or select URL (e.g. https://example.com/login)'),
         }),
     )
-    email_name = forms.EmailField(
+    email_name = forms.CharField(
         label=_('Email'),
         required=False,
+        max_length=MAX_EMAIL_LENGTH,
+        validators=[EmailFormatValidator()],
+        help_text=FORMAT_HINTS['email'],
         widget=forms.TextInput(attrs={
             'class': 'form-control combobox-input',
             'dir': 'ltr',
@@ -44,8 +60,10 @@ class AccountForm(forms.ModelForm):
     )
     user_name = forms.CharField(
         label=_('Username'),
-        max_length=255,
+        max_length=MAX_USERNAME_LENGTH,
         required=False,
+        validators=[UsernameFormatValidator()],
+        help_text=FORMAT_HINTS['user'],
         widget=forms.TextInput(attrs={
             'class': 'form-control combobox-input',
             'dir': 'auto',
@@ -57,7 +75,9 @@ class AccountForm(forms.ModelForm):
     )
     password_name = forms.CharField(
         label=_('Password'),
-        max_length=500,
+        max_length=MAX_PASSWORD_LENGTH,
+        validators=[PasswordFormatValidator()],
+        help_text=FORMAT_HINTS['pass'],
         widget=forms.TextInput(attrs={
             'class': 'form-control combobox-input',
             'dir': 'auto',
@@ -69,8 +89,10 @@ class AccountForm(forms.ModelForm):
     )
     ip_name = forms.CharField(
         label=_('IP address'),
-        max_length=45,
+        max_length=MAX_IP_LENGTH,
         required=False,
+        validators=[IPAddressFormatValidator()],
+        help_text=FORMAT_HINTS['ip'],
         widget=forms.TextInput(attrs={
             'class': 'form-control combobox-input',
             'dir': 'ltr',
@@ -114,30 +136,52 @@ class AccountForm(forms.ModelForm):
                 self.fields['ip_name'].initial = instance.ip.name
 
     def clean(self):
+        """
+        Check the identifier the account type asks for and store every
+        component in canonical form, so that looking an existing value up by
+        name finds it however it was typed.
+        """
         cleaned = super().clean()
         account_type = cleaned.get('account_type')
-        email_name = (cleaned.get('email_name') or '').strip()
-        user_name = (cleaned.get('user_name') or '').strip()
+
+        # A field whose format was rejected is absent from cleaned_data and
+        # already carries its own error message; only report "required" or
+        # "not allowed" for fields that are present and well formed.
+        canonical = {
+            'url_name': CANONICALIZERS['url'](cleaned.get('url_name')),
+            'password_name': CANONICALIZERS['pass'](
+                cleaned.get('password_name')
+            ),
+            'email_name': CANONICALIZERS['email'](cleaned.get('email_name')),
+            'user_name': CANONICALIZERS['user'](cleaned.get('user_name')),
+            'ip_name': CANONICALIZERS['ip'](cleaned.get('ip_name')),
+        }
+        for field, value in canonical.items():
+            cleaned[field] = value or ''
+
+        def report(field, message):
+            if not self.errors.get(field):
+                self.add_error(field, message)
 
         if account_type == 'email':
-            if not email_name:
-                self.add_error(
+            if not canonical['email_name']:
+                report(
                     'email_name',
                     _('An email address is required for email accounts.'),
                 )
-            if user_name:
-                self.add_error(
+            if canonical['user_name']:
+                report(
                     'user_name',
                     _('Email accounts cannot have a username.'),
                 )
         else:
-            if not user_name:
-                self.add_error(
+            if not canonical['user_name']:
+                report(
                     'user_name',
                     _('A username is required for user accounts.'),
                 )
-            if email_name:
-                self.add_error(
+            if canonical['email_name']:
+                report(
                     'email_name',
                     _('User accounts cannot have an email.'),
                 )
@@ -147,27 +191,26 @@ class AccountForm(forms.ModelForm):
         cleaned = self.cleaned_data
         account_type = cleaned['account_type']
 
-        url, _created = Url.objects.get_or_create(
-            name=cleaned['url_name'].strip()
-        )
+        # Every value is already canonical, so get_or_create reuses the
+        # existing row instead of storing a second spelling of it.
+        url, _created = Url.objects.get_or_create(name=cleaned['url_name'])
         password, _created = Pass.objects.get_or_create(
             name=cleaned['password_name']
         )
 
         ip = None
-        ip_name = (cleaned.get('ip_name') or '').strip()
-        if ip_name and ip_name.upper() != 'N/A':
-            ip, _created = Ip.objects.get_or_create(name=ip_name)
+        if cleaned.get('ip_name'):
+            ip, _created = Ip.objects.get_or_create(name=cleaned['ip_name'])
 
         email = None
         user = None
         if account_type == 'email':
             email, _created = Email.objects.get_or_create(
-                name=cleaned['email_name'].strip()
+                name=cleaned['email_name']
             )
         else:
             user, _created = User.objects.get_or_create(
-                name=cleaned['user_name'].strip()
+                name=cleaned['user_name']
             )
 
         self.instance.url = url
@@ -178,19 +221,12 @@ class AccountForm(forms.ModelForm):
         self.instance.ip = ip
 
         # Duplicate guard (mirrors Account.save for a friendly form error).
-        if url and password:
-            qs = Account.objects.filter(
-                url=url, account_type=account_type,
-                password=password, ip=ip,
-            )
-            if account_type == 'email':
-                qs = qs.filter(email=email, user__isnull=True)
-            else:
-                qs = qs.filter(user=user, email__isnull=True)
-            if self.instance.pk:
-                qs = qs.exclude(pk=self.instance.pk)
-            if qs.exists():
-                raise ValidationError(
+        fingerprint = self.instance.compute_fingerprint()
+        duplicates = Account.objects.filter(fingerprint=fingerprint)
+        if self.instance.pk:
+            duplicates = duplicates.exclude(pk=self.instance.pk)
+        if duplicates.exists():
+            raise ValidationError(
                     _('This exact relationship already exists.')
                 )
 
@@ -198,16 +234,41 @@ class AccountForm(forms.ModelForm):
 
 
 class ReferenceForm(forms.Form):
-    """Add a single value to one of the reference tables."""
+    """
+    Add a single value to one of the reference tables.
+
+    The `kind` ('url', 'email', 'user', 'pass' or 'ip') selects the format
+    the value is checked against and the canonical spelling it is stored
+    in, so a value that already exists is reported as reused rather than
+    added a second time.
+    """
 
     name = forms.CharField(
         label=_('Name'),
-        max_length=2048,
+        max_length=MAX_URL_LENGTH,
         widget=forms.TextInput(attrs={
             'class': 'form-control',
             'placeholder': _('Enter a value'),
         }),
     )
+
+    def __init__(self, *args, kind=None, **kwargs):
+        self.kind = kind if kind in CANONICALIZERS else None
+        super().__init__(*args, **kwargs)
+        if self.kind:
+            field = self.fields['name']
+            field.max_length = MAX_LENGTHS[self.kind]
+            field.help_text = FORMAT_HINTS[self.kind]
+            field.widget.attrs['placeholder'] = str(FORMAT_HINTS[self.kind])
+
+    def clean_name(self):
+        value = self.cleaned_data['name']
+        if not self.kind:
+            return value.strip()
+        canonical = CANONICALIZERS[self.kind](value)
+        if canonical is None:
+            raise ValidationError(ERROR_MESSAGES[self.kind])
+        return canonical
 
 
 class ImportFileForm(forms.Form):
@@ -221,8 +282,11 @@ class ImportFileForm(forms.Form):
         label=_("Select data file to import"),
         required=False,
         help_text=_(
-            "Supported formats: TXT with colon, pipe, tab, or semicolon "
-            "delimiters"
+            "One record per line: URL, then email or username, then "
+            "password, then the IP address, separated by | ; tab or : "
+            "-- for example https://example.com/login|name@example.com|"
+            "secret|192.168.1.1. Each value must match its own format and "
+            "is stored once, however it is written."
         )
     )
     folder_path = forms.CharField(
