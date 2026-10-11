@@ -252,6 +252,55 @@ class WorkspaceInterfaceTests(TestCase):
         )
         self.assertContains(response, 'No matching records')
 
+    def test_advanced_search_matches_substrings(self):
+        # Advanced search (per-field filters and the keyword) matches
+        # anywhere inside a value, case-insensitively -- the "contains"
+        # behaviour its labels promise, backed by the pg_trgm indexes.
+        inner_url = Url.objects.create(name='https://vpn.corp.example.net/remote')
+        Account.objects.create(
+            url=inner_url,
+            account_type='user',
+            user=User.objects.create(name='svc.backup'),
+            password=Pass.objects.create(name='Tr0ub4dor&3'),
+            ip=self.ip,
+        )
+
+        cases = [
+            {'keyword': 'CORP'},       # keyword, middle of the URL, other case
+            {'url': '.corp.'},         # URL filter, mid-string token
+            {'username': 'vc.back'},   # username filter, mid-string
+            {'password': '0ub4d'},     # password filter, mid-string
+        ]
+        for params in cases:
+            with self.subTest(params=params):
+                response = self.client.get(
+                    reverse('vault:advanced_search'), params
+                )
+                self.assertContains(response, 'svc.backup')
+
+    def test_quick_search_stays_exact_for_non_domain_values(self):
+        # Quick search is the exact-match tier: a partial value must not
+        # match on any field (see README, "Search semantics").
+        partial_values = [
+            {'field': 'email', 'q': 'erson@example'},
+            {'field': 'password', 'q': 'test-secr'},
+            {'field': 'ip', 'q': '203.0.113'},
+        ]
+        for params in partial_values:
+            with self.subTest(params=params):
+                response = self.client.get(reverse('vault:search'), params)
+                self.assertContains(response, 'No matching records')
+
+                # The full value still finds the record.
+                full = params.copy()
+                full['q'] = {
+                    'email': 'person@example.com',
+                    'password': 'test-secret',
+                    'ip': '203.0.113.10',
+                }[params['field']]
+                response = self.client.get(reverse('vault:search'), full)
+                self.assertContains(response, 'person@example.com')
+
     def test_search_with_many_matching_urls_returns_them(self):
         urls = Url.objects.bulk_create([
             Url(name=f'https://bulk-search.example/login/{index}')

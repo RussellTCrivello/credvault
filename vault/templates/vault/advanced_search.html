@@ -1,7 +1,7 @@
 {% extends "vault/base.html" %}{% load i18n %}
 {% block title %}{% trans "Advanced search" %}{% endblock %}
 {% block heading %}{% trans "Advanced search" %}{% endblock %}
-{% block intro %}<p class="page-intro">{% trans "Query each field independently. Every filter is optional and combined with AND." %}</p>{% endblock %}
+{% block intro %}<p class="page-intro">{% trans "Query each field independently. Every filter is optional and combined with AND." %} {% trans "Field filters and the keyword match anywhere inside a value (case-insensitive)." %}</p>{% endblock %}
 {% block content %}
   <section class="vault-panel search-panel">
     <form method="get" action="{% url 'vault:advanced_search' %}" class="advanced-search-form">

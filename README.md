@@ -125,6 +125,37 @@ check fails, nothing is saved.
 POSTGRES_PASSWORD='choose-a-password' .venv/bin/python manage.py test vault
 ```
 
+# Search semantics
+
+There are two deliberate tiers of matching, and both are settled behavior:
+
+| Page | Matching | Backed by |
+| --- | --- | --- |
+| Search (quick search) | **Exact**, case-insensitive, on the chosen field (`domain` also matches paths under the domain) | B-tree indexes on the reference tables |
+| Advanced search (per-field filters and the free-text keyword) | **Substring** ("contains"), case-insensitive, inside the value | `pg_trgm` GIN indexes added by migration `0003` |
+
+The decision, made after the PostgreSQL move, is to keep substring matching
+on Advanced search rather than switch it to prefix matching or full-text
+ranking:
+
+* The Advanced search form promises it: the filters are labelled "URL
+  contains", "Email contains", and so on, and keyword search is expected to
+  find `corp` inside `https://vpn.corp.example.net/remote`.
+* The `pg_trgm` indexes exist precisely to make `LIKE '%text%'` fast; a
+  keyword substring search over 1,000,000 records measured about 0.2 s on
+  PostgreSQL 16 (2 vCPU) when the database was moved over, so the concern
+  that motivated the question is already answered.
+* Prefix matching would silently miss values with the term in the middle --
+  the common case for this workspace -- and full-text ranking would change
+  which records are returned (stemming, stop words) and adds nothing for
+  passwords, emails and host names, which are not prose.
+
+Quick search stays exact on purpose: it is the fast, predictable path, and
+the search page says so. The two tiers are locked in by the tests
+(`test_advanced_search_matches_substrings`,
+`test_quick_search_stays_exact_for_non_domain_values` in
+`vault/tests.py`).
+
 # Performance
 
 All numbers below were measured with the code in this repository on a
