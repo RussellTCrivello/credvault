@@ -30,32 +30,13 @@
           <a href="{% url 'vault:references_index' %}" {% if request.resolver_match.url_name == 'references_index' or request.resolver_match.url_name == 'references' or request.resolver_match.url_name == 'reference_delete' %}class="active" aria-current="page"{% endif %}>{% trans "References" %}</a>
         </nav>
         <div class="vault-sidebar-bottom">
-          <p><strong>{% trans "LogIntel workspace" %}</strong><br />{% trans "Review and manage your organization's records from one place." %}</p>
-          {% if request.user.is_authenticated %}
-          <div class="account-box">
-            <p class="vault-muted">{% trans "Signed in as" %} <strong>{{ request.user.get_username }}</strong></p>
-            <form method="post" action="{% url 'vault:logout' %}">
-              {% csrf_token %}
-              <button class="button" type="submit">{% trans "Log out" %}</button>
-            </form>
-          </div>
-          {% endif %}        
-          <form class="language-form" action="{% url 'set_language' %}" method="post">
-            {% csrf_token %}
-            <input type="hidden" name="next" value="{{ request.get_full_path }}" />
-            <label class="field-label" for="language-select">{% trans "Language" %}</label>
-            <div class="language-controls">
-              <select id="language-select" name="language" class="select-input">
-                {% get_available_languages as available_languages %}
-                {% get_language_info_list for available_languages as language_info_list %}
-                {% for language in language_info_list %}
-                  <option value="{{ language.code }}"{% if language.code == LANGUAGE_CODE %} selected{% endif %}>{{ language.name_local }}</option>
-                {% endfor %}
-              </select>
-              <button class="button" type="submit">{% trans "Apply" %}</button>
+          <div class="workspace-card">
+            <span class="workspace-card-mark" aria-hidden="true">L</span>
+            <div>
+              <strong>{% trans "LogIntel workspace" %}</strong>
+              <small>{% trans "Private workspace" %}</small>
             </div>
-          </form>
-          <button class="button theme-toggle" id="theme-toggle" type="button" aria-pressed="false" data-dark-label="{% trans 'Use dark theme' %}" data-light-label="{% trans 'Use light theme' %}">{% trans "Use dark theme" %}</button>
+          </div>
         </div>
       </aside>
       <main id="main-content" class="vault-main" tabindex="-1">
@@ -65,7 +46,67 @@
             <h1>{% block heading %}{% trans "Overview" %}{% endblock %}</h1>
             {% block intro %}{% endblock %}
           </div>
-          <div class="vault-actions header-actions">{% block header_actions %}{% endblock %}</div>
+          <div class="topbar-right">
+            <div class="vault-actions header-actions">{% block header_actions %}{% endblock %}</div>
+            <div class="profile-menu">
+              <button class="profile-trigger" id="profile-trigger" type="button" aria-expanded="false" aria-controls="profile-panel" aria-label="{% trans 'Open profile and settings' %}">
+                {% if request.user.is_authenticated %}
+                  <span class="profile-avatar" aria-hidden="true">{{ request.user.get_username|first|upper }}</span>
+                  <span class="profile-trigger-name">{{ request.user.get_username }}</span>
+                {% else %}
+                  <span class="profile-avatar profile-avatar-guest" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3.5"></circle><path d="M5 20c.7-3.3 3.1-5 7-5s6.3 1.7 7 5"></path></svg>
+                  </span>
+                  <span class="profile-trigger-name">{% trans "Account" %}</span>
+                {% endif %}
+                <svg class="profile-chevron" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m5 7.5 5 5 5-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+              </button>
+              <section class="profile-panel" id="profile-panel" aria-label="{% trans 'Profile and settings' %}" hidden>
+                <div class="profile-panel-heading">
+                  <div class="profile-panel-avatar" aria-hidden="true">
+                    {% if request.user.is_authenticated %}
+                      {{ request.user.get_username|first|upper }}
+                    {% else %}
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3.5"></circle><path d="M5 20c.7-3.3 3.1-5 7-5s6.3 1.7 7 5"></path></svg>
+                    {% endif %}
+                  </div>
+                  <div class="profile-identity">
+                    <strong>{% if request.user.is_authenticated %}{{ request.user.get_username }}{% else %}{% trans "Guest" %}{% endif %}</strong>
+                    <small>{% if request.user.is_authenticated %}{% trans "Administrator account" %}{% else %}{% trans "Workspace access" %}{% endif %}</small>
+                  </div>
+                </div>
+                <div class="profile-panel-section">
+                  <p class="profile-section-label">{% trans "Preferences" %}</p>
+                  <form class="language-form profile-language-form" action="{% url 'set_language' %}" method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ request.get_full_path }}" />
+                    <label class="field-label" for="language-select">{% trans "Language" %}</label>
+                    <div class="language-controls">
+                      <select id="language-select" name="language" class="select-input">
+                        {% get_available_languages as available_languages %}
+                        {% get_language_info_list for available_languages as language_info_list %}
+                        {% for language in language_info_list %}
+                          <option value="{{ language.code }}"{% if language.code == LANGUAGE_CODE %} selected{% endif %}>{{ language.name_local }}</option>
+                        {% endfor %}
+                      </select>
+                      <button class="button" type="submit">{% trans "Apply" %}</button>
+                    </div>
+                  </form>
+                  <button class="button theme-toggle" id="theme-toggle" type="button" aria-pressed="false" data-dark-label="{% trans 'Use dark theme' %}" data-light-label="{% trans 'Use light theme' %}">{% trans "Use dark theme" %}</button>
+                </div>
+                <div class="profile-panel-actions">
+                  {% if request.user.is_authenticated %}
+                    <form method="post" action="{% url 'vault:logout' %}">
+                      {% csrf_token %}
+                      <button class="button profile-logout" type="submit">{% trans "Log out" %}</button>
+                    </form>
+                  {% else %}
+                    <a class="button primary profile-login" href="{% url 'vault:login' %}">{% trans "Log in" %}</a>
+                  {% endif %}
+                </div>
+              </section>
+            </div>
+          </div>
         </header>
         {% if messages %}
           <div class="message-stack" aria-live="polite">

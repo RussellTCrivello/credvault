@@ -68,6 +68,18 @@ class WorkspaceInterfaceTests(TestCase):
                     self.assertContains(response, 'data-import-step="complete"')
                     self.assertContains(response, 'data-import-percent')
 
+    def test_profile_menu_groups_account_and_preferences(self):
+        response = self.client.get(reverse('vault:references_index'))
+
+        self.assertContains(response, 'id="profile-trigger"')
+        self.assertContains(response, 'aria-controls="profile-panel"')
+        self.assertContains(response, 'id="profile-panel"')
+        self.assertContains(response, 'workspace-admin')
+        self.assertContains(response, 'id="language-select"')
+        self.assertContains(response, 'id="theme-toggle"')
+        self.assertContains(response, reverse('vault:logout'))
+        self.assertNotContains(response, 'class="account-box"')
+
     def test_search_filters_have_visible_field_labels(self):
         for route_name in ('vault:browse', 'vault:search'):
             with self.subTest(page=route_name):

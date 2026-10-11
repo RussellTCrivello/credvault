@@ -1,6 +1,32 @@
 const themeToggle = document.querySelector("#theme-toggle");
 const themeStorageKey = "logintel-theme";
 
+(function setupProfileMenu() {
+  const trigger = document.querySelector("#profile-trigger");
+  const panel = document.querySelector("#profile-panel");
+  if (!trigger || !panel) return;
+
+  function setOpen(open) {
+    trigger.setAttribute("aria-expanded", String(open));
+    panel.hidden = !open;
+  }
+
+  trigger.addEventListener("click", () => {
+    setOpen(trigger.getAttribute("aria-expanded") !== "true");
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".profile-menu")) setOpen(false);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && trigger.getAttribute("aria-expanded") === "true") {
+      setOpen(false);
+      trigger.focus();
+    }
+  });
+})();
+
 (function setupImportProgress() {
   const form = document.querySelector(".import-form");
   const progressPanel = document.querySelector("[data-import-progress]");
