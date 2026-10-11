@@ -104,6 +104,12 @@ from django.utils.translation import gettext_lazy as _
 # Limits -- kept identical to the model field lengths in vault/models.py.
 # ---------------------------------------------------------------------------
 MAX_URL_LENGTH = 2048
+# PostgreSQL refuses a B-tree index entry above about 2700 bytes, and the URL
+# is indexed twice (the unique name and its lower-cased copy). Non-ASCII path
+# characters take several bytes each, so a URL of 2048 characters can exceed
+# that limit. URLs are therefore capped at 2000 UTF-8 bytes, measured both as
+# stored and lower-cased. Plain ASCII URLs are never affected by this cap.
+MAX_URL_BYTES = 2000
 MAX_HOST_LENGTH = 253
 MAX_LABEL_LENGTH = 63
 MAX_EMAIL_LENGTH = 254
@@ -357,7 +363,12 @@ def normalize_url(value):
         tail = ''  # 'https://example.com/' and 'https://example.com' match
 
     url = f'{scheme}://{host}' + (f':{port}' if port else '') + tail
-    return url if 0 < len(url) <= MAX_URL_LENGTH else None
+    if not 0 < len(url) <= MAX_URL_LENGTH:
+        return None
+    if (len(url.encode('utf-8')) > MAX_URL_BYTES
+            or len(url.lower().encode('utf-8')) > MAX_URL_BYTES):
+        return None  # too large for a database index (see MAX_URL_BYTES)
+    return url
 
 
 def is_valid_url(value):

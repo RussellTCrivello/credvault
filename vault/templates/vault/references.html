@@ -25,7 +25,7 @@
 
   <section class="vault-panel">
     <div class="table-toolbar">
-      <div><h2>{{ registry.label_plural }}</h2><p class="vault-muted">{{ total_values }} {% blocktrans count record_count=total_values %}value{% plural %}values{% endblocktrans %}</p></div>
+      <div><h2>{{ registry.label_plural }}</h2><p class="vault-muted">{% if total_values_approximate %}≈ {% endif %}{{ total_values }} {% blocktrans count record_count=total_values %}value{% plural %}values{% endblocktrans %}</p></div>
     </div>
     <div class="vault-table-wrap">
       <table class="vault-table reference-table">
@@ -45,7 +45,7 @@
               <td dir="auto">{{ entity.name }}</td>
               <td class="mono" dir="ltr">{{ entity.created_at }}</td>
               <td class="mono" dir="ltr">{{ entity.updated_at }}</td>
-              <td class="mono">{{ entity.usage }}</td>
+              <td class="mono">{{ entity.usage_text }}</td>
               <td><a class="button small-button danger" href="{% url 'vault:reference_delete' kind=kind pk=entity.id %}">{% trans "Delete" %}</a></td>
             </tr>
           {% empty %}

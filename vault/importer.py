@@ -1,36 +1,47 @@
 """
-High-throughput bulk importer for the normalized vault.
+High-throughput importer for the normalized vault.
 
-The previous single-file import created one row at a time with get_or_create,
-which is far too slow for millions of lines. This module batches the work:
+A line of an imported file goes through four steps:
 
-  1. Stream the input in bounded batches so memory stays flat even across
-     millions of lines and thousands of files.
-  2. Validate every field against its format and keep only its canonical
-     spelling (see vault.validators), then collect the *distinct* referenced
-     values (URLs, emails, usernames, passwords, IPs) seen in each batch.
-  3. Bulk-create the missing reference rows (chunked to stay under the
-     SQLite variable limit).
-  4. Build the Account rows in memory, keyed by the record fingerprint, drop
-     the ones already stored with a single indexed lookup per chunk, and
-     bulk-create the rest.
+  1. Parse and validate it (``vault.utils.parse_line``, ``vault.validators``)
+     and keep only the canonical spelling of each value. A line that breaks a
+     format is counted as skipped instead of being stored half-parsed. The
+     result is one row tuple ``(url, account_type, identifier, secret, ip)``.
+  2. Parse in parallel worker processes when the import profile asks for it.
+     Parsing is pure Python and CPU-bound, so this is the only step that
+     scales with cores on the Python side.
+  3. Write the rows in batches. Two writers exist:
 
-Canonicalizing in step 2 is what keeps the reference tables free of
-duplicates: the same email written as ``Person@Example.COM`` or
-``person@example.com`` becomes one row, and a value that does not match its
-format (``not-an-ip`` in the IP column, ``b@@ad`` in the identifier column)
-is counted as skipped instead of being stored.
+     * the ORM writer (``bulk_import_rows``), used on SQLite and by the
+       Balanced profile: it collects the distinct reference values of a batch,
+       looks up the ones already stored, bulk-creates the rest, then creates the
+       records that are not stored yet;
+     * the COPY writer (``vault.fastimport.copy_import_rows``), used on
+       PostgreSQL by the Fast and Maximum profiles: the batch is streamed with
+       ``COPY`` into a staging table and written with set-based statements that
+       deduplicate on the database side.
 
-It is used by the web file/folder import flows and by the importfolder
-management command.
+  4. Deduplicate. Reference values are unique by their canonical spelling, and
+     each record is unique by its fingerprint, so a value or a record that is
+     already stored is reused and never inserted again.
+
+``import_sources`` drives a whole import (files or uploads) batch by batch and
+yields progress events, which the web import streams to the progress card and
+the management command prints.
 """
 
 import os
+import time
+from collections import deque, namedtuple
+from concurrent.futures import ProcessPoolExecutor
+from contextlib import contextmanager
 from itertools import islice
 
-from django.db import transaction
+from django.db import DEFAULT_DB_ALIAS, transaction
 
+from .db import analyze_tables, is_postgresql
 from .models import Account, Email, Ip, Pass, Url, User, record_fingerprint
+from .performance import import_profile
 from .utils import NO_IP, CanonicalRecord, parse_line
 from .validators import (
     classify_identifier, normalize_ip, normalize_password, normalize_url,
@@ -40,12 +51,17 @@ from .validators import (
 _CHUNK = 500
 _BATCH = 2000
 STREAM_BATCH_SIZE = 50000
+#: Lines handed to one parse worker at a time.
+PARSE_CHUNK = 5000
 
 _BINARY_EXTS = {
     ".sqlite3", ".db", ".pyc", ".pyo", ".mo", ".png", ".jpg", ".jpeg",
     ".gif", ".webp", ".ico", ".pdf", ".zip", ".tar", ".gz", ".7z", ".exe",
     ".dll", ".so", ".dylib", ".woff", ".woff2", ".ttf", ".eot",
 }
+
+#: A file (or upload) to read: kind is 'path' or 'upload'.
+Source = namedtuple('Source', 'kind ref name size line_count')
 
 
 def _chunks(iterable, size):
@@ -142,8 +158,7 @@ def _flush_batch(keys, urls, emails, users, passes, ips):
             fingerprint=fingerprint,
         )
 
-    # Drop the records already stored -- one indexed lookup per chunk instead
-    # of scanning every account that shares a URL or a password with the batch.
+    # Drop the records already stored -- one indexed lookup per chunk.
     already_stored = set()
     for chunk in _chunks(list(candidates), _CHUNK):
         already_stored.update(
@@ -197,12 +212,58 @@ def canonical_record(result):
     }
 
 
-def bulk_import_lines(parsed_iter):
+def row_from_record(result):
     """
-    Consume an iterable of parsed-line dicts (None for invalid lines) and
-    store them efficiently in bounded streaming batches.
+    One parsed record as the row tuple every writer consumes:
+    ``(url, account_type, identifier, secret, ip)``, with ``ip`` None when
+    the record has no address. Returns None for an invalid record.
+    """
+    record = canonical_record(result)
+    if record is None:
+        return None
+    ip_value = record['ip_address']
+    if not ip_value or ip_value == NO_IP:
+        ip_value = None
+    return (
+        record['url'], record['account_type'],
+        record['account_identifier'], record['secret_data'], ip_value,
+    )
 
-    Returns (accounts_created, lines_skipped).
+
+def _parse_chunk(lines):
+    """Parse a list of raw lines into row tuples (runs in worker processes)."""
+    return [row_from_record(parse_line(line)) for line in lines]
+
+
+def iter_rows(lines, pool=None):
+    """
+    Yield one row tuple (or None for an invalid line) per input line, in order.
+
+    With a worker ``pool`` the lines are parsed in chunks by several processes.
+    The number of chunks in flight is bounded, so a huge input is never held in
+    memory at once.
+    """
+    if pool is None:
+        for line in lines:
+            yield row_from_record(parse_line(line))
+        return
+
+    window = max(2, getattr(pool, 'max_workers', 2) * 2)
+    pending = deque()
+    for chunk in _chunks(lines, PARSE_CHUNK):
+        pending.append(pool.submit(_parse_chunk, chunk))
+        while len(pending) > window:
+            yield from pending.popleft().result()
+    while pending:
+        yield from pending.popleft().result()
+
+
+def bulk_import_rows(rows):
+    """
+    Store row tuples with the ORM writer, in bounded batches.
+
+    ``rows`` yields row tuples or None (an invalid line).
+    Returns ``(accounts_created, lines_skipped)``.
     """
     urls = set()
     emails = set()
@@ -214,21 +275,12 @@ def bulk_import_lines(parsed_iter):
     total_created = 0
     skipped = 0
 
-    for result in parsed_iter:
-        record = canonical_record(result)
-        if record is None:
+    for row in rows:
+        if row is None:
             skipped += 1
             continue
 
-        url = record['url']
-        secret = record['secret_data']
-        ident = record['account_identifier']
-        account_type = record['account_type']
-        # parse_line reports a missing address as 'N/A'; store no relation.
-        ip_value = record['ip_address']
-        if not ip_value or ip_value == NO_IP:
-            ip_value = None
-
+        url, account_type, ident, secret, ip_value = row
         urls.add(url)
         passes.add(secret)
         if account_type == 'email':
@@ -238,7 +290,7 @@ def bulk_import_lines(parsed_iter):
         if ip_value:
             ips.add(ip_value)
 
-        keys.add((url, account_type, ident, secret, ip_value))
+        keys.add(row)
 
         if len(keys) >= STREAM_BATCH_SIZE:
             total_created += _flush_batch(
@@ -257,6 +309,54 @@ def bulk_import_lines(parsed_iter):
         )
 
     return total_created, skipped
+
+
+def bulk_import_lines(parsed_iter):
+    """
+    Consume an iterable of parsed-line dicts (None for invalid lines) and
+    store them efficiently in bounded streaming batches.
+
+    Returns (accounts_created, lines_skipped).
+    """
+    return bulk_import_rows(row_from_record(result) for result in parsed_iter)
+
+
+def store_lines(lines, profile=None, pool=None, using=None):
+    """
+    Parse and store one batch of raw lines with the given (or saved) profile.
+
+    Returns ``(accounts_created, lines_skipped)``.
+    """
+    profile = profile or import_profile()
+    rows = iter_rows(lines, pool)
+    if profile.use_copy and is_postgresql(using):
+        from .fastimport import copy_import_rows
+        return copy_import_rows(
+            rows, using=using or DEFAULT_DB_ALIAS,
+            fast_commit=profile.fast_commit, work_mem=profile.work_mem,
+        )
+    return bulk_import_rows(rows)
+
+
+@contextmanager
+def worker_pool(profile):
+    """A process pool for parsing, or None when the profile parses in-process."""
+    if profile.parse_workers <= 1:
+        yield None
+        return
+    with ProcessPoolExecutor(max_workers=profile.parse_workers) as pool:
+        yield pool
+
+
+def _batched(lines, size):
+    batch = []
+    for line in lines:
+        batch.append(line)
+        if len(batch) >= size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
 
 
 def _is_candidate_file(filename, ext="*"):
@@ -294,33 +394,199 @@ def collect_files_from_path(target_path, ext="*"):
     return matched
 
 
-def import_path(target_path, ext="*", on_file=None):
+def count_lines(source):
+    """Exact number of lines in a source (a path or an uploaded file)."""
+    if source.kind == 'upload':
+        source.ref.seek(0)
+        total = sum(1 for _line in source.ref)
+        source.ref.seek(0)
+        return total
+    with open(source.ref, 'r', encoding='utf-8', errors='ignore') as handle:
+        return sum(1 for _line in handle)
+
+
+def path_source(filepath):
+    return Source('path', filepath, filepath, os.path.getsize(filepath), None)
+
+
+def upload_source(uploaded_file):
+    return Source(
+        'upload', uploaded_file, uploaded_file.name,
+        int(getattr(uploaded_file, 'size', 0) or 0), None,
+    )
+
+
+def _open_source(source):
+    if source.kind == 'upload':
+        source.ref.seek(0)
+        return source.ref, False
+    return open(source.ref, 'r', encoding='utf-8', errors='ignore'), True
+
+
+def _bytes_done(handle, source):
+    """Bytes consumed so far from a source (approximate for text files)."""
+    if source.kind == 'upload':
+        try:
+            return handle.tell()
+        except (OSError, ValueError):
+            return 0
+    try:
+        return handle.buffer.tell()
+    except (OSError, ValueError, AttributeError):
+        return 0
+
+
+def import_sources(sources, profile=None, using=None):
+    """
+    Import every source batch by batch, yielding progress events:
+
+    * ``{'type': 'batch', ...}`` after each batch of lines is stored,
+    * ``{'type': 'file', ...}`` after each source is finished (it carries the
+      same cumulative fields as a batch event, plus ``file_created`` and
+      ``file_skipped`` for that source),
+    * ``{'type': 'error', 'reason': 'unreadable' | 'changed', ...}`` when a
+      source cannot be read or changed while it was being imported. The
+      import moves on to the next source; a consumer that wants to stop breaks
+      out of the loop,
+    * ``{'type': 'done', ...}`` with the totals as the last event.
+    """
+    profile = profile or import_profile()
+    started = time.perf_counter()
+    total_bytes = sum(source.size for source in sources)
+    counted = all(source.line_count is not None for source in sources)
+    total_lines = (
+        sum(source.line_count for source in sources) if counted else None
+    )
+
+    created_total = 0
+    skipped_total = 0
+    lines_done = 0
+    bytes_base = 0
+
+    with worker_pool(profile) as pool:
+        for index, source in enumerate(sources, start=1):
+            try:
+                handle, close_handle = _open_source(source)
+            except OSError:
+                yield {'type': 'error', 'reason': 'unreadable',
+                       'name': source.name}
+                continue  # the consumer may stop here by breaking out
+
+            file_lines = 0
+            file_created = 0
+            file_skipped = 0
+            try:
+                for batch in _batched(handle, profile.batch_size):
+                    created, skipped = store_lines(
+                        batch, profile, pool, using=using,
+                    )
+                    created_total += created
+                    skipped_total += skipped
+                    file_created += created
+                    file_skipped += skipped
+                    file_lines += len(batch)
+                    lines_done += len(batch)
+                    bytes_done = bytes_base + _bytes_done(handle, source)
+                    elapsed = time.perf_counter() - started
+                    yield {
+                        'type': 'batch',
+                        'lines_done': lines_done,
+                        'lines_total': total_lines,
+                        'bytes_done': min(bytes_done, total_bytes),
+                        'bytes_total': total_bytes,
+                        'file_index': index,
+                        'total_files': len(sources),
+                        'created': created_total,
+                        'skipped': skipped_total,
+                        'elapsed': elapsed,
+                        'rate': lines_done / elapsed if elapsed else 0.0,
+                    }
+            finally:
+                if close_handle:
+                    handle.close()
+
+            if source.line_count is not None and file_lines != source.line_count:
+                yield {'type': 'error', 'reason': 'changed',
+                       'name': source.name}
+                continue
+
+            bytes_base += source.size
+            elapsed = time.perf_counter() - started
+            yield {
+                'type': 'file',
+                'name': source.name,
+                'ref': source.ref,
+                'index': index,
+                'file_index': index,
+                'total_files': len(sources),
+                'lines': file_lines,
+                'file_created': file_created,
+                'file_skipped': file_skipped,
+                'created': created_total,
+                'skipped': skipped_total,
+                'lines_done': lines_done,
+                'lines_total': total_lines,
+                'bytes_done': min(bytes_base, total_bytes),
+                'bytes_total': total_bytes,
+                'elapsed': elapsed,
+                'rate': lines_done / elapsed if elapsed else 0.0,
+            }
+
+    if profile.use_copy and is_postgresql(using) and lines_done:
+        analyze_tables(
+            (Url, Email, User, Pass, Ip, Account), using=using,
+        )
+
+    elapsed = time.perf_counter() - started
+    yield {
+        'type': 'done',
+        'created': created_total,
+        'skipped': skipped_total,
+        'files': len(sources),
+        'lines': lines_done,
+        'elapsed': elapsed,
+        'rate': lines_done / elapsed if elapsed else 0.0,
+        'mode': profile.key,
+    }
+
+
+def import_path(target_path, ext="*", on_file=None, profile=None):
     """
     Import all valid lines from a single file or recursively from every
     matching file inside a folder.
 
     Returns (total_created, total_skipped, files_count).
     """
+    profile = profile or import_profile()
     files = collect_files_from_path(target_path, ext=ext)
     if not files:
         return 0, 0, 0
 
-    total_created = 0
-    total_skipped = 0
-    processed_files = 0
-
+    sources = []
     for filepath in files:
         try:
-            with open(filepath, "r", encoding="utf-8", errors="ignore") as handle:
-                parsed = (parse_line(line) for line in handle)
-                created, skipped = bulk_import_lines(parsed)
+            sources.append(path_source(filepath))
         except OSError:
             continue
 
-        processed_files += 1
-        total_created += created
-        total_skipped += skipped
-        if on_file is not None:
-            on_file(filepath, created, skipped, total_created)
+    if profile.count_lines:
+        sources = [
+            source._replace(line_count=count_lines(source)) for source in sources
+        ]
 
+    total_created = 0
+    total_skipped = 0
+    processed_files = 0
+    for event in import_sources(sources, profile):
+        if event['type'] == 'file':
+            processed_files += 1
+            if on_file is not None:
+                on_file(event['ref'], event['file_created'],
+                        event['file_skipped'], event['created'])
+        elif event['type'] == 'error':
+            # Unreadable or changed files are skipped, as before.
+            continue
+        elif event['type'] == 'done':
+            total_created = event['created']
+            total_skipped = event['skipped']
     return total_created, total_skipped, processed_files

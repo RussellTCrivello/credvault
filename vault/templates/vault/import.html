@@ -34,7 +34,8 @@
            data-files-complete-label="{% trans 'files processed' %}"
            data-file-label="{% trans 'File' %}"
            data-created-label="{% trans 'records imported' %}"
-           data-skipped-label="{% trans 'non-record lines skipped' %}">
+           data-skipped-label="{% trans 'non-record lines skipped' %}"
+           data-rate-label="{% trans 'lines per second' %}">
         <div class="import-progress-heading">
           <div>
             <p class="eyebrow">{% trans "IMPORT STATUS" %}</p>
@@ -51,6 +52,7 @@
         <progress class="import-progress-bar" max="100" aria-label="{% trans 'Import progress' %}"></progress>
         <p class="field-help import-progress-detail"></p>
       </section>
+      <p class="field-help">{% blocktrans with mode=import_profile.label %}Import speed: {{ mode }}.{% endblocktrans %} <a href="{% url 'vault:settings' %}">{% trans "Change it in Settings" %}</a></p>
       <div class="form-actions"><a class="button" href="{% url 'vault:browse' %}">{% trans "Cancel" %}</a><button class="button primary" type="submit">{% trans "Import" %}</button></div>
     </form>
   </section>

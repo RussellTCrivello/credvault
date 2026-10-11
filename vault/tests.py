@@ -4,6 +4,7 @@ import shutil
 import sqlite3
 import tempfile
 import time
+from unittest import skipUnless
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -241,6 +242,8 @@ class WorkspaceInterfaceTests(TestCase):
         )
         self.assertContains(response, 'No matching records')
 
+    @skipUnless(connection.vendor == 'sqlite',
+                'Lowers SQLite\'s bound-variable limit; PostgreSQL has no such limit.')
     def test_search_with_many_matching_urls_avoids_sqlite_variable_limit(self):
         urls = Url.objects.bulk_create([
             Url(name=f'https://bulk-search.example/login/{index}')

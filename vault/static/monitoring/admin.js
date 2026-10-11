@@ -69,7 +69,11 @@ const themeStorageKey = "logintel-theme";
     if (event.type === "progress") {
       setStep("process");
       status.textContent = label("processingLabel");
-      if (event.total > 0) {
+      // The server sends `percent` for every mode: by lines when the total is
+      // known (Balanced), by bytes read otherwise (Fast and Maximum).
+      if (typeof event.percent === "number") {
+        setPercent(event.percent);
+      } else if (event.total > 0) {
         setPercent(event.processed / event.total * 100);
       } else {
         setIndeterminate();
@@ -77,7 +81,11 @@ const themeStorageKey = "logintel-theme";
       const fileProgress = event.total_files
         ? ` · ${label("fileLabel")} ${number(event.file_number)} / ${number(event.total_files)}`
         : "";
-      detail.textContent = `${number(event.processed)} / ${number(event.total)} ${label("linesLabel")}${fileProgress}`;
+      const totalText = event.total > 0 ? number(event.total) : "?";
+      const speedText = typeof event.rate === "number" && event.rate > 0
+        ? ` · ${number(Math.round(event.rate))} ${label("rateLabel")}`
+        : "";
+      detail.textContent = `${number(event.processed)} / ${totalText} ${label("linesLabel")}${speedText}${fileProgress}`;
       return;
     }
 
@@ -91,7 +99,11 @@ const themeStorageKey = "logintel-theme";
       setStep("complete");
       setPercent(100);
       status.textContent = label("completeLabel");
-      detail.textContent = `${number(event.created)} ${label("createdLabel")}; ${number(event.skipped)} ${label("skippedLabel")}; ${number(event.files)} ${label("filesCompleteLabel")}`;
+      const modeText = event.mode_label ? ` · ${event.mode_label}` : "";
+      const doneRate = typeof event.rate === "number" && event.rate > 0
+        ? ` · ${number(Math.round(event.rate))} ${label("rateLabel")}`
+        : "";
+      detail.textContent = `${number(event.created)} ${label("createdLabel")}; ${number(event.skipped)} ${label("skippedLabel")}; ${number(event.files)} ${label("filesCompleteLabel")}${doneRate}${modeText}`;
       form.setAttribute("aria-busy", "false");
       window.setTimeout(() => window.location.assign(event.redirect), 900);
     }

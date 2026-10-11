@@ -7,7 +7,7 @@
   <section class="stats-grid dashboard-stats" aria-label="{% trans 'Workspace summary' %}">
     <article class="stat-card">
       <div class="stat-card-top"><span>{% trans "Total records" %}</span><span class="stat-icon" aria-hidden="true">▤</span></div>
-      <div class="stat-value">{{ total_records }}</div>
+      <div class="stat-value">{% if total_records_approximate %}≈ {% endif %}{{ total_records }}</div>
       <p class="stat-note">{% trans "Records currently in your workspace" %}</p>
     </article>
     <article class="stat-card welcome-card">
@@ -47,6 +47,11 @@
         <span><strong>{% trans "Export data" %}</strong><small>{% trans "Download your records as CSV or JSON." %}</small></span>
         <span class="action-arrow" aria-hidden="true">→</span>
       </a>
+      <a class="action-card" href="{% url 'vault:settings' %}">
+        <span class="action-icon" aria-hidden="true">⚙</span>
+        <span><strong>{% trans "Settings" %}</strong><small>{% trans "Import and search speed: current mode" %}: {{ import_profile.label }} / {{ query_profile.label }}</small></span>
+        <span class="action-arrow" aria-hidden="true">→</span>
+      </a>
       <a class="action-card" href="{% url 'vault:references_index' %}">
         <span class="action-icon" aria-hidden="true">⛁</span>
         <span><strong>{% trans "Reference tables" %}</strong><small>{% trans "Manage the shared URL, email, username, password, and IP values." %}</small></span>
@@ -74,7 +79,7 @@
           {% for row in reference_rows %}
             <tr>
               <td><strong>{{ row.label_plural }}</strong></td>
-              <td class="mono">{{ row.count }}</td>
+              <td class="mono">{% if row.approximate %}≈ {% endif %}{{ row.count }}</td>
               <td><a class="button small-button" href="{% url 'vault:references' kind=row.kind %}">{% trans "Open" %}</a></td>
             </tr>
           {% endfor %}

@@ -1,0 +1,4 @@
+# Runtime requirements for the LogIntel / credvault workspace.
+Django>=5.2,<5.3
+# PostgreSQL driver (only needed when CREDVAULT_DB_ENGINE=postgresql).
+psycopg[binary]>=3.2

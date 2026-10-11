@@ -5,7 +5,7 @@
 {% block content %}
   <section class="vault-panel">
     <div class="table-toolbar">
-      <div><h2>{% trans "Reference tables" %}</h2><p class="vault-muted">{{ total_records }} {% blocktrans count record_count=total_records %}record uses these values{% plural %}records use these values{% endblocktrans %}</p></div>
+      <div><h2>{% trans "Reference tables" %}</h2><p class="vault-muted">{% if total_records_approximate %}≈ {% endif %}{{ total_records }} {% blocktrans count record_count=total_records %}record uses these values{% plural %}records use these values{% endblocktrans %}</p></div>
     </div>
     <div class="vault-table-wrap">
       <table class="vault-table reference-overview">
@@ -21,7 +21,7 @@
           {% for row in reference_rows %}
             <tr>
               <td><strong>{{ row.label_plural }}</strong><br /><small class="cell-secondary">{{ row.label }}</small></td>
-              <td class="mono">{{ row.count }}</td>
+              <td class="mono">{% if row.approximate %}≈ {% endif %}{{ row.count }}</td>
               <td><a class="button small-button" href="{% url 'vault:references' kind=row.kind %}">{% trans "Manage" %}</a></td>
             </tr>
           {% endfor %}

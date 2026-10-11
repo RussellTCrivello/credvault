@@ -1,8 +1,9 @@
+#
 msgid ""
 msgstr ""
+"Language: ar\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Language: ar\n"
 "Plural-Forms: nplurals=6; plural=n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 && n%100<=10 ? 3 : n%100>=11 && n%100<=99 ? 4 : 5;\n"
 
 msgid "English"
@@ -119,8 +120,12 @@ msgstr "نزّل سجلاتك بصيغة CSV أو JSON."
 msgid "Handle sensitive information carefully."
 msgstr "تعامل مع المعلومات الحساسة بعناية."
 
-msgid "Record exports include all record fields. Store downloaded files securely and share them only with authorized people."
-msgstr "تتضمن ملفات تصدير السجلات جميع الحقول. احفظ الملفات التي نزّلتها بأمان ولا تشاركها إلا مع أشخاص مخوّلين."
+msgid ""
+"Record exports include all record fields. Store downloaded files securely "
+"and share them only with authorized people."
+msgstr ""
+"تتضمن ملفات تصدير السجلات جميع الحقول. احفظ الملفات التي نزّلتها بأمان ولا "
+"تشاركها إلا مع أشخاص مخوّلين."
 
 msgid "Browse the records saved in your workspace."
 msgstr "تصفح السجلات المحفوظة في مساحة عملك."
@@ -179,14 +184,16 @@ msgstr "عرض"
 msgid "No records yet"
 msgstr "لا توجد سجلات بعد"
 
-msgid "Add a record or import a supported file to start building your workspace."
+msgid ""
+"Add a record or import a supported file to start building your workspace."
 msgstr "أضف سجلًا أو استورد ملفًا مدعومًا لبدء إعداد مساحة عملك."
 
 msgid "Add your first record"
 msgstr "أضف سجلك الأول"
 
 msgid "Find records by domain, URL, account details, secret, or IP address."
-msgstr "اعثر على السجلات حسب النطاق أو الرابط أو تفاصيل الحساب أو السر أو عنوان IP."
+msgstr ""
+"اعثر على السجلات حسب النطاق أو الرابط أو تفاصيل الحساب أو السر أو عنوان IP."
 
 msgid "Search your records"
 msgstr "ابحث في سجلاتك"
@@ -245,10 +252,15 @@ msgstr "معرّف الحساب"
 msgid "Secret data"
 msgstr "البيانات السرية"
 
-msgid "This record may contain sensitive information. Limit access to the details and any exports to authorized people."
-msgstr "قد يحتوي هذا السجل على معلومات حساسة. اقصر الوصول إلى التفاصيل والملفات المصدّرة على الأشخاص المخوّلين."
+msgid ""
+"This record may contain sensitive information. Limit access to the details "
+"and any exports to authorized people."
+msgstr ""
+"قد يحتوي هذا السجل على معلومات حساسة. اقصر الوصول إلى التفاصيل والملفات "
+"المصدّرة على الأشخاص المخوّلين."
 
-msgid "Enter the record details below. Fields marked required must be completed."
+msgid ""
+"Enter the record details below. Fields marked required must be completed."
 msgstr "أدخل تفاصيل السجل أدناه. يجب تعبئة الحقول المطلوبة."
 
 msgid "required"
@@ -299,14 +311,20 @@ msgstr "أضف مجموعة من السجلات دفعة واحدة من ملف 
 msgid "Supported file formats"
 msgstr "تنسيقات الملفات المدعومة"
 
-msgid "Text files with colon, pipe, tab, or semicolon-delimited rows are supported. Empty lines and comments are ignored."
-msgstr "تُدعم الملفات النصية التي تفصل صفوفها بنقطتين رأسيتين أو خط عمودي أو جدولة أو فاصلة منقوطة. يتم تجاهل الأسطر الفارغة والتعليقات."
+msgid ""
+"Text files with colon, pipe, tab, or semicolon-delimited rows are supported."
+" Empty lines and comments are ignored."
+msgstr ""
+"تُدعم الملفات النصية التي تفصل صفوفها بنقطتين رأسيتين أو خط عمودي أو جدولة "
+"أو فاصلة منقوطة. يتم تجاهل الأسطر الفارغة والتعليقات."
 
 msgid "Select data file to import"
 msgstr "اختر ملف البيانات المراد استيراده"
 
 msgid "Supported formats: TXT with colon, pipe, tab, or semicolon delimiters"
-msgstr "التنسيقات المدعومة: ملفات TXT ذات الفواصل بالنقطتين الرأسيتين أو الخط العمودي أو الجدولة أو الفاصلة المنقوطة"
+msgstr ""
+"التنسيقات المدعومة: ملفات TXT ذات الفواصل بالنقطتين الرأسيتين أو الخط "
+"العمودي أو الجدولة أو الفاصلة المنقوطة"
 
 msgid "Import file"
 msgstr "استيراد الملف"
@@ -383,7 +401,9 @@ msgstr "الجدول"
 msgid "Advanced search"
 msgstr "بحث متقدم"
 
-msgid "Query each field independently. Every filter is optional and combined with AND."
+msgid ""
+"Query each field independently. Every filter is optional and combined with "
+"AND."
 msgstr "استعلم كل حقل بمفرده. كل مرشّح اختياري وتُجمع الشروط بـ AND."
 
 msgid "Reset"
@@ -392,20 +412,27 @@ msgstr "إعادة تعيين"
 msgid "Query each field independently with filters and sorting."
 msgstr "استعلم كل حقل بمفرده باستخدام المرشّحات والفرز."
 
-msgid "These five tables hold the shared values used by your records. Each value is stored once and reused, so it is never entered twice."
-msgstr "تحتوي هذه الجداول الخمسة على القيم المشتركة التي تستخدمها سجلاتك. تُخزَّن كل قيمة مرة واحدة وتُعاد استخدامها، لذا لا تُدخل مرّتين أبدًا."
+msgid ""
+"These five tables hold the shared values used by your records. Each value is"
+" stored once and reused, so it is never entered twice."
+msgstr ""
+"تحتوي هذه الجداول الخمسة على القيم المشتركة التي تستخدمها سجلاتك. تُخزَّن كل"
+" قيمة مرة واحدة وتُعاد استخدامها، لذا لا تُدخل مرّتين أبدًا."
 
 msgid "All reference tables"
 msgstr "كل الجداول المرجعية"
 
-msgid "Each %(label)s is stored once and reused by every record that needs it."
-msgstr "تُخزَّن كل %(label)s مرة واحدة وتُعاد استخدامها من قبل كل سجل يحتاجها."
+msgid ""
+"Each %(label)s is stored once and reused by every record that needs it."
+msgstr ""
+"تُخزَّن كل %(label)s مرة واحدة وتُعاد استخدامها من قبل كل سجل يحتاجها."
 
 msgid "Add a value"
 msgstr "إضافة قيمة"
 
 msgid "Enter a new %(label)s below. If it already exists, it will be reused."
-msgstr "أدخل %(label)s جديدًا أدناه. إذا كان موجودًا بالفعل، فسيُعاد استخدامه."
+msgstr ""
+"أدخل %(label)s جديدًا أدناه. إذا كان موجودًا بالفعل، فسيُعاد استخدامه."
 
 msgid "Used by"
 msgstr "مُستخدَم بواسطة"
@@ -494,26 +521,43 @@ msgstr "القيمة %(name)s موجودة بالفعل وأُعيد استخد�
 msgid "Delete this %(label)s?"
 msgstr "هل تريد حذف %(label)s؟"
 
-msgid "Cannot delete %(name)s: it is still used by %(count)s record. Reassign or delete those records first."
-msgstr "لا يمكن حذف %(name)s: لا يزال مستخدمًا بواسطة %(count)s سجل. أعد تعيين تلك السجلات أو احذفها أولًا."
+msgid ""
+"Cannot delete %(name)s: it is still used by %(count)s record. Reassign or "
+"delete those records first."
+msgstr ""
+"لا يمكن حذف %(name)s: لا يزال مستخدمًا بواسطة %(count)s سجل. أعد تعيين تلك "
+"السجلات أو احذفها أولًا."
 
-msgid "Cannot delete %(name)s: it is still used by %(count)s records. Reassign or delete those records first."
-msgstr "لا يمكن حذف %(name)s: لا يزال مستخدمًا بواسطة %(count)s سجلات. أعد تعيين تلك السجلات أو احذفها أولًا."
+msgid ""
+"Cannot delete %(name)s: it is still used by %(count)s records. Reassign or "
+"delete those records first."
+msgstr ""
+"لا يمكن حذف %(name)s: لا يزال مستخدمًا بواسطة %(count)s سجلات. أعد تعيين تلك"
+" السجلات أو احذفها أولًا."
 
 msgid "Reassign or delete those records first if you want to keep them."
 msgstr "أعد تعيين تلك السجلات أو احذفها أولًا إذا كنت تريد الاحتفاظ بها."
 
-msgid "You're about to permanently delete %(name)s, used by %(counter)s record."
-msgid_plural "You're about to permanently delete %(name)s, used by %(counter)s records."
+msgid ""
+"You're about to permanently delete %(name)s, used by %(counter)s record."
+msgid_plural ""
+"You're about to permanently delete %(name)s, used by %(counter)s records."
 msgstr[0] "أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجل."
-msgstr[1] "أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجل واحد."
-msgstr[2] "أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجلين."
-msgstr[3] "أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجلات."
-msgstr[4] "أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجلًا."
+msgstr[1] ""
+"أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجل واحد."
+msgstr[2] ""
+"أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجلين."
+msgstr[3] ""
+"أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجلات."
+msgstr[4] ""
+"أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجلًا."
 msgstr[5] "أنت على وشك حذف %(name)s نهائيًا، المستخدم بواسطة %(counter)s سجل."
 
-msgid "No new records were created. Existing values were reused and %d line(s) were not valid records."
-msgstr "لم يتم إنشاء سجلات جديدة. أُعيد استخدام القيم الموجودة و%d سطرًا غير صالحة."
+msgid ""
+"No new records were created. Existing values were reused and %d line(s) were"
+" not valid records."
+msgstr ""
+"لم يتم إنشاء سجلات جديدة. أُعيد استخدام القيم الموجودة و%d سطرًا غير صالحة."
 
 msgid "Keyword"
 msgstr "كلمة مفتاحية"
@@ -560,8 +604,12 @@ msgstr "المعرّف (أ-ي)"
 msgid "Any"
 msgstr "أي"
 
-msgid "Enter the record details below. Existing URLs, emails, usernames, passwords, and IPs are reused automatically -- nothing is stored twice."
-msgstr "أدخل تفاصيل السجل أدناه. تُعاد استخدام الروابط والبريد الإلكتروني وأسماء المستخدمين وكلمات المرور وعناوين IP تلقائيًا — لا يُخزَّن أي شيء مرّتين."
+msgid ""
+"Enter the record details below. Existing URLs, emails, usernames, passwords,"
+" and IPs are reused automatically -- nothing is stored twice."
+msgstr ""
+"أدخل تفاصيل السجل أدناه. تُعاد استخدام الروابط والبريد الإلكتروني وأسماء "
+"المستخدمين وكلمات المرور وعناوين IP تلقائيًا — لا يُخزَّن أي شيء مرّتين."
 
 msgid "Try different filters or clear some of them."
 msgstr "جرّب مرشّحات مختلفة أو امسح بعضها."
@@ -596,11 +644,19 @@ msgstr "الرابط / النطاق"
 msgid "Enter the exact value to find"
 msgstr "أدخل القيمة الدقيقة للبحث"
 
-msgid "Pick a field and enter the exact value to find every matching record instantly, even across millions of rows."
-msgstr "اختر حقلًا وأدخل القيمة الدقيقة لإيجاد كل سجل مطابق فورًا، حتى عبر ملايين السجلات."
+msgid ""
+"Pick a field and enter the exact value to find every matching record "
+"instantly, even across millions of rows."
+msgstr ""
+"اختر حقلًا وأدخل القيمة الدقيقة لإيجاد كل سجل مطابق فورًا، حتى عبر ملايين "
+"السجلات."
 
-msgid "Matching is exact and case-insensitive on the chosen field. Use Advanced search for partial matches."
-msgstr "المطابقة دقيقة وغير حساسة لحالة الأحرف في الحقل المختار. استخدم البحث المتقدم للمطابقات الجزئية."
+msgid ""
+"Matching is exact and case-insensitive on the chosen field. Use Advanced "
+"search for partial matches."
+msgstr ""
+"المطابقة دقيقة وغير حساسة لحالة الأحرف في الحقل المختار. استخدم البحث "
+"المتقدم للمطابقات الجزئية."
 
 msgid "Try a different value or check the spelling."
 msgstr "جرّب قيمة مختلفة أو تحقق من الإملاء."
@@ -608,20 +664,35 @@ msgstr "جرّب قيمة مختلفة أو تحقق من الإملاء."
 msgid "Add records in bulk from a text file -- or a whole folder of files."
 msgstr "أضف سجلات بكميات كبيرة من ملف نصي — أو من مجلد كامل من الملفات."
 
-msgid "Text files with colon, pipe, tab, or semicolon-delimited rows are supported. Empty lines and comments are ignored. Every line of every selected file is read; only lines that match the format are stored."
-msgstr "تُدعم ملفات النصوص ذات الصفوف المفصولة بنقطتين رأسيتين أو خط عمودي أو جدولة أو فاصلة منقوطة. يتم تجاهل الأسطر الفارغة والتعليقات. تُقرأ كل سطر في كل ملف محدد؛ ولا تُخزَّن سوى الأسطر المطابقة للصيغة."
+msgid ""
+"Text files with colon, pipe, tab, or semicolon-delimited rows are supported."
+" Empty lines and comments are ignored. Every line of every selected file is "
+"read; only lines that match the format are stored."
+msgstr ""
+"تُدعم ملفات النصوص ذات الصفوف المفصولة بنقطتين رأسيتين أو خط عمودي أو جدولة "
+"أو فاصلة منقوطة. يتم تجاهل الأسطر الفارغة والتعليقات. تُقرأ كل سطر في كل ملف"
+" محدد؛ ولا تُخزَّن سوى الأسطر المطابقة للصيغة."
 
 msgid "Or select a whole folder"
 msgstr "أو اختر مجلدًا كاملًا"
 
-msgid "Pick a folder and every text file inside it (including subfolders) will be imported. For very large volumes, prefer the importfolder management command."
-msgstr "اختر مجلدًا وستُستورد كل ملف نصي بداخله (بما في ذلك المجلدات الفرعية). للحجوم الكبيرة جدًا، تفضيل أمر الإدارة importfolder."
+msgid ""
+"Pick a folder and every text file inside it (including subfolders) will be "
+"imported. For very large volumes, prefer the importfolder management "
+"command."
+msgstr ""
+"اختر مجلدًا وستُستورد كل ملف نصي بداخله (بما في ذلك المجلدات الفرعية). "
+"للحجوم الكبيرة جدًا، تفضيل أمر الإدارة importfolder."
 
 msgid "Or enter a local/server folder or file path"
 msgstr "أو أدخل مسار مجلد أو ملف محلي/على الخادم"
 
-msgid "For very large folders already on disk, enter the directory path here to recursively read every file and store valid lines."
-msgstr "للمجلدات الكبيرة جدًا الموجودة على القرص، أدخل مسار المجلد هنا لقراءة كل ملف بداخله وتخزين الأسطر الصالحة."
+msgid ""
+"For very large folders already on disk, enter the directory path here to "
+"recursively read every file and store valid lines."
+msgstr ""
+"للمجلدات الكبيرة جدًا الموجودة على القرص، أدخل مسار المجلد هنا لقراءة كل ملف"
+" بداخله وتخزين الأسطر الصالحة."
 
 msgid "Import"
 msgstr "استيراد"
@@ -657,24 +728,40 @@ msgid "Search or select IP address (or N/A)"
 msgstr "ابحث عن عنوان IP أو اختره (أو N/A)"
 
 #: vault/validators.py
-msgid "Enter a valid URL: http:// or https://, then a host name with a domain extension such as example.com."
-msgstr "أدخل رابطًا صحيحًا: http:// أو https:// ثم اسم مضيف مع امتداد نطاق مثل example.com."
+msgid ""
+"Enter a valid URL: http:// or https://, then a host name with a domain "
+"extension such as example.com."
+msgstr ""
+"أدخل رابطًا صحيحًا: http:// أو https:// ثم اسم مضيف مع امتداد نطاق مثل "
+"example.com."
 
 #: vault/validators.py
-msgid "Enter a valid email address in the form name@domain.com (letters, digits and . _ + - before the @)."
-msgstr "أدخل بريدًا إلكترونيًا صحيحًا بالصيغة name@domain.com (حروف وأرقام و . _ + - قبل علامة @)."
+msgid ""
+"Enter a valid email address in the form name@domain.com (letters, digits and"
+" . _ + - before the @)."
+msgstr ""
+"أدخل بريدًا إلكترونيًا صحيحًا بالصيغة name@domain.com (حروف وأرقام و . _ + -"
+" قبل علامة @)."
 
 #: vault/validators.py
-msgid "Enter a valid username: letters, digits and . _ - + only, starting and ending with a letter or digit, and without @."
-msgstr "أدخل اسم مستخدم صحيحًا: حروف وأرقام و . _ - + فقط، يبدأ وينتهي بحرف أو رقم، وبدون @."
+msgid ""
+"Enter a valid username: letters, digits and . _ - + only, starting and "
+"ending with a letter or digit, and without @."
+msgstr ""
+"أدخل اسم مستخدم صحيحًا: حروف وأرقام و . _ - + فقط، يبدأ وينتهي بحرف أو رقم، "
+"وبدون @."
 
 #: vault/validators.py
 msgid "Enter a password of 1 to 500 printable characters."
 msgstr "أدخل كلمة مرور من 1 إلى 500 حرف قابل للطباعة."
 
 #: vault/validators.py
-msgid "Enter a valid IP address such as 192.168.1.1 (four numbers of 0-255 separated by dots), or leave it blank."
-msgstr "أدخل عنوان IP صحيحًا مثل 192.168.1.1 (أربعة أرقام من 0 إلى 255 مفصولة بنقاط)، أو اتركه فارغًا."
+msgid ""
+"Enter a valid IP address such as 192.168.1.1 (four numbers of 0-255 "
+"separated by dots), or leave it blank."
+msgstr ""
+"أدخل عنوان IP صحيحًا مثل 192.168.1.1 (أربعة أرقام من 0 إلى 255 مفصولة "
+"بنقاط)، أو اتركه فارغًا."
 
 #: vault/validators.py
 msgid "Format: https://example.com/login"
@@ -705,5 +792,203 @@ msgid "This %(kind)s is already stored."
 msgstr "%(kind)s مخزّن بالفعل."
 
 #: vault/forms.py
-msgid "One record per line: URL, then email or username, then password, then the IP address, separated by | ; tab or : -- for example https://example.com/login|name@example.com|secret|192.168.1.1. Each value must match its own format and is stored once, however it is written."
-msgstr "سجل واحد في كل سطر: الرابط، ثم البريد الإلكتروني أو اسم المستخدم، ثم كلمة المرور، ثم عنوان IP، مفصولة بـ | أو ; أو مسافة جدولة أو : -- مثال: https://example.com/login|name@example.com|secret|192.168.1.1. يجب أن تطابق كل قيمة صيغتها الخاصة، وتُخزّن مرة واحدة مهما اختلفت كتابتها."
+msgid ""
+"One record per line: URL, then email or username, then password, then the IP"
+" address, separated by | ; tab or : -- for example "
+"https://example.com/login|name@example.com|secret|192.168.1.1. Each value "
+"must match its own format and is stored once, however it is written."
+msgstr ""
+"سجل واحد في كل سطر: الرابط، ثم البريد الإلكتروني أو اسم المستخدم، ثم كلمة "
+"المرور، ثم عنوان IP، مفصولة بـ | أو ; أو مسافة جدولة أو : -- مثال: "
+"https://example.com/login|name@example.com|secret|192.168.1.1. يجب أن تطابق "
+"كل قيمة صيغتها الخاصة، وتُخزّن مرة واحدة مهما اختلفت كتابتها."
+
+msgid "Balanced"
+msgstr "متوازن"
+
+msgid "Fast"
+msgstr "سريع"
+
+msgid "Maximum speed"
+msgstr "أقصى سرعة"
+
+msgid "Performance settings"
+msgstr "إعدادات الأداء"
+
+msgid "Import speed"
+msgstr "سرعة الاستيراد"
+
+msgid "Query speed"
+msgstr "سرعة البحث"
+
+msgid "Search speed"
+msgstr "سرعة البحث"
+
+msgid "Settings"
+msgstr "الإعدادات"
+
+msgid "Settings saved. They apply to the next import or search."
+msgstr "تم حفظ الإعدادات. تُطبّق على الاستيراد أو البحث التالي."
+
+msgid "Save settings"
+msgstr "حفظ الإعدادات"
+
+msgid "Settings in effect"
+msgstr "الإعدادات المطبّقة"
+
+msgid "What the active modes do"
+msgstr "ما الذي تفعله الأوضاع المفعّلة"
+
+msgid "Setting"
+msgstr "الإعداد"
+
+msgid "Writer"
+msgstr "أداة الكتابة"
+
+msgid "COPY into a staging table"
+msgstr "نسخ (COPY) إلى جدول مرحلي"
+
+msgid "ORM bulk writes"
+msgstr "كتابة جماعية عبر ORM"
+
+msgid "Parsing processes"
+msgstr "عمليات التحليل"
+
+msgid "Progress measured by"
+msgstr "يُقاس التقدم بواسطة"
+
+msgid "lines (counted first)"
+msgstr "الأسطر (بعد عدّها أولًا)"
+
+msgid "bytes read"
+msgstr "البايتات المقروءة"
+
+msgid "Lines per transaction"
+msgstr "أسطر لكل معاملة"
+
+msgid "Results per page"
+msgstr "النتائج في كل صفحة"
+
+msgid "Exact match count up to"
+msgstr "عدد المطابقات الدقيق حتى"
+
+msgid "Rows returned by the search API"
+msgstr "الصفوف التي تعيدها واجهة البحث البرمجية"
+
+msgid "Search indexes"
+msgstr "فهارس البحث"
+
+msgid "Database"
+msgstr "قاعدة البيانات"
+
+msgid "Prefix index"
+msgstr "فهرس البادئة"
+
+msgid "Contains index (trigram)"
+msgstr "فهرس الاحتواء (trigram)"
+
+msgid "Present"
+msgstr "موجود"
+
+msgid "Missing"
+msgstr "مفقود"
+
+msgid "records in the workspace."
+msgstr "سجلًا في مساحة العمل."
+
+msgid "Used by the import page and by the importfolder command."
+msgstr "تُستخدم في صفحة الاستيراد وفي الأمر importfolder."
+
+msgid ""
+"Used by the search, browse and advanced search pages and by the search API."
+msgstr ""
+"تُستخدم في صفحات البحث والتصفح والبحث المتقدم وفي واجهة البحث البرمجية."
+
+msgid ""
+"Choose how fast imports are written and how searches are counted. These "
+"settings change the speed of the work, never which records exist or which "
+"records match a search."
+msgstr ""
+"اختر مدى سرعة كتابة الاستيراد ومدى سرعة احتساب نتائج البحث. تغيّر هذه "
+"الإعدادات سرعة العمل فقط، ولا تغيّر السجلات الموجودة ولا السجلات المطابقة "
+"لأي بحث."
+
+msgid ""
+"Exact progress bar, one process, and every commit fully durable. The "
+"default."
+msgstr ""
+"شريط تقدم دقيق، وعملية واحدة، وكل عملية حفظ مكتملة بشكل دائم. الإعداد "
+"الافتراضي."
+
+msgid ""
+"Skips the line count and commits asynchronously in larger batches; progress "
+"is measured by bytes read."
+msgstr ""
+"يتخطى عدّ الأسطر ويحفظ بشكل غير متزامن في دفعات أكبر؛ يُقاس التقدم بالبايتات"
+" المقروءة."
+
+msgid "Fast, plus parallel parsing across CPU cores and larger batches."
+msgstr "سريع، مع تحليل متوازٍ على أنوية المعالج ودفعات أكبر."
+
+msgid "Exact counts up to 100,000 matches."
+msgstr "عدد دقيق حتى 100,000 نتيجة."
+
+msgid "Exact counts up to 10,000 matches."
+msgstr "عدد دقيق حتى 10,000 نتيجة."
+
+msgid "Exact counts up to 1,000 matches; the rest shows as \"1,000+\"."
+msgstr "عدد دقيق حتى 1,000 نتيجة؛ ما يزيد على ذلك يُعرض كالتالي \"1,000+\"."
+
+msgid ""
+"Matches above the exact-count limit are shown as a number followed by a plus"
+" sign. The search itself still returns every matching record when you page "
+"through it or export it."
+msgstr ""
+"تُعرض المطابقات التي تتجاوز حد العدد الدقيق كرقم متبوع بعلامة الزائد. البحث "
+"نفسه ما زال يعيد كل السجلات المطابقة عند التنقل بين الصفحات أو عند التصدير."
+
+msgid ""
+"Run manage.py migrate to create missing indexes. Contains indexes are "
+"created only when the CREDVAULT_TRIGRAM_SEARCH setting is on."
+msgstr ""
+"شغّل الأمر manage.py migrate لإنشاء الفهارس الناقصة. تُنشأ فهارس الاحتواء "
+"فقط عندما يكون الإعداد CREDVAULT_TRIGRAM_SEARCH مفعّلًا."
+
+msgid "Import and search speed: current mode"
+msgstr "سرعة الاستيراد والبحث: الوضع الحالي"
+
+msgid "Change it in Settings"
+msgstr "غيّره من صفحة الإعدادات"
+
+msgid "Import speed: %(mode)s."
+msgstr "سرعة الاستيراد: %(mode)s."
+
+msgid "lines per second"
+msgstr "سطر في الثانية"
+
+msgid "narrow the search for an exact count"
+msgstr "ضيّق البحث للحصول على عدد دقيق"
+
+msgid "More than %(n)s matching records"
+msgstr "أكثر من %(n)s سجلًا مطابقًا"
+
+msgid "%(ms)s ms (%(mode)s mode)"
+msgstr "%(ms)s مللي ثانية (وضع %(mode)s)"
+
+msgid "Exact value"
+msgstr "قيمة دقيقة"
+
+msgid "A selected file could not be read."
+msgstr "تعذّرت قراءة أحد الملفات المحددة."
+
+msgid "A file changed or became unreadable during import."
+msgstr "تغيّر أحد الملفات أو تعذّرت قراءته أثناء الاستيراد."
+
+msgid ""
+"A selected file changed while it was being imported. The progress total is "
+"no longer accurate."
+msgstr ""
+"تغيّر أحد الملفات المحددة أثناء استيراده. لم يعد إجمالي التقدم دقيقًا."
+
+msgid "Not needed (C collation)"
+msgstr "غير مطلوب (ترتيب C)"

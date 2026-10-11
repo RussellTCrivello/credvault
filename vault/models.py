@@ -1,10 +1,11 @@
 import hashlib
 
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import IntegrityError, models, router, transaction
 from django.db.models.functions import Lower
 from django.utils.translation import gettext_lazy as _
 
+from . import lookups  # noqa: F401  (registers contains_ci on the text fields)
 from .validators import (
     CANONICALIZERS, ERROR_MESSAGES, MAX_EMAIL_LENGTH, MAX_IP_LENGTH,
     MAX_PASSWORD_LENGTH, MAX_URL_LENGTH, MAX_USERNAME_LENGTH,
@@ -78,12 +79,23 @@ class CanonicalNameModel(models.Model):
         if self.pk:
             already_stored = already_stored.exclude(pk=self.pk)
         if already_stored.exists():
-            raise ValidationError({'name': ValidationError(
-                _('This %(kind)s is already stored.')
-                % {'kind': self._meta.verbose_name},
-                code='duplicate_value',
-            )})
-        super().save(*args, **kwargs)
+            raise _duplicate_error(self)
+        # Two requests can pass the check above at the same time; the unique
+        # index then rejects the second insert. The savepoint keeps that
+        # failure from breaking an enclosing transaction.
+        try:
+            with transaction.atomic(using=router.db_for_write(type(self), instance=self)):
+                super().save(*args, **kwargs)
+        except IntegrityError:
+            raise _duplicate_error(self)
+
+
+def _duplicate_error(instance):
+    return ValidationError({'name': ValidationError(
+        _('This %(kind)s is already stored.')
+        % {'kind': instance._meta.verbose_name},
+        code='duplicate_value',
+    )})
 
 
 class Url(CanonicalNameModel):
@@ -212,6 +224,13 @@ class Account(models.Model):
     the same record cannot be stored twice either.
 
     This is the entity the rest of the UI calls a "Record".
+
+    Indexing: every foreign key is indexed together with the record id, as
+    ``(fk, -id)``. That one index answers both "records that use this value"
+    and "the newest records that use this value" by reading the index
+    backwards, so a search for one password returns its first page without
+    sorting every record that shares it -- which is what keeps lookups fast
+    when a value is used by millions of records.
     """
 
     ACCOUNT_TYPE_CHOICES = [
@@ -221,7 +240,7 @@ class Account(models.Model):
 
     url = models.ForeignKey(
         Url, on_delete=models.PROTECT, related_name='accounts',
-        verbose_name=_('URL'),
+        verbose_name=_('URL'), db_index=False,
     )
     account_type = models.CharField(
         _('Account type'), max_length=10,
@@ -229,19 +248,19 @@ class Account(models.Model):
     )
     email = models.ForeignKey(
         Email, on_delete=models.PROTECT, null=True, blank=True,
-        related_name='accounts', verbose_name=_('Email'),
+        related_name='accounts', verbose_name=_('Email'), db_index=False,
     )
     user = models.ForeignKey(
         User, on_delete=models.PROTECT, null=True, blank=True,
-        related_name='accounts', verbose_name=_('Username'),
+        related_name='accounts', verbose_name=_('Username'), db_index=False,
     )
     password = models.ForeignKey(
         Pass, on_delete=models.PROTECT, related_name='accounts',
-        verbose_name=_('Password'),
+        verbose_name=_('Password'), db_index=False,
     )
     ip = models.ForeignKey(
         Ip, on_delete=models.PROTECT, null=True, blank=True,
-        related_name='accounts', verbose_name=_('IP address'),
+        related_name='accounts', verbose_name=_('IP address'), db_index=False,
     )
     fingerprint = models.CharField(
         _('Record fingerprint'), max_length=64, unique=True, editable=False,
@@ -250,14 +269,18 @@ class Account(models.Model):
     updated_at = models.DateTimeField(_('Date of adjustment'), auto_now=True)
 
     class Meta:
-        ordering = ['-created_at', 'id']
+        # Record ids grow with every insert, so the newest record is the one
+        # with the highest id. Sorting by id lets the (fk, -id) indexes return
+        # results already in order.
+        ordering = ['-id']
         verbose_name = _('Record')
         verbose_name_plural = _('Records')
         indexes = [
-            models.Index(
-                fields=['-created_at', 'id'],
-                name='vault_acct_created_id_idx',
-            ),
+            models.Index(fields=['url', '-id'], name='vault_acct_url_idx'),
+            models.Index(fields=['email', '-id'], name='vault_acct_email_idx'),
+            models.Index(fields=['user', '-id'], name='vault_acct_user_idx'),
+            models.Index(fields=['password', '-id'], name='vault_acct_pass_idx'),
+            models.Index(fields=['ip', '-id'], name='vault_acct_ip_idx'),
         ]
 
     def __str__(self):
@@ -286,4 +309,49 @@ class Account(models.Model):
             raise ValidationError(
                 _('This exact relationship already exists.')
             )
-        super().save(*args, **kwargs)
+        try:
+            with transaction.atomic(using=router.db_for_write(Account, instance=self)):
+                super().save(*args, **kwargs)
+        except IntegrityError:
+            raise ValidationError(
+                _('This exact relationship already exists.')
+            )
+
+
+class PerformanceSettings(models.Model):
+    """
+    The workspace speed profile chosen on the Settings page (a single row).
+
+    ``import_mode`` decides how records are written during an import and
+    ``query_mode`` decides how many results and matches a search reads and
+    counts. The exact numbers behind each mode live in ``vault.performance``.
+    """
+
+    MODE_CHOICES = [
+        ('balanced', _('Balanced')),
+        ('fast', _('Fast')),
+        ('maximum', _('Maximum speed')),
+    ]
+
+    import_mode = models.CharField(
+        _('Import speed'), max_length=10, choices=MODE_CHOICES,
+        default='balanced',
+    )
+    query_mode = models.CharField(
+        _('Query speed'), max_length=10, choices=MODE_CHOICES,
+        default='balanced',
+    )
+    updated_at = models.DateTimeField(_('Date of adjustment'), auto_now=True)
+
+    class Meta:
+        verbose_name = _('Performance settings')
+        verbose_name_plural = _('Performance settings')
+
+    @classmethod
+    def load(cls):
+        """Return the single settings row, creating it with defaults once."""
+        settings_row, _created = cls.objects.get_or_create(pk=1)
+        return settings_row
+
+    def __str__(self):
+        return str(self._meta.verbose_name)

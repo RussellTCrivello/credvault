@@ -39,6 +39,8 @@ urlpatterns = [
     path('references/<str:kind>/delete/<int:pk>/',
          views.reference_delete, name='reference_delete'),
     path('import/', views.import_from_file, name='import'),
+    path('settings/', views.settings_view, name='settings'),
+    path('search/api/', views.search_api, name='search_api'),
     path('export/csv/', views.export_csv, name='export_csv'),
     path('export/json/', views.export_json, name='export_json'),
 ]

@@ -28,6 +28,7 @@
           <a href="{% url 'vault:search' %}" {% if request.resolver_match.url_name == 'search' or request.resolver_match.url_name == 'advanced_search' %}class="active" aria-current="page"{% endif %}>{% trans "Search" %}</a>
           <a href="{% url 'vault:import' %}" {% if request.resolver_match.url_name == 'import' %}class="active" aria-current="page"{% endif %}>{% trans "Import data" %}</a>
           <a href="{% url 'vault:references_index' %}" {% if request.resolver_match.url_name == 'references_index' or request.resolver_match.url_name == 'references' or request.resolver_match.url_name == 'reference_delete' %}class="active" aria-current="page"{% endif %}>{% trans "References" %}</a>
+          <a href="{% url 'vault:settings' %}" {% if request.resolver_match.url_name == 'settings' %}class="active" aria-current="page"{% endif %}>{% trans "Settings" %}</a>
         </nav>
         <div class="vault-sidebar-bottom">
           <p><strong>{% trans "LogIntel workspace" %}</strong><br />{% trans "Review and manage your organization's records from one place." %}</p>

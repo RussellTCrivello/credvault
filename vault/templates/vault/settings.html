@@ -1,0 +1,91 @@
+{% extends "vault/base.html" %}{% load i18n %}
+{% block title %}{% trans "Settings" %}{% endblock %}
+{% block heading %}{% trans "Settings" %}{% endblock %}
+{% block intro %}<p class="page-intro">{% trans "Choose how fast imports are written and how searches are counted. These settings change the speed of the work, never which records exist or which records match a search." %}</p>{% endblock %}
+{% block content %}
+  <form method="post" class="vault-form settings-form" action="{% url 'vault:settings' %}">
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="form-error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+
+    <section class="vault-panel form-panel">
+      <div class="table-toolbar">
+        <div><h2>{% trans "Import speed" %}</h2><p class="vault-muted">{% trans "Used by the import page and by the importfolder command." %}</p></div>
+      </div>
+      <fieldset class="settings-options">
+        <legend class="sr-only">{% trans "Import speed" %}</legend>
+        {% for profile in import_profiles %}
+          <label class="settings-option">
+            <input type="radio" name="import_mode" value="{{ profile.key }}" {% if form.import_mode.value == profile.key %}checked{% endif %} />
+            <span><strong>{{ profile.label }}</strong><span class="field-help">{{ profile.description }}</span></span>
+          </label>
+        {% endfor %}
+      </fieldset>
+      {% for error in form.import_mode.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    </section>
+
+    <section class="vault-panel form-panel">
+      <div class="table-toolbar">
+        <div><h2>{% trans "Search speed" %}</h2><p class="vault-muted">{% trans "Used by the search, browse and advanced search pages and by the search API." %}</p></div>
+      </div>
+      <fieldset class="settings-options">
+        <legend class="sr-only">{% trans "Search speed" %}</legend>
+        {% for profile in query_profiles %}
+          <label class="settings-option">
+            <input type="radio" name="query_mode" value="{{ profile.key }}" {% if form.query_mode.value == profile.key %}checked{% endif %} />
+            <span><strong>{{ profile.label }}</strong><span class="field-help">{{ profile.description }}</span></span>
+          </label>
+        {% endfor %}
+      </fieldset>
+      {% for error in form.query_mode.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    </section>
+
+    <div class="form-actions"><button class="button primary" type="submit">{% trans "Save settings" %}</button></div>
+  </form>
+
+  <section class="vault-panel">
+    <div class="table-toolbar">
+      <div><h2>{% trans "What the active modes do" %}</h2></div>
+    </div>
+    <div class="vault-table-wrap">
+      <table class="vault-table">
+        <caption class="sr-only">{% trans "Settings in effect" %}</caption>
+        <thead><tr><th scope="col">{% trans "Setting" %}</th><th scope="col">{% trans "Import" %}: {{ active_import.label }}</th><th scope="col">{% trans "Search" %}: {{ active_query.label }}</th></tr></thead>
+        <tbody>
+          <tr><td>{% trans "Lines per transaction" %}</td><td class="mono">{{ active_import.batch_size }}</td><td>—</td></tr>
+          <tr><td>{% trans "Writer" %}</td><td>{% if active_import.use_copy and is_postgresql %}{% trans "COPY into a staging table" %}{% else %}{% trans "ORM bulk writes" %}{% endif %}</td><td>—</td></tr>
+          <tr><td>{% trans "Parsing processes" %}</td><td class="mono">{{ active_import.parse_workers }}</td><td>—</td></tr>
+          <tr><td>{% trans "Progress measured by" %}</td><td>{% if active_import.count_lines %}{% trans "lines (counted first)" %}{% else %}{% trans "bytes read" %}{% endif %}</td><td>—</td></tr>
+          <tr><td>{% trans "Results per page" %}</td><td>—</td><td class="mono">{{ active_query.page_size }}</td></tr>
+          <tr><td>{% trans "Exact match count up to" %}</td><td>—</td><td class="mono">{{ active_query.count_cap }}</td></tr>
+          <tr><td>{% trans "Rows returned by the search API" %}</td><td>—</td><td class="mono">{{ active_query.api_limit }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="field-help">{% trans "Matches above the exact-count limit are shown as a number followed by a plus sign. The search itself still returns every matching record when you page through it or export it." %}</p>
+  </section>
+
+  <section class="vault-panel">
+    <div class="table-toolbar">
+      <div><h2>{% trans "Database" %}</h2><p class="vault-muted">{{ engine_name }}{% if pg_version %} {{ pg_version }}{% endif %}</p></div>
+    </div>
+    <p class="field-help">{% if total_records_approximate %}≈ {% endif %}{{ total_records }} {% trans "records in the workspace." %}</p>
+    {% if is_postgresql %}
+      <div class="vault-table-wrap">
+        <table class="vault-table">
+          <caption class="sr-only">{% trans "Search indexes" %}</caption>
+          <thead><tr><th scope="col">{% trans "Table" %}</th><th scope="col">{% trans "Prefix index" %}</th><th scope="col">{% trans "Contains index (trigram)" %}</th></tr></thead>
+          <tbody>
+            {% for row in index_status %}
+              <tr>
+                <td>{{ row.label_plural }}</td>
+                <td>{% if row.prefix %}{% trans "Present" %}{% elif row.prefix_not_needed %}{% trans "Not needed (C collation)" %}{% else %}{% trans "Missing" %}{% endif %}</td>
+                <td>{% if row.trigram %}{% trans "Present" %}{% else %}{% trans "Missing" %}{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="field-help">{% trans "Run manage.py migrate to create missing indexes. Contains indexes are created only when the CREDVAULT_TRIGRAM_SEARCH setting is on." %}</p>
+    {% endif %}
+  </section>
+{% endblock %}

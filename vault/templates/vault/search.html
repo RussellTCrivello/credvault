@@ -27,7 +27,7 @@
   {% if has_query %}
     <section class="vault-panel results-panel">
       <div class="table-toolbar">
-        <div><h2>{% trans "Search results" %}</h2><p class="vault-muted">{{ total }} {% blocktrans count record_count=total %}matching record{% plural %}matching records{% endblocktrans %}</p></div>
+        <div><h2>{% trans "Search results" %}</h2><p class="vault-muted">{% include "vault/_result_count.html" %}</p></div>
         <div class="vault-actions">
           <a class="button" href="{% url 'vault:export_csv' %}?{{ query_string }}">{% trans "Export CSV" %}</a>
           <a class="button" href="{% url 'vault:export_json' %}?{{ query_string }}">{% trans "Export JSON" %}</a>

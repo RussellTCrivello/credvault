@@ -1,10 +1,12 @@
 """Bulk-import every line of every text file inside a folder (or a single file)."""
 
 import os
+import time
 
 from django.core.management.base import BaseCommand
 
 from vault.importer import collect_files_from_path, import_path
+from vault.performance import IMPORT_PROFILES, import_profile
 
 
 class Command(BaseCommand):
@@ -26,6 +28,13 @@ class Command(BaseCommand):
                  "Use '*' to read every file regardless of extension.",
         )
         parser.add_argument(
+            "--mode",
+            choices=sorted(IMPORT_PROFILES),
+            default=None,
+            help="Import speed: balanced, fast or maximum. Defaults to the "
+                 "mode saved on the Settings page.",
+        )
+        parser.add_argument(
             "--quiet",
             action="store_true",
             help="Suppress per-file progress output.",
@@ -35,6 +44,7 @@ class Command(BaseCommand):
         base = options["path"]
         ext = options["ext"]
         quiet = options["quiet"]
+        profile = import_profile(options["mode"])
 
         if not (os.path.isdir(base) or os.path.isfile(base)):
             self.stderr.write(
@@ -56,13 +66,16 @@ class Command(BaseCommand):
                     f"(running total +{running_total})"
                 )
 
+        started = time.perf_counter()
         total_created, total_skipped, _count = import_path(
-            base, ext=ext, on_file=_report
+            base, ext=ext, on_file=_report, profile=profile,
         )
+        elapsed = time.perf_counter() - started
 
         self.stdout.write(
             self.style.SUCCESS(
                 f"Done. Imported {total_created} record(s); "
-                f"skipped {total_skipped} non-record line(s)."
+                f"skipped {total_skipped} non-record line(s) "
+                f"in {elapsed:.1f} s with the {profile.key} import mode."
             )
         )

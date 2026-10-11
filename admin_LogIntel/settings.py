@@ -22,10 +22,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-a=!aw-_ai3ej@zip%bjvrg)=x8hwd7*4$_q$o7%1=mx=h!^3*w'
+SECRET_KEY = os.environ.get(
+    'DJANGO_SECRET_KEY',
+    'django-insecure-a=!aw-_ai3ej@zip%bjvrg)=x8hwd7*4$_q$o7%1=mx=h!^3*w',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DJANGO_DEBUG', 'true').lower() in ('1', 'true', 'yes')
 
 # Development preview: accept the proxied preview host.
 ALLOWED_HOSTS = ['*']
@@ -85,15 +88,38 @@ WSGI_APPLICATION = 'admin_LogIntel.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-        'OPTIONS': {
-            'timeout': 30,
-        },
+def _env(name, default=''):
+    return os.environ.get(name, default).strip()
+
+
+# SQLite stays the zero-configuration default. Set CREDVAULT_DB_ENGINE=postgresql
+# (and the CREDVAULT_PG_* variables below) to run the vault on PostgreSQL, which
+# is the engine intended for billions of records. See README.md.
+DB_ENGINE = _env('CREDVAULT_DB_ENGINE', 'sqlite').lower()
+
+if DB_ENGINE == 'postgresql':
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': _env('CREDVAULT_PG_NAME', 'credvault'),
+            'USER': _env('CREDVAULT_PG_USER', 'postgres'),
+            'PASSWORD': _env('CREDVAULT_PG_PASSWORD'),
+            'HOST': _env('CREDVAULT_PG_HOST', 'localhost'),
+            'PORT': _env('CREDVAULT_PG_PORT', '5432'),
+            # Reuse connections between requests instead of reconnecting.
+            'CONN_MAX_AGE': int(_env('CREDVAULT_PG_CONN_MAX_AGE', '600')),
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': _env('CREDVAULT_SQLITE_PATH') or BASE_DIR / 'db.sqlite3',
+            'OPTIONS': {
+                'timeout': 30,
+            },
+        }
+    }
 
 
 # Allow importing large folders with many files or large payloads

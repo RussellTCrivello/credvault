@@ -3,7 +3,7 @@ from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 
 from .models import (
-    Account, Email, Ip, Pass, Url, User,
+    Account, Email, Ip, Pass, PerformanceSettings, Url, User,
 )
 from .validators import (
     CANONICALIZERS, ERROR_MESSAGES, FORMAT_HINTS, MAX_EMAIL_LENGTH,
@@ -442,3 +442,25 @@ class AdvancedSearchForm(forms.Form):
         initial='newest',
         widget=forms.Select(attrs={'class': 'form-control'}),
     )
+
+
+class PerformanceSettingsForm(forms.ModelForm):
+    """
+    The Settings page: how fast imports are written and how searches count.
+
+    Each choice is a named speed profile (see vault.performance). Changing a
+    choice never changes which records exist or match a search, only how the
+    work is done.
+    """
+
+    class Meta:
+        model = PerformanceSettings
+        fields = ['import_mode', 'query_mode']
+        labels = {
+            'import_mode': _('Import speed'),
+            'query_mode': _('Query speed'),
+        }
+        widgets = {
+            'import_mode': forms.RadioSelect(),
+            'query_mode': forms.RadioSelect(),
+        }
