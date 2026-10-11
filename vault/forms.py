@@ -13,26 +13,33 @@ class AccountForm(forms.ModelForm):
     foreign keys. On save each component is resolved with get_or_create,
     so an existing URL / email / username / password / IP is reused
     instead of being entered a second time.
+
+    All fields are configured as searchable and selectable drop-down
+    comboboxes with live filtering and selection.
     """
 
     url_name = forms.CharField(
         label=_('URL'),
         max_length=2048,
-        widget=forms.URLInput(attrs={
-            'class': 'form-control',
+        widget=forms.TextInput(attrs={
+            'class': 'form-control combobox-input',
             'dir': 'ltr',
-            'list': 'url-list',
-            'placeholder': _('https://example.com/login'),
+            'autocomplete': 'off',
+            'data-combobox': 'url',
+            'data-list-id': 'url-list',
+            'placeholder': _('Search or select URL (e.g. https://example.com/login)'),
         }),
     )
     email_name = forms.EmailField(
         label=_('Email'),
         required=False,
-        widget=forms.EmailInput(attrs={
-            'class': 'form-control',
+        widget=forms.TextInput(attrs={
+            'class': 'form-control combobox-input',
             'dir': 'ltr',
-            'list': 'email-list',
-            'placeholder': _('user@example.com'),
+            'autocomplete': 'off',
+            'data-combobox': 'email',
+            'data-list-id': 'email-list',
+            'placeholder': _('Search or select email (e.g. user@example.com)'),
         }),
     )
     user_name = forms.CharField(
@@ -40,19 +47,24 @@ class AccountForm(forms.ModelForm):
         max_length=255,
         required=False,
         widget=forms.TextInput(attrs={
-            'class': 'form-control',
+            'class': 'form-control combobox-input',
             'dir': 'auto',
-            'list': 'user-list',
-            'placeholder': _('username'),
+            'autocomplete': 'off',
+            'data-combobox': 'user',
+            'data-list-id': 'user-list',
+            'placeholder': _('Search or select username'),
         }),
     )
     password_name = forms.CharField(
         label=_('Password'),
         max_length=500,
         widget=forms.TextInput(attrs={
-            'class': 'form-control',
+            'class': 'form-control combobox-input',
             'dir': 'auto',
-            'placeholder': _('Password or secret'),
+            'autocomplete': 'off',
+            'data-combobox': 'pass',
+            'data-list-id': 'pass-list',
+            'placeholder': _('Search or select password or secret'),
         }),
     )
     ip_name = forms.CharField(
@@ -60,10 +72,12 @@ class AccountForm(forms.ModelForm):
         max_length=45,
         required=False,
         widget=forms.TextInput(attrs={
-            'class': 'form-control',
+            'class': 'form-control combobox-input',
             'dir': 'ltr',
-            'list': 'ip-list',
-            'placeholder': _('N/A'),
+            'autocomplete': 'off',
+            'data-combobox': 'ip',
+            'data-list-id': 'ip-list',
+            'placeholder': _('Search or select IP address (or N/A)'),
         }),
     )
 
@@ -71,8 +85,20 @@ class AccountForm(forms.ModelForm):
         model = Account
         fields = ['account_type']
         widgets = {
-            'account_type': forms.Select(attrs={'class': 'form-control'}),
+            'account_type': forms.Select(attrs={
+                'class': 'form-control combobox-select',
+                'data-combobox-select': 'true',
+            }),
         }
+
+    field_order = [
+        'account_type',
+        'url_name',
+        'email_name',
+        'user_name',
+        'password_name',
+        'ip_name',
+    ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

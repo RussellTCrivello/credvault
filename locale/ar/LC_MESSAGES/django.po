@@ -637,3 +637,22 @@ msgstr "السابق"
 
 msgid "Next"
 msgstr "التالي"
+
+msgid "Toggle options"
+msgstr "عرض الخيارات"
+
+msgid "Search or select URL (e.g. https://example.com/login)"
+msgstr "ابحث عن رابط أو اختره (مثل https://example.com/login)"
+
+msgid "Search or select email (e.g. user@example.com)"
+msgstr "ابحث عن بريد إلكتروني أو اختره (مثل user@example.com)"
+
+msgid "Search or select username"
+msgstr "ابحث عن اسم مستخدم أو اختره"
+
+msgid "Search or select password or secret"
+msgstr "ابحث عن كلمة مرور أو اخترها"
+
+msgid "Search or select IP address (or N/A)"
+msgstr "ابحث عن عنوان IP أو اختره (أو N/A)"
+

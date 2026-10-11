@@ -32,6 +32,8 @@ urlpatterns = [
     path('advanced-search/', views.advanced_search, name='advanced_search'),
     path('references/', views.references_index, name='references_index'),
     path('references/<str:kind>/', views.reference_list, name='references'),
+    path('references/<str:kind>/suggest/',
+         views.reference_suggest, name='reference_suggest'),
     path('references/<str:kind>/delete/<int:pk>/',
          views.reference_delete, name='reference_delete'),
     path('import/', views.import_from_file, name='import'),

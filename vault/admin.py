@@ -40,6 +40,7 @@ class AccountAdmin(admin.ModelAdmin):
     ]
     list_filter = ['account_type']
     list_select_related = ['url', 'email', 'user', 'ip']
+    autocomplete_fields = ['url', 'email', 'user', 'password', 'ip']
     search_fields = [
         'url__name', 'email__name', 'user__name',
         'password__name', 'ip__name'

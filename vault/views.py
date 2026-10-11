@@ -9,7 +9,7 @@ from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db.models import Count, ProtectedError, Q
 from django.db.models.functions import Lower
-from django.http import StreamingHttpResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext as _
@@ -523,9 +523,45 @@ def _render_account_form(request, form, template, record=None):
         'url_options': _reference_choices('url'),
         'email_options': _reference_choices('email'),
         'user_options': _reference_choices('user'),
+        'pass_options': _reference_choices('pass'),
         'ip_options': _reference_choices('ip'),
     }
     return render(request, template, context)
+
+
+def reference_suggest(request, kind):
+    """
+    Fast JSON endpoint for searchable & selectable dropdown comboboxes on
+    Add/Edit Record. Filters reference values by query `q` using the B-tree
+    index on LOWER(name) with substring fallback.
+    """
+    if kind not in REFERENCE_REGISTRY:
+        return JsonResponse({'results': []})
+
+    model = REFERENCE_REGISTRY[kind]['model']
+    q = (request.GET.get('q') or '').strip()
+    limit = 50
+
+    if not q:
+        results = list(model.objects.values_list('name', flat=True)[:limit])
+        return JsonResponse({'results': results})
+
+    q_lower = q.lower()
+    prefix_matches = list(
+        model.objects.annotate(_n=Lower('name'))
+        .filter(_n__gte=q_lower, _n__lt=q_lower + '\uffff')
+        .values_list('name', flat=True)[:limit]
+    )
+    if len(prefix_matches) < limit:
+        remaining = limit - len(prefix_matches)
+        sub_matches = list(
+            model.objects.filter(name__icontains=q)
+            .exclude(name__in=prefix_matches)
+            .values_list('name', flat=True)[:remaining]
+        )
+        prefix_matches.extend(sub_matches)
+
+    return JsonResponse({'results': prefix_matches})
 
 
 def add_account(request):

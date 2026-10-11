@@ -77,6 +77,37 @@ class WorkspaceInterfaceTests(TestCase):
         )
         self.assertContains(queried_res, 'person@example.com')
 
+    def test_add_and_edit_record_fields_are_searchable_dropdown_comboboxes(self):
+        User.objects.create(name='combo-user')
+        for url in (
+            reverse('vault:add'),
+            reverse('vault:update', args=[self.record.id]),
+        ):
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200)
+            for kind in ('url', 'email', 'user', 'pass', 'ip'):
+                self.assertContains(response, f'data-combobox="{kind}"')
+                self.assertContains(response, f'id="{kind}-list"')
+            self.assertContains(response, 'data-combobox-select="true"')
+            self.assertContains(response, 'class="combobox-dropdown"')
+            self.assertContains(response, 'class="combobox-toggle"')
+
+        # Live filter endpoint returns matching options for each reference table
+        checks = (
+            ('url', 'example.com', 'https://example.com/login'),
+            ('email', 'person', 'person@example.com'),
+            ('user', 'combo', 'combo-user'),
+            ('pass', 'test-', 'test-secret'),
+            ('ip', '203.0', '203.0.113.10'),
+        )
+        for kind, query, expected in checks:
+            res = self.client.get(
+                reverse('vault:reference_suggest', args=[kind]),
+                {'q': query},
+            )
+            self.assertEqual(res.status_code, 200)
+            self.assertIn(expected, res.json()['results'])
+
     def test_add_user_account_saves_and_redirects_to_details(self):
         response = self.client.post(
             reverse('vault:add'),
