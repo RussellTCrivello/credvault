@@ -265,6 +265,9 @@
   }
   .profile-trigger {
     width: auto;
+    /* Keep the avatar-only trigger hugging the edge instead of stretching
+       to the full grid column width. */
+    justify-self: start;
     grid-template-columns: auto;
     padding: 4px;
     border-radius: 999px;
