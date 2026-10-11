@@ -3,14 +3,18 @@ import os
 import shutil
 import tempfile
 import time
+from unittest import mock
 
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.test import Client, TestCase
 from django.urls import reverse
 
-from .importer import bulk_import_lines
+from .importer import (
+    DEFAULT_STAGE_ROWS, BulkImportSession, bulk_import_lines, stage_rows,
+)
 from .models import Account, Email, Ip, Pass, Url, User
 from .utils import parse_line
 
@@ -494,6 +498,172 @@ class WorkspaceInterfaceTests(TestCase):
         # No new Url and no new Account should be created; values are reused.
         self.assertEqual(Url.objects.count(), before_urls)
         self.assertEqual(Account.objects.count(), before_accounts)
+
+    def test_import_accepts_multiple_folder_paths(self):
+        # One path per line in the folder_path field: every listed folder is
+        # imported in the same job.
+        dir_one = tempfile.mkdtemp()
+        dir_two = tempfile.mkdtemp()
+        try:
+            with open(os.path.join(dir_one, 'one.txt'), 'w') as fh:
+                fh.write('https://multi1.example/login|multi-user1|pw1|10.2.0.1\n')
+            with open(os.path.join(dir_two, 'two.txt'), 'w') as fh:
+                fh.write('https://multi2.example/login|multi-user2|pw2|10.2.0.2\n')
+
+            response = self.client.post(
+                reverse('vault:import'),
+                {'folder_path': f'{dir_one}\n{dir_two}'},
+            )
+            self.assertRedirects(response, reverse('vault:browse'))
+            self.assertEqual(
+                Account.objects.filter(
+                    url__name='https://multi1.example/login'
+                ).count(),
+                1,
+            )
+            self.assertEqual(
+                Account.objects.filter(
+                    url__name='https://multi2.example/login'
+                ).count(),
+                1,
+            )
+        finally:
+            shutil.rmtree(dir_one, ignore_errors=True)
+            shutil.rmtree(dir_two, ignore_errors=True)
+
+    def test_import_page_accepts_several_files_at_once(self):
+        # The picker offers the `multiple` attribute and one request stores
+        # every selected file (the view reads request.FILES.getlist('file')).
+        response = self.client.get(reverse('vault:import'))
+        html = response.content.decode()
+        file_input = html[html.index('name="file"'):].split('>')[0]
+        self.assertIn('multiple', file_input)
+
+        uploads = [
+            SimpleUploadedFile(
+                f'many-{index}.txt',
+                f'https://many{index}.example/login|many-user{index}'
+                f'|many-pw{index}|10.3.0.{index}\n'.encode(),
+                content_type='text/plain',
+            )
+            for index in (1, 2, 3)
+        ]
+        response = self.client.post(reverse('vault:import'), {'file': uploads})
+        self.assertRedirects(response, reverse('vault:browse'))
+        for index in (1, 2, 3):
+            self.assertEqual(
+                Account.objects.filter(
+                    url__name=f'https://many{index}.example/login'
+                ).count(),
+                1,
+            )
+
+    def test_import_reports_a_missing_path(self):
+        good_dir = tempfile.mkdtemp()
+        try:
+            with open(os.path.join(good_dir, 'good.txt'), 'w') as fh:
+                fh.write('https://good.example/login|good-user|pw|10.2.1.1\n')
+
+            missing = os.path.join(good_dir, 'does-not-exist')
+            response = self.client.post(
+                reverse('vault:import'),
+                {'folder_path': f'{good_dir}\n{missing}'},
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, 'does not exist')
+            self.assertContains(response, 'does-not-exist')
+            # Nothing was imported when any listed path is missing.
+            self.assertEqual(Account.objects.count(), 1)
+
+        finally:
+            shutil.rmtree(good_dir, ignore_errors=True)
+
+    def test_maximum_speed_import_rebuilds_search_indexes(self):
+        trigram_indexes = (
+            "select count(*) from pg_indexes "
+            "where indexname like 'vault\\_%\\_name\\_trgm'"
+        )
+        with connection.cursor() as cursor:
+            cursor.execute(trigram_indexes)
+            self.assertEqual(cursor.fetchone()[0], 5)  # migration 0003
+
+        uploaded_file = SimpleUploadedFile(
+            'fast.txt',
+            b'https://fast.example/login|fast-user|fast-pw|10.2.2.1\n',
+            content_type='text/plain',
+        )
+        response = self.client.post(
+            reverse('vault:import'),
+            {'file': uploaded_file, 'fast': 'on'},
+        )
+        self.assertRedirects(response, reverse('vault:browse'))
+        self.assertEqual(
+            Account.objects.filter(
+                url__name='https://fast.example/login'
+            ).count(),
+            1,
+        )
+        # The five search indexes are back after the import.
+        with connection.cursor() as cursor:
+            cursor.execute(trigram_indexes)
+            self.assertEqual(cursor.fetchone()[0], 5)
+
+    def test_bulk_session_dedupes_across_batches(self):
+        # A tiny batch size forces many flushes; duplicates that span batch
+        # boundaries must still collapse onto single rows.
+        before = {
+            model: model.objects.count()
+            for model in (Account, Url, Pass, User)
+        }
+        session = BulkImportSession(batch_rows=7, workers=1)
+        session.add_parsed(
+            parse_line(
+                f'https://batch{i % 3}.example.com/x|user{i}|pw{i % 2}|1.2.3.{i % 5}'
+            )
+            for i in range(40)
+        )
+        created, skipped = session.finish()
+        self.assertEqual((created, skipped), (40, 0))
+        self.assertEqual(Account.objects.count() - before[Account], 40)
+        self.assertEqual(Url.objects.count() - before[Url], 3)
+        self.assertEqual(Pass.objects.count() - before[Pass], 2)
+        self.assertEqual(User.objects.count() - before[User], 40)
+
+    def test_batch_size_override_from_the_environment(self):
+        # The batch knobs are the ones the README tells big machines to turn.
+        with mock.patch.dict(os.environ, {'VAULT_IMPORT_BATCH_ROWS': '15000'}):
+            self.assertEqual(stage_rows(), 15000)
+        with mock.patch.dict(os.environ, {'VAULT_IMPORT_BATCH_ROWS': '1'}):
+            self.assertEqual(stage_rows(), 10000)  # floor of the override
+        with mock.patch.dict(os.environ, {'VAULT_IMPORT_BATCH_ROWS': 'lots'}):
+            self.assertGreaterEqual(stage_rows(), DEFAULT_STAGE_ROWS)
+
+    def test_parse_workers_store_the_same_records_as_inline_parsing(self):
+        lines = [
+            f'https://workers{i % 4}.example.com/x|wuser{i}@workers.example'
+            f'|wpw{i % 3}|10.2.3.{i % 2}'
+            for i in range(250)
+        ]
+
+        session = BulkImportSession(workers=1, batch_rows=60)
+        session.add_lines(line + '\n' for line in lines)
+        inline_created, inline_skipped = session.finish()
+
+        Account.objects.all().delete()
+        for model in (Url, Email, User, Pass, Ip):
+            model.objects.all().delete()
+
+        session = BulkImportSession(workers=2, batch_rows=60)
+        session.add_lines(line + '\n' for line in lines)
+        worker_created, worker_skipped = session.finish()
+
+        self.assertEqual(
+            (worker_created, worker_skipped), (inline_created, inline_skipped)
+        )
+        self.assertEqual((worker_created, worker_skipped), (250, 0))
+        self.assertEqual(Account.objects.count(), 250)
+        for account in Account.objects.all():
+            self.assertEqual(account.compute_fingerprint(), account.fingerprint)
 
     def test_delete_requires_post_confirmation(self):
         response = self.client.post(
