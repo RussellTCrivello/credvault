@@ -1564,6 +1564,9 @@ textarea.text-input {
   line-height: 1.7;
   color: var(--muted);
   margin-top: 6px;
+  /* Help text embeds whole example values (URLs, import lines); let them
+     break instead of pushing the page wider than the viewport. */
+  overflow-wrap: anywhere;
 }
 .form-grid {
   display: grid;
