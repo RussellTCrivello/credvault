@@ -1,0 +1,72 @@
+{% load i18n static %}
+{% get_current_language as LANGUAGE_CODE %}
+{% get_current_language_bidi as LANGUAGE_BIDI %}
+<!doctype html>
+<html lang="{{ LANGUAGE_CODE }}" dir="{% if LANGUAGE_BIDI %}rtl{% else %}ltr{% endif %}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f8faf8" />
+    <title>{% block title %}{% trans "LogIntel" %}{% endblock %} · LogIntel</title>
+    <link rel="icon" type="image/svg+xml" href="{% static 'monitoring/favicon.svg' %}" />
+    <link rel="stylesheet" href="{% static 'monitoring/app.css' %}" />
+    <link rel="stylesheet" href="{% static 'monitoring/vault.css' %}" />
+    <link rel="stylesheet" href="{% static 'monitoring/admin.css' %}" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">{% trans "Skip to content" %}</a>
+    <div class="vault-shell">
+      <aside class="vault-sidebar">
+        <a class="brand" href="{% url 'vault:dashboard' %}">
+          <span class="brand-icon">L</span><span>LogIntel<span class="brand-dot">.</span></span>
+        </a>
+        <p class="nav-label">{% trans "Workspace" %}</p>
+        <nav aria-label="{% trans 'Main navigation' %}">
+          <a href="{% url 'vault:dashboard' %}" {% if request.resolver_match.url_name == 'dashboard' %}class="active" aria-current="page"{% endif %}>{% trans "Overview" %}</a>
+          <a href="{% url 'vault:browse' %}" {% if request.resolver_match.url_name == 'browse' or request.resolver_match.url_name == 'detail' or request.resolver_match.url_name == 'update' or request.resolver_match.url_name == 'delete' %}class="active" aria-current="page"{% endif %}>{% trans "Records" %}</a>
+          <a href="{% url 'vault:search' %}" {% if request.resolver_match.url_name == 'search' %}class="active" aria-current="page"{% endif %}>{% trans "Search" %}</a>
+          <a href="{% url 'vault:import' %}" {% if request.resolver_match.url_name == 'import' %}class="active" aria-current="page"{% endif %}>{% trans "Import data" %}</a>
+        </nav>
+        <div class="vault-sidebar-bottom">
+          <p><strong>{% trans "LogIntel workspace" %}</strong><br />{% trans "Review and manage your organization's records from one place." %}</p>
+          <form class="language-form" action="{% url 'set_language' %}" method="post">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}" />
+            <label class="field-label" for="language-select">{% trans "Language" %}</label>
+            <div class="language-controls">
+              <select id="language-select" name="language" class="select-input">
+                {% get_available_languages as available_languages %}
+                {% get_language_info_list for available_languages as language_info_list %}
+                {% for language in language_info_list %}
+                  <option value="{{ language.code }}"{% if language.code == LANGUAGE_CODE %} selected{% endif %}>{{ language.name_local }}</option>
+                {% endfor %}
+              </select>
+              <button class="button" type="submit">{% trans "Apply" %}</button>
+            </div>
+          </form>
+          <button class="button theme-toggle" id="theme-toggle" type="button" aria-pressed="false" data-dark-label="{% trans 'Use dark theme' %}" data-light-label="{% trans 'Use light theme' %}">{% trans "Use dark theme" %}</button>
+        </div>
+      </aside>
+      <main id="main-content" class="vault-main" tabindex="-1">
+        <header class="vault-topbar">
+          <div>
+            <p class="eyebrow">{% trans "LOGINTEL / WORKSPACE" %}</p>
+            <h1>{% block heading %}{% trans "Overview" %}{% endblock %}</h1>
+            {% block intro %}{% endblock %}
+          </div>
+          <div class="vault-actions header-actions">{% block header_actions %}{% endblock %}</div>
+        </header>
+        {% if messages %}
+          <div class="message-stack" aria-live="polite">
+            {% for message in messages %}
+              <div class="message-banner {{ message.tags|default:'info' }}" role="status">{{ message }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+    <script src="{% static 'monitoring/admin.js' %}" defer></script>
+  </body>
+</html>

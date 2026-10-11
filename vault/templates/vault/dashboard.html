@@ -1,0 +1,52 @@
+{% extends "vault/base.html" %}{% load i18n %}
+{% block title %}{% trans "Overview" %}{% endblock %}
+{% block heading %}{% trans "Your workspace" %}{% endblock %}
+{% block intro %}<p class="page-intro">{% trans "A clear view of your LogIntel record collection." %}</p>{% endblock %}
+{% block header_actions %}<a class="button primary" href="{% url 'vault:add' %}">{% trans "Add a record" %} <span aria-hidden="true">+</span></a>{% endblock %}
+{% block content %}
+  <section class="stats-grid dashboard-stats" aria-label="{% trans 'Workspace summary' %}">
+    <article class="stat-card">
+      <div class="stat-card-top"><span>{% trans "Total records" %}</span><span class="stat-icon" aria-hidden="true">▤</span></div>
+      <div class="stat-value">{{ total_records }}</div>
+      <p class="stat-note">{% trans "Records currently in your workspace" %}</p>
+    </article>
+    <article class="stat-card welcome-card">
+      <div class="stat-card-top"><span>{% trans "Workspace tools" %}</span><span class="stat-icon" aria-hidden="true">↗</span></div>
+      <div class="welcome-title">{% trans "Manage with clarity." %}</div>
+      <p class="stat-note">{% trans "Search, import, review, and export your records." %}</p>
+    </article>
+  </section>
+
+  <section class="section-block">
+    <div class="section-heading">
+      <div><p class="eyebrow">{% trans "GET STARTED" %}</p><h2>{% trans "What would you like to do?" %}</h2></div>
+    </div>
+    <div class="action-grid">
+      <a class="action-card" href="{% url 'vault:browse' %}">
+        <span class="action-icon" aria-hidden="true">▤</span>
+        <span><strong>{% trans "Browse records" %}</strong><small>{% trans "Review and manage the records in your workspace." %}</small></span>
+        <span class="action-arrow" aria-hidden="true">→</span>
+      </a>
+      <a class="action-card" href="{% url 'vault:search' %}">
+        <span class="action-icon" aria-hidden="true">⌕</span>
+        <span><strong>{% trans "Search records" %}</strong><small>{% trans "Find a record by domain, URL, identifier, or IP." %}</small></span>
+        <span class="action-arrow" aria-hidden="true">→</span>
+      </a>
+      <a class="action-card" href="{% url 'vault:import' %}">
+        <span class="action-icon" aria-hidden="true">↑</span>
+        <span><strong>{% trans "Import a file" %}</strong><small>{% trans "Bring records in from a supported text file." %}</small></span>
+        <span class="action-arrow" aria-hidden="true">→</span>
+      </a>
+      <a class="action-card" href="{% url 'vault:export_csv' %}">
+        <span class="action-icon" aria-hidden="true">↓</span>
+        <span><strong>{% trans "Export data" %}</strong><small>{% trans "Download your records as CSV or JSON." %}</small></span>
+        <span class="action-arrow" aria-hidden="true">→</span>
+      </a>
+    </div>
+  </section>
+
+  <section class="vault-note dashboard-note">
+    <strong>{% trans "Handle sensitive information carefully." %}</strong>
+    {% trans "Record exports include all record fields. Store downloaded files securely and share them only with authorized people." %}
+  </section>
+{% endblock %}

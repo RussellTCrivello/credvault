@@ -1,0 +1,32 @@
+{% extends "vault/base.html" %}{% load i18n %}
+{% block title %}{% trans "Search records" %}{% endblock %}
+{% block heading %}{% trans "Search records" %}{% endblock %}
+{% block intro %}<p class="page-intro">{% trans "Find records by domain, URL, account details, secret, or IP address." %}</p>{% endblock %}
+{% block content %}
+  <section class="vault-panel search-panel">
+    <form method="get" action="{% url 'vault:search' %}" class="search-form">
+      <label class="field-label" for="{{ form.keyword.id_for_label }}">{% trans "Search your records" %}</label>
+      <div class="search-controls">{{ form.keyword }}<button class="button primary" type="submit">{% trans "Search" %}</button></div>
+      {% for error in form.keyword.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+      <p class="field-help">{% trans "Search is case-insensitive and checks all record fields." %}</p>
+    </form>
+  </section>
+  {% if request.GET.keyword %}
+    <section class="vault-panel results-panel">
+      <div class="table-toolbar"><div><h2>{% trans "Search results" %}</h2><p class="vault-muted">{{ records|length }} {% blocktrans count record_count=records|length %}matching record{% plural %}matching records{% endblocktrans %}</p></div></div>
+      <div class="vault-table-wrap">
+        <table class="vault-table record-table">
+          <caption class="sr-only">{% trans "Matching records" %}</caption>
+          <thead><tr><th scope="col">{% trans "ID" %}</th><th scope="col">{% trans "Domain / URL" %}</th><th scope="col">{% trans "Account type" %}</th><th scope="col">{% trans "Identifier" %}</th><th scope="col">{% trans "IP address" %}</th><th scope="col">{% trans "Actions" %}</th></tr></thead>
+          <tbody>
+            {% for record in records %}
+              <tr><td class="mono">#{{ record.id }}</td><td><strong>{{ record.domain }}</strong><small class="cell-secondary" dir="ltr">{{ record.url }}</small></td><td><span class="badge outline">{{ record.get_account_type_display }}</span></td><td dir="auto">{{ record.account_identifier }}</td><td class="mono" dir="ltr">{{ record.ip_address|default:"—" }}</td><td><a class="button small-button" href="{% url 'vault:detail' record.id %}">{% trans "View" %}</a></td></tr>
+            {% empty %}
+              <tr><td colspan="6"><div class="empty-state"><h2>{% trans "No matching records" %}</h2><p>{% trans "Try a different search term or check the spelling." %}</p></div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% endif %}
+{% endblock %}

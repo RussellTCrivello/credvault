@@ -1,0 +1,360 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: ar\n"
+"Plural-Forms: nplurals=6; plural=n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 && n%100<=10 ? 3 : n%100>=11 && n%100<=99 ? 4 : 5;\n"
+
+msgid "English"
+msgstr "الإنجليزية"
+
+msgid "Arabic"
+msgstr "العربية"
+
+msgid "LogIntel"
+msgstr "LogIntel"
+
+msgid "Skip to content"
+msgstr "تخطي إلى المحتوى"
+
+msgid "Workspace"
+msgstr "مساحة العمل"
+
+msgid "Main navigation"
+msgstr "التنقل الرئيسي"
+
+msgid "Overview"
+msgstr "نظرة عامة"
+
+msgid "Records"
+msgstr "السجلات"
+
+msgid "Search"
+msgstr "بحث"
+
+msgid "Import data"
+msgstr "استيراد البيانات"
+
+msgid "LogIntel workspace"
+msgstr "مساحة عمل LogIntel"
+
+msgid "Review and manage your organization's records from one place."
+msgstr "راجع سجلات مؤسستك وأدِرها من مكان واحد."
+
+msgid "Language"
+msgstr "اللغة"
+
+msgid "Apply"
+msgstr "تطبيق"
+
+msgid "Use dark theme"
+msgstr "استخدام المظهر الداكن"
+
+msgid "Use light theme"
+msgstr "استخدام المظهر الفاتح"
+
+msgid "LOGINTEL / WORKSPACE"
+msgstr "LOGINTEL / مساحة العمل"
+
+msgid "Your workspace"
+msgstr "مساحة عملك"
+
+msgid "A clear view of your LogIntel record collection."
+msgstr "نظرة واضحة على مجموعة سجلات LogIntel الخاصة بك."
+
+msgid "Add a record"
+msgstr "إضافة سجل"
+
+msgid "Total records"
+msgstr "إجمالي السجلات"
+
+msgid "Records currently in your workspace"
+msgstr "السجلات الموجودة حاليًا في مساحة عملك"
+
+msgid "Workspace summary"
+msgstr "ملخص مساحة العمل"
+
+msgid "Records in your workspace"
+msgstr "السجلات في مساحة عملك"
+
+msgid "Workspace tools"
+msgstr "أدوات مساحة العمل"
+
+msgid "Manage with clarity."
+msgstr "إدارة واضحة."
+
+msgid "Search, import, review, and export your records."
+msgstr "ابحث عن سجلاتك واستوردها وراجعها وصدّرها."
+
+msgid "GET STARTED"
+msgstr "ابدأ الآن"
+
+msgid "What would you like to do?"
+msgstr "ما الذي ترغب في القيام به؟"
+
+msgid "Browse records"
+msgstr "تصفح السجلات"
+
+msgid "Review and manage the records in your workspace."
+msgstr "راجع السجلات في مساحة عملك وأدِرها."
+
+msgid "Search records"
+msgstr "البحث في السجلات"
+
+msgid "Find a record by domain, URL, identifier, or IP."
+msgstr "اعثر على سجل حسب النطاق أو الرابط أو المعرّف أو عنوان IP."
+
+msgid "Import a file"
+msgstr "استيراد ملف"
+
+msgid "Bring records in from a supported text file."
+msgstr "أضف سجلات من ملف نصي مدعوم."
+
+msgid "Export data"
+msgstr "تصدير البيانات"
+
+msgid "Download your records as CSV or JSON."
+msgstr "نزّل سجلاتك بصيغة CSV أو JSON."
+
+msgid "Handle sensitive information carefully."
+msgstr "تعامل مع المعلومات الحساسة بعناية."
+
+msgid "Record exports include all record fields. Store downloaded files securely and share them only with authorized people."
+msgstr "تتضمن ملفات تصدير السجلات جميع الحقول. احفظ الملفات التي نزّلتها بأمان ولا تشاركها إلا مع أشخاص مخوّلين."
+
+msgid "Browse the records saved in your workspace."
+msgstr "تصفح السجلات المحفوظة في مساحة عملك."
+
+msgid "Export CSV"
+msgstr "تصدير CSV"
+
+msgid "Export JSON"
+msgstr "تصدير JSON"
+
+msgid "Add record"
+msgstr "إضافة سجل"
+
+msgid "All records"
+msgstr "كل السجلات"
+
+msgid "record"
+msgid_plural "records"
+msgstr[0] "سجل"
+msgstr[1] "سجل واحد"
+msgstr[2] "سجلان"
+msgstr[3] "سجلات"
+msgstr[4] "سجلًا"
+msgstr[5] "سجل"
+
+msgid "ID"
+msgstr "المعرّف"
+
+msgid "URL"
+msgstr "الرابط"
+
+msgid "Account Type"
+msgstr "نوع الحساب"
+
+msgid "Secret Data"
+msgstr "البيانات السرية"
+
+msgid "Domain / URL"
+msgstr "النطاق / الرابط"
+
+msgid "Account type"
+msgstr "نوع الحساب"
+
+msgid "Identifier"
+msgstr "المعرّف"
+
+msgid "IP address"
+msgstr "عنوان IP"
+
+msgid "Actions"
+msgstr "الإجراءات"
+
+msgid "View"
+msgstr "عرض"
+
+msgid "No records yet"
+msgstr "لا توجد سجلات بعد"
+
+msgid "Add a record or import a supported file to start building your workspace."
+msgstr "أضف سجلًا أو استورد ملفًا مدعومًا لبدء إعداد مساحة عملك."
+
+msgid "Add your first record"
+msgstr "أضف سجلك الأول"
+
+msgid "Find records by domain, URL, account details, secret, or IP address."
+msgstr "اعثر على السجلات حسب النطاق أو الرابط أو تفاصيل الحساب أو السر أو عنوان IP."
+
+msgid "Search your records"
+msgstr "ابحث في سجلاتك"
+
+msgid "Search is case-insensitive and checks all record fields."
+msgstr "لا يميّز البحث بين الأحرف الكبيرة والصغيرة، ويفحص جميع حقول السجل."
+
+msgid "Search results"
+msgstr "نتائج البحث"
+
+msgid "matching record"
+msgid_plural "matching records"
+msgstr[0] "سجل مطابق"
+msgstr[1] "سجل واحد مطابق"
+msgstr[2] "سجلان مطابقان"
+msgstr[3] "سجلات مطابقة"
+msgstr[4] "سجلًا مطابقًا"
+msgstr[5] "سجل مطابق"
+
+msgid "Matching records"
+msgstr "السجلات المطابقة"
+
+msgid "No matching records"
+msgstr "لا توجد سجلات مطابقة"
+
+msgid "Try a different search term or check the spelling."
+msgstr "جرّب عبارة بحث مختلفة أو تحقق من الإملاء."
+
+msgid "Record #%(record_id)s"
+msgstr "السجل رقم %(record_id)s"
+
+msgid "Record details"
+msgstr "تفاصيل السجل"
+
+msgid "Review the information saved for this record."
+msgstr "راجع المعلومات المحفوظة لهذا السجل."
+
+msgid "Back to records"
+msgstr "العودة إلى السجلات"
+
+msgid "Edit record"
+msgstr "تعديل السجل"
+
+msgid "Delete record"
+msgstr "حذف السجل"
+
+msgid "Domain"
+msgstr "النطاق"
+
+msgid "Full URL"
+msgstr "الرابط الكامل"
+
+msgid "Account identifier"
+msgstr "معرّف الحساب"
+
+msgid "Secret data"
+msgstr "البيانات السرية"
+
+msgid "This record may contain sensitive information. Limit access to the details and any exports to authorized people."
+msgstr "قد يحتوي هذا السجل على معلومات حساسة. اقصر الوصول إلى التفاصيل والملفات المصدّرة على الأشخاص المخوّلين."
+
+msgid "Enter the record details below. Fields marked required must be completed."
+msgstr "أدخل تفاصيل السجل أدناه. يجب تعبئة الحقول المطلوبة."
+
+msgid "required"
+msgstr "مطلوب"
+
+msgid "Cancel"
+msgstr "إلغاء"
+
+msgid "Save record"
+msgstr "حفظ السجل"
+
+msgid "Edit record #%(record_id)s"
+msgstr "تعديل السجل رقم %(record_id)s"
+
+msgid "Update the saved details for record #%(record_id)s."
+msgstr "حدّث التفاصيل المحفوظة للسجل رقم %(record_id)s."
+
+msgid "Save changes"
+msgstr "حفظ التغييرات"
+
+msgid "Delete record #%(record_id)s"
+msgstr "حذف السجل رقم %(record_id)s"
+
+msgid "Delete this record?"
+msgstr "هل تريد حذف هذا السجل؟"
+
+msgid "This action cannot be undone."
+msgstr "لا يمكن التراجع عن هذا الإجراء."
+
+msgid "You're about to permanently delete record #%(record_id)s."
+msgstr "أنت على وشك حذف السجل رقم %(record_id)s نهائيًا."
+
+msgid "This will remove %(domain)s and its saved details from the workspace."
+msgstr "سيؤدي هذا إلى إزالة %(domain)s وتفاصيله المحفوظة من مساحة العمل."
+
+msgid "Keep record"
+msgstr "الاحتفاظ بالسجل"
+
+msgid "Delete permanently"
+msgstr "حذف نهائي"
+
+msgid "Import records"
+msgstr "استيراد السجلات"
+
+msgid "Add records in bulk from a text file."
+msgstr "أضف مجموعة من السجلات دفعة واحدة من ملف نصي."
+
+msgid "Supported file formats"
+msgstr "تنسيقات الملفات المدعومة"
+
+msgid "Text files with colon, pipe, tab, or semicolon-delimited rows are supported. Empty lines and comments are ignored."
+msgstr "تُدعم الملفات النصية التي تفصل صفوفها بنقطتين رأسيتين أو خط عمودي أو جدولة أو فاصلة منقوطة. يتم تجاهل الأسطر الفارغة والتعليقات."
+
+msgid "Select data file to import"
+msgstr "اختر ملف البيانات المراد استيراده"
+
+msgid "Supported formats: TXT with colon, pipe, tab, or semicolon delimiters"
+msgstr "التنسيقات المدعومة: ملفات TXT ذات الفواصل بالنقطتين الرأسيتين أو الخط العمودي أو الجدولة أو الفاصلة المنقوطة"
+
+msgid "Import file"
+msgstr "استيراد الملف"
+
+msgid "example.com"
+msgstr "example.com"
+
+msgid "https://example.com/login"
+msgstr "https://example.com/login"
+
+msgid "user@example.com"
+msgstr "user@example.com"
+
+msgid "Password or secret"
+msgstr "كلمة المرور أو السر"
+
+msgid "N/A"
+msgstr "غير متاح"
+
+msgid "Username"
+msgstr "اسم المستخدم"
+
+msgid "Email"
+msgstr "البريد الإلكتروني"
+
+msgid "Domain, username, email, or IP..."
+msgstr "النطاق أو اسم المستخدم أو البريد الإلكتروني أو IP..."
+
+msgid "Record successfully added with ID: %(record_id)s"
+msgstr "تمت إضافة السجل بنجاح، ومعرّفه: %(record_id)s"
+
+msgid "Record #%(record_id)s updated successfully."
+msgstr "تم تحديث السجل رقم %(record_id)s بنجاح."
+
+msgid "Record #%(record_id)s deleted successfully."
+msgstr "تم حذف السجل رقم %(record_id)s بنجاح."
+
+msgid "No valid records found in the file."
+msgstr "لم يتم العثور على سجلات صالحة في الملف."
+
+msgid "Successfully imported %(count)s record."
+msgid_plural "Successfully imported %(count)s records."
+msgstr[0] "تم استيراد %(count)s سجل."
+msgstr[1] "تم استيراد سجل واحد (%(count)s)."
+msgstr[2] "تم استيراد سجلين (%(count)s)."
+msgstr[3] "تم استيراد %(count)s سجلات."
+msgstr[4] "تم استيراد %(count)s سجلًا."
+msgstr[5] "تم استيراد %(count)s سجل."
+
+msgid "Filtered out %(count)s non-record lines."
+msgstr "تم استبعاد %(count)s سطرًا لا يحتوي على سجل."

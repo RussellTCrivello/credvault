@@ -1,0 +1,16 @@
+{% extends "vault/base.html" %}{% load i18n %}
+{% block title %}{% blocktrans with record_id=record.id %}Delete record #{{ record_id }}{% endblocktrans %}{% endblock %}
+{% block heading %}{% trans "Delete this record?" %}{% endblock %}
+{% block intro %}<p class="page-intro">{% trans "This action cannot be undone." %}</p>{% endblock %}
+{% block content %}
+  <section class="vault-panel confirm-panel">
+    <div class="confirm-icon" aria-hidden="true">!</div>
+    <h2>{% blocktrans with record_id=record.id %}You're about to permanently delete record #{{ record_id }}.{% endblocktrans %}</h2>
+    <p>{% blocktrans with domain=record.domain %}This will remove <strong>{{ domain }}</strong> and its saved details from the workspace.{% endblocktrans %}</p>
+    <form method="post" class="form-actions">
+      {% csrf_token %}
+      <a class="button" href="{% url 'vault:detail' record.id %}">{% trans "Keep record" %}</a>
+      <button class="button danger" type="submit">{% trans "Delete permanently" %}</button>
+    </form>
+  </section>
+{% endblock %}
