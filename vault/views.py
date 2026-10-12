@@ -1011,17 +1011,14 @@ def import_from_file(request):
 
 
 def _stream_import_progress(uploaded_files, paths, fast_mode=False):
-    """Stream line progress while using the same durable engine as imports."""
+    """Stream manifest scanning and durable import progress as NDJSON."""
     def events():
         yield json.dumps({'type': 'phase', 'phase': 'counting'}) + '\n'
 
-        path_groups = []
-        for path in paths:
-            path_groups.append((
-                path,
-                collect_files_from_path(path, ext='*'),
-            ))
-
+        path_groups = [
+            (path, collect_files_from_path(path, ext='*'))
+            for path in paths
+        ]
         source_items = [
             ('path', group_index, filepath)
             for group_index, (_path, group_files) in enumerate(path_groups)
@@ -1032,38 +1029,6 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
             for uploaded_file in uploaded_files
         )
         total_files = len(source_items)
-        scanned = 0
-        total_lines = 0
-        group_line_counts = [0 for _group in path_groups]
-        upload_line_count = 0
-
-        for source_type, group_index, source in source_items:
-            try:
-                if source_type == 'upload':
-                    source.seek(0)
-                    line_count = sum(1 for _line in source)
-                    source.seek(0)
-                else:
-                    with open(source, 'rb') as handle:
-                        line_count = sum(1 for _line in handle)
-            except (OSError, ValueError):
-                yield json.dumps({
-                    'type': 'error',
-                    'message': str(_('A selected file could not be read.')),
-                }) + '\n'
-                return
-            scanned += 1
-            total_lines += line_count
-            if source_type == 'upload':
-                upload_line_count += line_count
-            else:
-                group_line_counts[group_index] += line_count
-            yield json.dumps({
-                'type': 'count_progress',
-                'files_scanned': scanned,
-                'total_files': total_files,
-            }) + '\n'
-
         if not source_items:
             yield json.dumps({
                 'type': 'error',
@@ -1072,13 +1037,6 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                 )),
             }) + '\n'
             return
-
-        yield json.dumps({
-            'type': 'progress',
-            'phase': 'processing',
-            'processed': 0,
-            'total': total_lines,
-        }) + '\n'
 
         updates = queue.Queue()
         result = {
@@ -1118,8 +1076,55 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                 close_old_connections()
             try:
                 from .import_engine import (
+                    _source_manifest, _uploaded_manifest,
                     durable_import_path, durable_import_uploads,
                 )
+
+                scanned = 0
+
+                def report_file_scanned(_source, _byte_size, _line_count):
+                    nonlocal scanned
+                    scanned += 1
+                    updates.put({
+                        'type': 'count_progress',
+                        'files_scanned': scanned,
+                        'total_files': total_files,
+                    })
+
+                # The view needs exact totals and the durable engine needs the
+                # integrity manifest. Build both in the same read pass; the
+                # engine independently revalidates path sources immediately
+                # before streaming their records.
+                prepared_paths = []
+                group_line_counts = []
+                for source_path, group_files in path_groups:
+                    prepared = _source_manifest(
+                        source_path,
+                        ext='*',
+                        files=group_files,
+                        on_file_scanned=report_file_scanned,
+                    )
+                    prepared_paths.append(prepared)
+                    group_line_counts.append(prepared[2])
+
+                upload_manifest = (
+                    _uploaded_manifest(
+                        uploaded_files,
+                        on_file_scanned=report_file_scanned,
+                    )
+                    if uploaded_files else None
+                )
+                upload_line_count = (
+                    upload_manifest[2] if upload_manifest is not None else 0
+                )
+                total_lines = sum(group_line_counts) + upload_line_count
+                updates.put({
+                    'type': 'progress',
+                    'phase': 'processing',
+                    'processed': 0,
+                    'total': total_lines,
+                })
+
                 context = (
                     search_indexes_suspended()
                     if fast_mode else nullcontext()
@@ -1131,6 +1136,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                         path_groups, start=1,
                     ):
                         group_total = group_line_counts[group_number - 1]
+                        prepared_manifest = prepared_paths[group_number - 1]
 
                         job_ref = {}
 
@@ -1160,6 +1166,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                             on_job_created=path_created,
                             batch_rows=STREAM_BATCH_SIZE,
                             expected_line_count=group_total,
+                            prepared_manifest=prepared_manifest,
                         )
                         result['created'] += job.total_committed
                         result['skipped'] += job.total_skipped
@@ -1209,6 +1216,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                             on_job_created=upload_created,
                             batch_rows=STREAM_BATCH_SIZE,
                             expected_line_count=upload_line_count,
+                            prepared_manifest=upload_manifest,
                         )
                         result['created'] += job.total_committed
                         result['skipped'] += job.total_skipped
@@ -1283,6 +1291,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
     response['Cache-Control'] = 'no-cache'
     response['X-Accel-Buffering'] = 'no'
     return response
+
 
 def _export_account_rows(request):
     """

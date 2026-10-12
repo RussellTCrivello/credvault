@@ -263,23 +263,33 @@ def _hash_file(filepath):
     return digest.hexdigest()
 
 
-def _source_manifest(target_path, ext='*'):
+def _source_manifest(
+    target_path, ext='*', files=None, on_file_scanned=None,
+    on_file_signature=None,
+):
     """Return (digest, byte_size, line_count, ordered_files) for a source.
 
     The digest covers normalized relative names, sizes, and file contents,
     so directory membership/order changes are detected as well as edits to
-    an individual file. Only hashes and metadata are persisted.
+    an individual file. Only hashes and metadata are persisted. ``files``
+    can pin the selected file list for a progress scan; a later pre-import
+    validation still re-enumerates and verifies directory membership.
     """
     if os.path.isfile(target_path):
-        files = [os.path.abspath(target_path)]
         root = os.path.dirname(os.path.abspath(target_path))
+        if files is None:
+            files = [os.path.abspath(target_path)]
     elif os.path.isdir(target_path):
         root = os.path.abspath(target_path)
-        files = [os.path.abspath(path) for path in
-                 collect_files_from_path(target_path, ext=ext)]
+        if files is None:
+            files = [
+                os.path.abspath(filepath)
+                for filepath in collect_files_from_path(target_path, ext=ext)
+            ]
     else:
         raise SourceChangedError('Import source is missing or unreadable.')
 
+    files = [os.path.abspath(filepath) for filepath in files]
     manifest = hashlib.sha256()
     manifest.update(b'credvault-source-manifest-v1\0')
     total_size = 0
@@ -292,12 +302,20 @@ def _source_manifest(target_path, ext='*'):
             newline_count = 0
             last_byte = b''
             with open(filepath, 'rb') as handle:
+                expected_signature = _file_stat_signature(
+                    os.fstat(handle.fileno()),
+                )
+                if on_file_signature is not None:
+                    on_file_signature(filepath, expected_signature)
                 for chunk in iter(lambda: handle.read(1 << 16), b''):
                     file_hash.update(chunk)
                     file_size += len(chunk)
                     newline_count += chunk.count(b'\n')
                     if chunk:
                         last_byte = chunk[-1:]
+                _check_streamed_file_stat(
+                    handle, filepath, expected_signature, check_path=True,
+                )
         except OSError as exc:
             raise SourceChangedError(
                 'An import source file is missing or unreadable.'
@@ -310,17 +328,23 @@ def _source_manifest(target_path, ext='*'):
         manifest.update(file_hash.digest())
         total_size += file_size
         total_lines += file_lines
+        if on_file_scanned is not None:
+            on_file_scanned(filepath, file_size, file_lines)
     return manifest.hexdigest(), total_size, total_lines, files
 
 
-def _validate_source_manifest(job, target_path=None, ext=None):
-    """Validate (or establish once) a path-backed job's immutable source."""
+def _validate_source_manifest(
+    job, target_path=None, ext=None, on_file_signature=None,
+):
+    """Validate a path source and optionally capture its file signatures."""
     target_path = target_path or job.source_path
     if not target_path:
         return None
     source_ext = ext or (job.options or {}).get('ext', '*')
     digest, byte_size, line_count, files = _source_manifest(
-        target_path, ext=source_ext,
+        target_path,
+        ext=source_ext,
+        on_file_signature=on_file_signature,
     )
     if job.source_hash:
         if job.source_hash != digest:
@@ -402,100 +426,207 @@ def _check_streamed_file_stat(
         )
 
 
-def _iter_source_lines(job, target_path, ext, files):
-    """Yield lines while hashing content and checking directory membership."""
-    absolute_target = os.path.abspath(target_path)
-    if os.path.isfile(absolute_target):
-        root = os.path.dirname(absolute_target)
-    elif os.path.isdir(absolute_target):
-        root = absolute_target
-    else:
-        raise SourceChangedError('Import source is no longer available.')
-    manifest = hashlib.sha256()
-    manifest.update(b'credvault-source-manifest-v1\0')
-    total_size = 0
-    total_lines = 0
-    file_signatures = {}
-    for filepath in files:
-        relative = os.path.relpath(filepath, root).replace(os.sep, '/')
-        file_hash = hashlib.sha256()
-        file_size = 0
-        newline_count = 0
-        last_byte = b''
-        try:
-            with open(filepath, 'rb') as handle:
-                expected_stat = _file_stat_signature(
-                    os.fstat(handle.fileno()),
-                )
-                _check_streamed_file_stat(
-                    handle, filepath, expected_stat, check_path=True,
-                )
-                while True:
-                    line = handle.readline()
-                    # Check after each read and before yielding so a mutation
-                    # between progress batches cannot import changed lines.
-                    _check_streamed_file_stat(
-                        handle, filepath, expected_stat,
-                    )
-                    if not line:
-                        break
-                    file_hash.update(line)
-                    file_size += len(line)
-                    newline_count += line.count(b'\n')
-                    if line:
-                        last_byte = line[-1:]
-                    yield line
-                _check_streamed_file_stat(
-                    handle, filepath, expected_stat, check_path=True,
-                )
-        except OSError as exc:
-            raise SourceChangedError(
-                'An import source file became unreadable.'
-            ) from exc
-        file_signatures[filepath] = expected_stat
-        file_lines = newline_count + int(
-            file_size > 0 and last_byte != b'\n'
-        )
-        manifest.update(relative.encode('utf-8', errors='surrogatepass'))
-        manifest.update(b'\0')
-        manifest.update(str(file_size).encode('ascii'))
-        manifest.update(b':')
-        manifest.update(file_hash.digest())
-        total_size += file_size
-        total_lines += file_lines
+class _VerifiedSourceLines:
+    """Stream a path-backed source with integrity checks at commit boundaries.
 
-    for filepath, expected_stat in file_signatures.items():
+    Hashing still covers every byte. File metadata is checked when each file
+    opens and closes, and by ``check_source`` immediately before every durable
+    batch commit and after progress callbacks. This avoids a metadata syscall
+    for every line without allowing a changed batch to be committed.
+    """
+
+    def __init__(
+        self, job, target_path, ext, files, before_stream=None,
+        expected_signatures=None,
+    ):
+        self.job = job
+        self.target_path = target_path
+        self.ext = ext
+        self.files = [os.path.abspath(filepath) for filepath in files]
+        self.before_stream = before_stream
+        self._expected_signatures = (
+            expected_signatures if expected_signatures is not None else {}
+        )
+        self._active_handle = None
+        self._active_filepath = None
+        self._active_signature = None
+        self._file_signatures = {}
+        self._iterator = self._iterate()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self._iterator)
+
+    def close(self):
         try:
-            current_stat = _file_stat_signature(os.stat(filepath))
-        except OSError as exc:
-            raise SourceChangedError(
-                'An import source file became unavailable while it was read.'
-            ) from exc
-        if current_stat != expected_stat:
-            raise SourceChangedError(
-                'Import source file changed while it was being read.'
+            self._iterator.close()
+        finally:
+            self._active_handle = None
+            self._active_filepath = None
+            self._active_signature = None
+
+    def check_source(self):
+        """Check the active file and all files already read in this stream."""
+        active_filepath = self._active_filepath
+        if self._active_handle is not None and not self._active_handle.closed:
+            _check_streamed_file_stat(
+                self._active_handle,
+                active_filepath,
+                self._active_signature,
+                check_path=True,
             )
 
-    if (
-        manifest.hexdigest() != job.source_hash
-        or total_size != job.source_size
-        or total_lines != job.total_discovered
-    ):
-        raise SourceChangedError(
-            'Import source changed while it was being read.'
-        )
-    current_files = (
-        [absolute_target]
-        if os.path.isfile(absolute_target)
-        else [
-            os.path.abspath(filepath)
-            for filepath in collect_files_from_path(absolute_target, ext=ext)
-        ]
+        for filepath, expected_signature in self._file_signatures.items():
+            if filepath == active_filepath:
+                continue
+            try:
+                current_signature = _file_stat_signature(os.stat(filepath))
+            except OSError as exc:
+                raise SourceChangedError(
+                    'An import source file became unavailable while it was read.'
+                ) from exc
+            if current_signature != expected_signature:
+                raise SourceChangedError(
+                    'Import source file changed while it was being read.'
+                )
+
+    def _iterate(self):
+        if self.before_stream is not None:
+            validated_files = self.before_stream()
+            if validated_files is not None:
+                self.files = [
+                    os.path.abspath(filepath) for filepath in validated_files
+                ]
+
+        absolute_target = os.path.abspath(self.target_path)
+        if os.path.isfile(absolute_target):
+            root = os.path.dirname(absolute_target)
+        elif os.path.isdir(absolute_target):
+            root = absolute_target
+        else:
+            raise SourceChangedError('Import source is no longer available.')
+
+        manifest = hashlib.sha256()
+        manifest.update(b'credvault-source-manifest-v1\0')
+        total_size = 0
+        total_lines = 0
+        try:
+            for filepath in self.files:
+                relative = os.path.relpath(filepath, root).replace(os.sep, '/')
+                file_hash = hashlib.sha256()
+                file_size = 0
+                newline_count = 0
+                last_byte = b''
+                try:
+                    with open(filepath, 'rb') as handle:
+                        current_signature = _file_stat_signature(
+                            os.fstat(handle.fileno()),
+                        )
+                        expected_stat = self._expected_signatures.get(
+                            filepath,
+                        )
+                        if (
+                            expected_stat is not None
+                            and current_signature != expected_stat
+                        ):
+                            raise SourceChangedError(
+                                'Import source file changed before it was read.'
+                            )
+                        if expected_stat is None:
+                            expected_stat = current_signature
+                        self._file_signatures[filepath] = expected_stat
+                        self._active_handle = handle
+                        self._active_filepath = filepath
+                        self._active_signature = expected_stat
+                        self.check_source()
+                        while True:
+                            line = handle.readline()
+                            if not line:
+                                break
+                            file_hash.update(line)
+                            file_size += len(line)
+                            newline_count += line.count(b'\n')
+                            if line:
+                                last_byte = line[-1:]
+                            yield line
+                        self.check_source()
+                except OSError as exc:
+                    raise SourceChangedError(
+                        'An import source file became unreadable.'
+                    ) from exc
+                finally:
+                    self._active_handle = None
+                    self._active_filepath = None
+                    self._active_signature = None
+
+                file_lines = newline_count + int(
+                    file_size > 0 and last_byte != b'\n'
+                )
+                manifest.update(
+                    relative.encode('utf-8', errors='surrogatepass')
+                )
+                manifest.update(b'\0')
+                manifest.update(str(file_size).encode('ascii'))
+                manifest.update(b':')
+                manifest.update(file_hash.digest())
+                total_size += file_size
+                total_lines += file_lines
+
+            for filepath, expected_signature in self._file_signatures.items():
+                try:
+                    current_signature = _file_stat_signature(os.stat(filepath))
+                except OSError as exc:
+                    raise SourceChangedError(
+                        'An import source file became unavailable while it was read.'
+                    ) from exc
+                if current_signature != expected_signature:
+                    raise SourceChangedError(
+                        'Import source file changed while it was being read.'
+                    )
+
+            if (
+                manifest.hexdigest() != self.job.source_hash
+                or total_size != self.job.source_size
+                or total_lines != self.job.total_discovered
+            ):
+                raise SourceChangedError(
+                    'Import source changed while it was being read.'
+                )
+            current_files = (
+                [absolute_target]
+                if os.path.isfile(absolute_target)
+                else [
+                    os.path.abspath(filepath)
+                    for filepath in collect_files_from_path(
+                        absolute_target, ext=self.ext,
+                    )
+                ]
+            )
+            if current_files != self.files:
+                raise SourceChangedError(
+                    'Import source file membership changed while it was being read.'
+                )
+        finally:
+            self._active_handle = None
+            self._active_filepath = None
+            self._active_signature = None
+
+
+def _iter_source_lines(
+    job, target_path, ext, files, before_stream=None,
+    expected_signatures=None,
+):
+    """Return a batch-verified, hash-checking path line iterator."""
+    return _VerifiedSourceLines(
+        job,
+        target_path,
+        ext,
+        files,
+        before_stream=before_stream,
+        expected_signatures=expected_signatures,
     )
-    if current_files != files:
-        raise SourceChangedError(
-            'Import source file membership changed while it was being read.'
-        )
 
 
 def _row_from_parsed(record_data):
@@ -737,6 +868,7 @@ def _durable_flush_batch(
                 'Source line position exceeds the verified manifest.'
             )
         job.total_discovered = max(job.total_discovered, max_position)
+        attempted_before = job.total_attempted
         job.total_attempted = max(0, job.total_attempted + attempted_delta)
         job.total_committed = max(0, job.total_committed + deltas['committed'])
         job.total_skipped = max(0, job.total_skipped + deltas['skipped'])
@@ -746,23 +878,46 @@ def _durable_flush_batch(
         # line merely read into memory. Pending rows do not advance it.
         checkpoint = int((job.last_checkpoint or {}).get('accounted_through', 0))
         expected = checkpoint + 1
-        position_rows = (
-            ImportRecord.objects.filter(
-                import_job_id=job_pk,
-                status__in=('committed', 'skipped', 'failed'),
-                source_position__gte=expected,
+        batch_positions = {
+            meta['source_position'] for _row, meta in incoming
+        }
+        terminal_statuses = {'committed', 'skipped', 'failed'}
+        contiguous_batch = (
+            bool(batch_positions)
+            and min(batch_positions) == expected
+            and max(batch_positions) - min(batch_positions) + 1
+            == len(batch_positions)
+            and all(
+                record.status in terminal_statuses
+                for record, _existing in record_specs
             )
-            .order_by()
-            .values_list('source_position', flat=True)
-            .distinct()
-            .order_by('source_position')
         )
-        for position in position_rows.iterator(chunk_size=1000):
-            if position < expected:
-                continue
-            if position > expected:
-                break
-            expected += 1
+        if contiguous_batch and attempted_before == checkpoint:
+            # In the common forward-stream case, counters prove there are no
+            # previously-accounted positions beyond this contiguous prefix.
+            # Avoid rescanning every new ledger row after each durable batch.
+            expected = max(batch_positions) + 1
+        else:
+            # Recovery and out-of-order positioned input still need the full
+            # gap scan: terminal rows beyond a missing position do not advance
+            # the durable checkpoint.
+            position_rows = (
+                ImportRecord.objects.filter(
+                    import_job_id=job_pk,
+                    status__in=('committed', 'skipped', 'failed'),
+                    source_position__gte=expected,
+                )
+                .order_by()
+                .values_list('source_position', flat=True)
+                .distinct()
+                .order_by('source_position')
+            )
+            for position in position_rows.iterator(chunk_size=1000):
+                if position < expected:
+                    continue
+                if position > expected:
+                    break
+                expected += 1
         job.last_checkpoint = {
             'accounted_through': expected - 1,
             'updated_at': now.isoformat(),
@@ -825,6 +980,21 @@ def _write_ledger_entries(rows, record_metas, job_pk, newly_created, now):
                 url_id, row[1], email_id, user_id, password_id, ip_id,
             ))
 
+    existing_fingerprints = {
+        fingerprint for fingerprint in fingerprints
+        if fingerprint is not None and fingerprint not in newly_created
+    }
+    existing_accounts = {}
+    lookup_values = tuple(existing_fingerprints)
+    # Stay well below PostgreSQL's bind-parameter limit when a large batch
+    # contains many records that already exist in the vault.
+    for start in range(0, len(lookup_values), 8000):
+        existing_accounts.update(dict(
+            Account.objects.filter(
+                fingerprint__in=lookup_values[start:start + 8000],
+            ).values_list('fingerprint', 'id')
+        ))
+
     records = []
     first_new_record_for_fingerprint = set()
     for meta, fingerprint in zip(record_metas, fingerprints):
@@ -841,9 +1011,9 @@ def _write_ledger_entries(rows, record_metas, job_pk, newly_created, now):
                 first_new_record_for_fingerprint.add(fingerprint)
                 category = ''
             else:
-                account_id = Account.objects.filter(
-                    fingerprint=fingerprint,
-                ).values_list('id', flat=True).first()
+                account_id = newly_created.get(fingerprint)
+                if account_id is None:
+                    account_id = existing_accounts.get(fingerprint)
                 if account_id is not None:
                     status = 'skipped'
                     category = 'duplicate_fingerprint'
@@ -877,12 +1047,15 @@ class DurableImportSession:
     """
 
     def __init__(self, job, batch_rows=None, workers=None,
-                 on_progress=None, cancel_check=None, worker_id=None):
+                 on_progress=None, cancel_check=None, worker_id=None,
+                 source_check=None, source_close=None):
         self.job = job
         self._batch_rows = batch_rows or stage_rows()
         self._workers = workers if workers is not None else worker_count()
         self._on_progress = on_progress
         self._cancel_check = cancel_check
+        self._source_check = source_check
+        self._source_close = source_close
         self._position = 0
         self._interrupted = False
         self._paused = False
@@ -990,14 +1163,29 @@ class DurableImportSession:
 
     def _run_inner(self, lines_iterable):
         job = self.job
+        source_check = self._source_check or getattr(
+            lines_iterable, 'check_source', None,
+        )
+        source_close = self._source_close or getattr(
+            lines_iterable, 'close', None,
+        )
+
+        def close_source():
+            if callable(source_close):
+                try:
+                    source_close()
+                except Exception:
+                    pass
 
         # Do not change a job's status when another worker owns it, or when
         # it is terminal/cancelled and therefore not resumable.
         if not acquire_lease(job, self._worker_id):
+            close_source()
             return job
 
         if not job.mark_started(worker_id=self._worker_id):
             release_lease(job, self._worker_id)
+            close_source()
             return job
         _lease_context.worker_id = self._worker_id
         self._lease_lost = False
@@ -1016,7 +1204,11 @@ class DurableImportSession:
                 return
             # ``None`` rows represent source lines which were deliberately
             # skipped or failed; all outcomes use the same transaction as
-            # valid account rows and job counters.
+            # valid account rows and job counters. Validate path-backed input
+            # immediately before the transaction so any edited batch remains
+            # in memory and cannot be committed under the old manifest.
+            if callable(source_check):
+                source_check()
             _durable_flush_batch(batch_rows, batch_metas, job.pk)
             batch_rows.clear()
             batch_metas.clear()
@@ -1024,6 +1216,10 @@ class DurableImportSession:
             batch_outcome_count = 0
             if self._on_progress:
                 self._on_progress(self._position)
+                # A callback (or concurrent editor) can change the path after
+                # a commit. Refuse before the iterator yields another line.
+                if callable(source_check):
+                    source_check()
 
         try:
             for item in lines_iterable:
@@ -1166,6 +1362,7 @@ class DurableImportSession:
             except Exception:
                 pass
         finally:
+            close_source()
             if getattr(_lease_context, 'worker_id', None) == self._worker_id:
                 del _lease_context.worker_id
             self._restore_signal_handlers()
@@ -1391,6 +1588,8 @@ def recover_job(job, lines_iterable_factory=None):
             session = DurableImportSession(
                 job,
                 worker_id=recovery_worker,
+                source_check=getattr(available_lines, 'check_source', None),
+                source_close=getattr(available_lines, 'close', None),
             )
             session._position = max(
                 job.records.values_list('source_position', flat=True),
@@ -1521,10 +1720,21 @@ def lines_factory_for_job(job):
         return missing_source
 
     def factory():
+        expected_signatures = {}
+
+        def capture_signature(filepath, signature):
+            expected_signatures[os.path.abspath(filepath)] = signature
+
         _digest, _size, _line_count, files = _validate_source_manifest(
-            job, path, ext,
+            job, path, ext, on_file_signature=capture_signature,
         )
-        return _iter_source_lines(job, path, ext, files)
+        return _iter_source_lines(
+            job,
+            path,
+            ext,
+            files,
+            expected_signatures=expected_signatures,
+        )
 
     return factory
 
@@ -1731,6 +1941,11 @@ def durable_import_file(filepath, job=None, on_progress=None,
                         on_job_created=None):
     """Import one path-backed file after pinning and verifying its manifest."""
     filepath = os.path.abspath(filepath)
+    expected_signatures = {}
+
+    def capture_signature(path, signature):
+        expected_signatures[os.path.abspath(path)] = signature
+
     if job is None:
         digest, byte_size, line_count, files = _source_manifest(filepath)
         job = create_import_job(
@@ -1744,7 +1959,7 @@ def durable_import_file(filepath, job=None, on_progress=None,
         # Close the gap between initial manifest creation and acquiring the
         # processing lease; content is hashed again while lines are streamed.
         _digest, _size, _line_count, files = _validate_source_manifest(
-            job, filepath,
+            job, filepath, on_file_signature=capture_signature,
         )
     else:
         if job.source_path and os.path.abspath(job.source_path) != filepath:
@@ -1755,26 +1970,30 @@ def durable_import_file(filepath, job=None, on_progress=None,
             job.source_path = filepath
             job.save(update_fields=['source_path'])
         _digest, _size, _line_count, files = _validate_source_manifest(
-            job, filepath,
+            job, filepath, on_file_signature=capture_signature,
         )
 
     if on_job_created:
         on_job_created(job)
 
-    def line_generator():
-        yield from _iter_source_lines(job, filepath, '*', files)
-
+    line_iterator = _iter_source_lines(
+        job,
+        filepath,
+        '*',
+        files,
+        expected_signatures=expected_signatures,
+    )
     session = DurableImportSession(
         job,
         batch_rows=batch_rows,
         on_progress=on_progress,
         cancel_check=cancel_check,
     )
-    session.run(line_generator())
+    session.run(line_iterator)
     return job
 
 
-def _uploaded_manifest(uploaded_files):
+def _uploaded_manifest(uploaded_files, on_file_scanned=None):
     """Build a metadata-only manifest for rewindable uploaded file objects."""
     manifest = hashlib.sha256()
     manifest.update(b'credvault-upload-manifest-v1\0')
@@ -1813,17 +2032,24 @@ def _uploaded_manifest(uploaded_files):
         manifest.update(file_hash.digest())
         total_size += file_size
         total_lines += line_count
+        if on_file_scanned is not None:
+            on_file_scanned(name, file_size, line_count)
     return manifest.hexdigest(), total_size, total_lines, names
 
 
 def durable_import_uploads(uploaded_files, source_name=None, on_progress=None,
                             cancel_check=None, batch_rows=None,
-                            expected_line_count=None, on_job_created=None):
+                            expected_line_count=None, on_job_created=None,
+                            prepared_manifest=None):
     """Import uploaded streams durably; bytes are not retained for recovery."""
     uploaded_files = list(uploaded_files)
     if not uploaded_files:
         raise ValueError('At least one uploaded source is required.')
-    digest, byte_size, line_count, names = _uploaded_manifest(uploaded_files)
+    if prepared_manifest is None:
+        digest, byte_size, line_count, names = _uploaded_manifest(uploaded_files)
+    else:
+        digest, byte_size, line_count, names = prepared_manifest
+        names = list(names)
     if expected_line_count is not None and line_count != expected_line_count:
         raise SourceChangedError(
             'Uploaded source line count changed after progress was measured.'
@@ -1844,9 +2070,65 @@ def durable_import_uploads(uploaded_files, source_name=None, on_progress=None,
         on_job_created(job)
 
     def all_lines():
-        for uploaded_file in uploaded_files:
-            uploaded_file.seek(0)
-            yield from uploaded_file
+        manifest = hashlib.sha256()
+        manifest.update(b'credvault-upload-manifest-v1\0')
+        actual_size = 0
+        actual_lines = 0
+        actual_names = []
+        try:
+            for uploaded_file in uploaded_files:
+                name = os.path.basename(
+                    getattr(uploaded_file, 'name', '') or 'upload'
+                )
+                actual_names.append(name)
+                file_hash = hashlib.sha256()
+                file_size = 0
+                newline_count = 0
+                last_byte = b''
+                uploaded_file.seek(0)
+                for line in uploaded_file:
+                    line_bytes = (
+                        line.encode('utf-8', errors='replace')
+                        if isinstance(line, str) else bytes(line)
+                    )
+                    file_hash.update(line_bytes)
+                    file_size += len(line_bytes)
+                    newline_count += line_bytes.count(b'\n')
+                    if line_bytes:
+                        last_byte = line_bytes[-1:]
+                    yield line
+                line_count_for_file = newline_count + int(
+                    file_size > 0 and last_byte != b'\n'
+                )
+                manifest.update(name.encode('utf-8', errors='replace'))
+                manifest.update(b'\0')
+                manifest.update(str(file_size).encode('ascii'))
+                manifest.update(b':')
+                manifest.update(file_hash.digest())
+                actual_size += file_size
+                actual_lines += line_count_for_file
+
+            if (
+                manifest.hexdigest() != digest
+                or actual_size != byte_size
+                or actual_lines != line_count
+                or actual_names != names
+            ):
+                raise SourceChangedError(
+                    'Uploaded source changed while the import was running.'
+                )
+        except SourceChangedError:
+            raise
+        except (OSError, AttributeError, TypeError, ValueError) as exc:
+            raise SourceChangedError(
+                'An uploaded source became unavailable while it was read.'
+            ) from exc
+        finally:
+            for uploaded_file in uploaded_files:
+                try:
+                    uploaded_file.seek(0)
+                except (OSError, AttributeError, TypeError, ValueError):
+                    pass
 
     session = DurableImportSession(
         job,
@@ -1855,25 +2137,21 @@ def durable_import_uploads(uploaded_files, source_name=None, on_progress=None,
         cancel_check=cancel_check,
     )
     session.run(all_lines())
-    actual_digest, actual_size, actual_lines, _names = _uploaded_manifest(
-        uploaded_files,
-    )
-    if (
-        actual_digest != digest
-        or actual_size != byte_size
-        or actual_lines != line_count
-    ):
-        job.mark_failed('Uploaded source changed while the import was running.')
     return job
 
 def durable_import_path(target_path, ext='*', on_progress=None,
                         cancel_check=None, batch_rows=None,
-                        expected_line_count=None, on_job_created=None):
+                        expected_line_count=None, on_job_created=None,
+                        prepared_manifest=None):
     """Import all matching files using one immutable path manifest/job."""
     target_path = os.path.abspath(target_path)
-    digest, byte_size, total_lines, files = _source_manifest(
-        target_path, ext=ext,
-    )
+    if prepared_manifest is None:
+        digest, byte_size, total_lines, files = _source_manifest(
+            target_path, ext=ext,
+        )
+    else:
+        digest, byte_size, total_lines, files = prepared_manifest
+        files = list(files)
     if expected_line_count is not None and total_lines != expected_line_count:
         raise SourceChangedError(
             'Import source line count changed after progress was measured.'
@@ -1890,20 +2168,35 @@ def durable_import_path(target_path, ext='*', on_progress=None,
     if on_job_created:
         on_job_created(job)
 
+    expected_signatures = {}
+
+    def validate_before_stream():
+        def capture_signature(filepath, signature):
+            expected_signatures[os.path.abspath(filepath)] = signature
+
+        _digest, _size, _line_count, current_files = (
+            _validate_source_manifest(
+                job,
+                target_path,
+                ext,
+                on_file_signature=capture_signature,
+            )
+        )
+        return current_files
+
+    line_iterator = _iter_source_lines(
+        job,
+        target_path,
+        ext,
+        files,
+        before_stream=validate_before_stream,
+        expected_signatures=expected_signatures,
+    )
     session = DurableImportSession(
         job,
         batch_rows=batch_rows,
         on_progress=on_progress,
         cancel_check=cancel_check,
     )
-
-    def all_lines():
-        _digest, _size, _line_count, current_files = _validate_source_manifest(
-            job, target_path, ext,
-        )
-        yield from _iter_source_lines(
-            job, target_path, ext, current_files,
-        )
-
-    session.run(all_lines())
+    session.run(line_iterator)
     return job

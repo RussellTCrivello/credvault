@@ -187,10 +187,20 @@ also be resumed after a worker exits if their source manifest still matches.
 
 The path-backed engine records a source manifest (ordered relative filenames,
 byte sizes, and content digests) and validates it before and after import or
-recovery. A changed source is refused rather than replayed under old line
+recovery. The streaming progress view combines its exact line counts with that
+first manifest scan instead of reading every source once just to count lines;
+the engine still revalidates the manifest before importing. While streaming,
+it hashes every byte and checks file metadata at durable batch boundaries, so
+a changed batch is rejected before commit without a filesystem stat on every
+line. A changed source is refused rather than replayed under old line
 positions. Upload bytes are not retained on disk: upload jobs keep a manifest
-hash and ledger but an interrupted upload with unaccounted lines cannot be
-replayed after its live request worker exits. While that worker is alive, Pause
+hash and ledger, hash the bytes as they are streamed, and compare that digest
+before completion. Duplicate account fingerprints are resolved in bounded
+bulk lookups rather than one database query per line, and ordinary contiguous
+batches advance their checkpoint without re-reading all new ledger positions;
+recovery still uses the gap scan for out-of-order positions. An interrupted
+upload with unaccounted lines cannot be replayed after its live request worker
+exits. While that worker is alive, Pause
 holds it at a committed checkpoint and Continue resumes the same in-memory
 upload stream; after a process/server restart, upload the source again to
 replay unaccounted lines. The lower-level `vault.importer` bulk functions
@@ -292,6 +302,28 @@ has to do all of its planning and joining in one go. The default is therefore
 250,000 rows -- twice the earlier 100,000 -- and it is not raised automatically
 on a machine with more memory. Use `VAULT_IMPORT_BATCH_ROWS` and
 `vault/tests_performance.py` to find your own machine's number.
+
+### Durable streaming path
+
+The table above measures the compatibility bulk loader; it does not include a
+per-line durable ledger or source-integrity passes. An opt-in durable-path
+measurement now includes a source manifest scan, pre-import revalidation,
+stream parsing, account/reference writes, ledger entries, and checkpoints:
+
+```bash
+VAULT_RUN_PERFORMANCE=1 VAULT_PERF_LINES=20000 \
+POSTGRES_PASSWORD='choose-a-password' \
+.venv/bin/python manage.py test \
+  vault.tests_performance.ImportThroughputTests.test_durable_path_import_throughput
+```
+
+On the isolated sandbox PostgreSQL test cluster, 20,000 synthetic unique
+records took 4.5 seconds (4,431 records/s), and 100,000 took 26.5 seconds
+(3,774 records/s), both with 50,000-line durable batches. These are engine-path
+measurements, not HTTP benchmarks or a one-million-line run; they are
+machine-specific results and are not directly comparable to the bulk-loader
+table above. The durable benchmark can be scaled with `VAULT_PERF_LINES` on
+the PostgreSQL instance you intend to use.
 
 ## Tuning for a fast machine
 

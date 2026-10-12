@@ -3,9 +3,9 @@ Performance and bulk-load checks.
 
 Everything here runs in the normal test run except
 :class:`ImportThroughputTests`, which writes hundreds of thousands of rows and
-is therefore skipped unless ``VAULT_RUN_PERFORMANCE=1``: it measures the
-importer on the machine it runs on (see README.md, "Tuning for a fast
-machine").
+is therefore skipped unless ``VAULT_RUN_PERFORMANCE=1``: it measures both the
+compatibility bulk loader and the durable streaming path on the machine it runs
+on (see README.md, "Import speed").
 """
 
 import os
@@ -21,8 +21,14 @@ from django.urls import reverse
 
 from .counts import count_label, exact_count
 from .importer import (
-    BulkImportSession, bulk_import_lines, import_path, stage_rows, worker_count,
+    STREAM_BATCH_SIZE,
+    BulkImportSession,
+    bulk_import_lines,
+    import_path,
+    stage_rows,
+    worker_count,
 )
+from .import_engine import _source_manifest, durable_import_path
 from .models import Account, Email, Ip, Pass, Url, User
 from .utils import parse_line
 
@@ -270,6 +276,45 @@ class ImportThroughputTests(TransactionTestCase):
             f'({created / elapsed:,.0f} lines/s); fast mode '
             f'{"on" if fast_mode else "off"}; batch '
             f'{stage_rows():,} rows; {worker_count()} parse worker(s)'
+        )
+
+    @unittest.skipUnless(
+        PERFORMANCE_ENABLED,
+        'set VAULT_RUN_PERFORMANCE=1 to run the throughput measurement',
+    )
+    def test_durable_path_import_throughput(self):
+        lines = int(os.environ.get('VAULT_PERF_LINES', DEFAULT_PERF_LINES))
+        handle = tempfile.NamedTemporaryFile(
+            'wb', suffix='.txt', delete=False,
+        )
+        path = handle.name
+        try:
+            for index in range(lines):
+                handle.write((synthetic_line(index) + '\n').encode())
+            handle.close()
+
+            started = time.perf_counter()
+            prepared_manifest = _source_manifest(path)
+            job = durable_import_path(
+                path,
+                prepared_manifest=prepared_manifest,
+                expected_line_count=lines,
+                batch_rows=STREAM_BATCH_SIZE,
+            )
+            elapsed = time.perf_counter() - started
+        finally:
+            handle.close()
+            if os.path.exists(path):
+                os.unlink(path)
+
+        self.assertEqual(job.status, 'completed')
+        self.assertEqual(job.total_discovered, lines)
+        self.assertEqual(job.total_committed, lines)
+        self.assertEqual(Account.objects.count(), lines)
+        print(
+            f'\nDurable path performance: {job.total_committed:,} records '
+            f'in {elapsed:.1f}s ({job.total_committed / elapsed:,.0f} lines/s); '
+            f'{STREAM_BATCH_SIZE:,}-line durable batches'
         )
 
     @unittest.skipUnless(

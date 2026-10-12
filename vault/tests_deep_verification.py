@@ -18,18 +18,25 @@ from pathlib import Path
 from unittest import mock
 
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import close_old_connections, connection, connections
 from django.test import Client, RequestFactory, TestCase, TransactionTestCase
 from django.urls import reverse
 from django.utils import timezone
 
+from . import import_engine
 from .import_engine import (
     DurableImportSession,
+    _durable_flush_batch,
+    _source_manifest,
+    _uploaded_manifest,
+    _write_ledger_entries,
     acquire_lease,
     create_import_job,
     discover_interrupted_jobs,
     durable_import_file,
     durable_import_path,
+    durable_import_uploads,
     lines_factory_for_job,
     recover_job,
     release_lease,
@@ -56,6 +63,76 @@ class DurableOutcomeAuditTests(TestCase):
         self.assertEqual(job.records.filter(status='skipped').count(), 1)
         self.assertEqual(job.total_committed, 1)
         self.assertEqual(job.total_skipped, 1)
+        self.assertEqual(job.last_checkpoint['accounted_through'], 2)
+
+    def test_duplicate_fingerprints_resolve_with_one_bulk_account_lookup(self):
+        url = Url.objects.create(
+            name='https://ledger-lookup.example/login',
+        )
+        email = Email.objects.create(
+            name='lookup-user@ledger-lookup.example',
+        )
+        password = Pass.objects.create(name='synthetic-lookup-secret')
+        account = Account.objects.create(
+            url=url,
+            account_type='email',
+            email=email,
+            password=password,
+        )
+        job = create_import_job(source_name='synthetic-ledger-lookup.txt')
+        row = (url.name, 'email', email.name, password.name, None)
+        rows = [row] * 50
+        metas = [
+            {
+                'source_position': position,
+                'source_hash': 'c' * 64,
+                'idempotency_key': ImportRecord.compute_idempotency_key(
+                    job.job_id, position,
+                ),
+            }
+            for position in range(1, len(rows) + 1)
+        ]
+
+        with self.assertNumQueries(4):
+            records = _write_ledger_entries(
+                rows, metas, job.pk, {}, timezone.now(),
+            )
+
+        self.assertEqual(len(records), len(rows))
+        self.assertTrue(all(record.status == 'skipped' for record in records))
+        self.assertTrue(all(record.account_id == account.pk for record in records))
+
+    def test_checkpoint_fast_forward_preserves_gaps_until_filled(self):
+        job = create_import_job(source_name='synthetic-position-gaps.txt')
+
+        def failed_outcome(position):
+            return {
+                'source_position': position,
+                'source_hash': 'd' * 64,
+                'idempotency_key': ImportRecord.compute_idempotency_key(
+                    job.job_id, position,
+                ),
+                'status': 'failed',
+                'error_category': 'synthetic_test',
+                'error_message': 'Synthetic failure.',
+                'retryable': False,
+            }
+
+        _durable_flush_batch(
+            [], [], job.pk,
+            outcome_metas=[failed_outcome(1), failed_outcome(3)],
+        )
+        job.refresh_from_db()
+        self.assertEqual(job.last_checkpoint['accounted_through'], 1)
+        self.assertEqual(job.total_attempted, 2)
+
+        _durable_flush_batch(
+            [], [], job.pk,
+            outcome_metas=[failed_outcome(2)],
+        )
+        job.refresh_from_db()
+        self.assertEqual(job.last_checkpoint['accounted_through'], 3)
+        self.assertEqual(job.total_attempted, 3)
 
     def test_a_failed_ledger_row_is_not_reported_as_successful_recovery(self):
         job = create_import_job(source_name='synthetic-failure.txt')
@@ -269,6 +346,214 @@ class DurableOutcomeAuditTests(TestCase):
             self.assertFalse(Account.objects.filter(
                 user__name='second-user',
             ).exists())
+
+    def test_path_streaming_rejects_edits_to_a_not_yet_open_file(self):
+        first_line = (
+            b'https://late-file-change.example/login|first-user|'
+            b'synthetic-first-secret|192.0.2.61\n'
+        )
+        original_later_line = (
+            b'https://late-file-change.example/login|later-user|'
+            b'synthetic-later-before|192.0.2.62\n'
+        )
+        changed_later_line = (
+            b'https://late-file-change.example/login|later-user|'
+            b'synthetic-later-after-|192.0.2.62\n'
+        )
+        self.assertEqual(len(original_later_line), len(changed_later_line))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_dir = Path(tmpdir) / 'sources'
+            source_dir.mkdir()
+            (source_dir / 'first.txt').write_bytes(first_line)
+            later_path = source_dir / 'second.txt'
+            later_path.write_bytes(original_later_line)
+            mutation = {'done': False}
+
+            def edit_later_file_after_first_commit(position):
+                if position == 1 and not mutation['done']:
+                    later_path.write_bytes(changed_later_line)
+                    mutation['done'] = True
+
+            job = durable_import_path(
+                str(source_dir),
+                batch_rows=1,
+                on_progress=edit_later_file_after_first_commit,
+            )
+
+            job.refresh_from_db()
+            self.assertTrue(mutation['done'])
+            self.assertEqual(job.status, 'failed')
+            self.assertEqual(job.total_committed, 1)
+            self.assertTrue(Account.objects.filter(
+                user__name='first-user',
+            ).exists())
+            self.assertFalse(Account.objects.filter(
+                user__name='later-user',
+            ).exists())
+
+    def test_path_streaming_rejects_edits_before_uncommitted_batch_is_written(self):
+        first_line = (
+            b'https://stream-batch-change.example/login|first-user|'
+            b'synthetic-first-secret|192.0.2.51\n'
+        )
+        original_second = (
+            b'https://stream-batch-change.example/login|second-user|'
+            b'synthetic-second-before|192.0.2.52\n'
+        )
+        changed_second = (
+            b'https://stream-batch-change.example/login|second-user|'
+            b'synthetic-second-edited-to-a-different-size|192.0.2.52\n'
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_path = Path(tmpdir) / 'batch-change.txt'
+            source_path.write_bytes(first_line + original_second)
+            edited = {'done': False}
+            original_parser = import_engine.parse_line
+
+            def edit_during_parse(line):
+                parsed = original_parser(line)
+                if not edited['done']:
+                    source_path.write_bytes(first_line + changed_second)
+                    edited['done'] = True
+                return parsed
+
+            with mock.patch(
+                'vault.import_engine.parse_line', side_effect=edit_during_parse,
+            ):
+                job = durable_import_file(str(source_path), batch_rows=10)
+
+            job.refresh_from_db()
+            self.assertTrue(edited['done'])
+            self.assertEqual(job.status, 'failed')
+            self.assertEqual(job.total_committed, 0)
+            self.assertEqual(job.records.count(), 0)
+            self.assertEqual(Account.objects.count(), 0)
+
+    def test_source_stat_checks_run_at_durable_batches_not_each_line(self):
+        lines = [
+            (
+                f'https://batch-stat.example/login|stat-user-{index}|'
+                f'synthetic-stat-secret-{index}|192.0.2.{index % 250}\n'
+            ).encode()
+            for index in range(25)
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_path = Path(tmpdir) / 'stat-checks.txt'
+            source_path.write_bytes(b''.join(lines))
+
+            with mock.patch(
+                'vault.import_engine._check_streamed_file_stat',
+                wraps=import_engine._check_streamed_file_stat,
+            ) as stat_checks:
+                job = durable_import_file(str(source_path), batch_rows=10)
+
+            self.assertEqual(job.status, 'completed')
+            self.assertLess(stat_checks.call_count, len(lines))
+
+    def test_prepared_path_manifest_is_reused_and_revalidated(self):
+        line = (
+            b'https://prepared-manifest.example/login|prepared-user|'
+            b'synthetic-prepared-secret|192.0.2.53\n'
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_path = Path(tmpdir) / 'prepared.txt'
+            source_path.write_bytes(line)
+            prepared_manifest = _source_manifest(str(source_path))
+
+            with mock.patch(
+                'vault.import_engine._source_manifest',
+                wraps=_source_manifest,
+            ) as manifest_scans:
+                job = durable_import_path(
+                    str(source_path),
+                    batch_rows=10,
+                    prepared_manifest=prepared_manifest,
+                )
+
+            self.assertEqual(manifest_scans.call_count, 1)
+            self.assertEqual(job.status, 'completed')
+            self.assertEqual(job.total_discovered, 1)
+            self.assertEqual(job.total_committed, 1)
+
+    def test_prepared_upload_manifest_is_reused_and_stream_verified(self):
+        line = (
+            b'https://prepared-upload.example/login|upload-user|'
+            b'synthetic-upload-secret|192.0.2.55\n'
+        )
+        uploaded_file = SimpleUploadedFile('prepared-upload.txt', line)
+        prepared_manifest = _uploaded_manifest([uploaded_file])
+
+        with mock.patch(
+            'vault.import_engine._uploaded_manifest',
+            wraps=_uploaded_manifest,
+        ) as manifest_scans:
+            job = durable_import_uploads(
+                [uploaded_file],
+                batch_rows=10,
+                prepared_manifest=prepared_manifest,
+            )
+
+        self.assertEqual(manifest_scans.call_count, 0)
+        self.assertEqual(job.status, 'completed')
+        self.assertEqual(job.total_discovered, 1)
+        self.assertEqual(job.total_committed, 1)
+
+    def test_upload_stream_digest_rejects_changed_bytes_before_partial_batch_commit(self):
+        original_line = (
+            b'https://upload-stream-change.example/login|original-user|'
+            b'synthetic-upload-before|192.0.2.56\\n'
+        )
+        changed_line = (
+            b'https://upload-stream-change.example/login|changed-user|'
+            b'synthetic-upload-after|192.0.2.56\\n'
+        )
+        uploaded_file = SimpleUploadedFile('changing-upload.txt', original_line)
+        prepared_manifest = _uploaded_manifest([uploaded_file])
+        uploaded_file.file.seek(0)
+        uploaded_file.file.truncate(0)
+        uploaded_file.file.write(changed_line)
+        uploaded_file.file.seek(0)
+
+        job = durable_import_uploads(
+            [uploaded_file],
+            batch_rows=10,
+            prepared_manifest=prepared_manifest,
+        )
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, 'failed')
+        self.assertEqual(job.total_committed, 0)
+        self.assertEqual(job.records.count(), 0)
+        self.assertEqual(Account.objects.count(), 0)
+
+    def test_prepared_manifest_rejects_content_changed_before_import(self):
+        original_line = (
+            b'https://prepared-change.example/login|prepared-user|'
+            b'synthetic-manifest-before|192.0.2.54\n'
+        )
+        changed_line = (
+            b'https://prepared-change.example/login|prepared-user|'
+            b'synthetic-manifest-after|192.0.2.54\n'
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_path = Path(tmpdir) / 'prepared-change.txt'
+            source_path.write_bytes(original_line)
+            prepared_manifest = _source_manifest(str(source_path))
+            source_path.write_bytes(changed_line)
+
+            job = durable_import_path(
+                str(source_path),
+                batch_rows=1,
+                prepared_manifest=prepared_manifest,
+            )
+
+            job.refresh_from_db()
+            self.assertEqual(job.status, 'failed')
+            self.assertEqual(job.total_committed, 0)
+            self.assertEqual(job.records.count(), 0)
+            self.assertEqual(Account.objects.count(), 0)
 
     def test_path_streaming_rejects_new_files_added_mid_import(self):
         source_line = (
