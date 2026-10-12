@@ -820,13 +820,20 @@ def _split_paths(raw_value):
 
 def import_from_file(request):
     """
-    Replaces: import_from_file() -- uploads one or many files, a whole folder
-    of files, or reads any number of local/server directories or file paths
-    (one per line) directly from disk, storing every line that meets the
-    record format requirements and deduplicating referenced values in bulk.
-    The optional maximum-speed mode suspends the trigram search indexes for
-    the duration and rebuilds them afterwards.
+    Upload files, select folders, or specify paths to import records.
+    
+    Uses the durable import engine with full auditability, checkpointing,
+    and recovery support.  Each import creates an ImportJob that tracks
+    every source record and survives interruptions.
+    
+    The optional maximum-speed mode suspends the trigram search indexes
+    for the duration and rebuilds them afterwards.
     """
+    from .import_engine import (
+        durable_import_file, durable_import_path, create_import_job,
+        DurableImportSession, _hash_file,
+    )
+    
     if request.method == 'POST':
         progress_request = request.headers.get('X-Import-Progress') == '1'
         form = ImportFileForm(request.POST, request.FILES)
@@ -870,58 +877,64 @@ def import_from_file(request):
             if progress_request:
                 return _stream_import_progress(files, paths, fast_mode)
 
-            created_total = 0
-            skipped_total = 0
-            matched_files = 0
-
+            # Use the durable import engine for non-streaming imports
+            jobs = []
+            
             with (search_indexes_suspended() if fast_mode else nullcontext()):
+                # Import from paths
                 for path in paths:
-                    created_path, skipped_path, matched = import_path(
-                        path, ext="*"
-                    )
-                    matched_files += matched
-                    created_total += created_path
-                    skipped_total += skipped_path
+                    job = durable_import_path(path, ext="*")
+                    jobs.append(job)
 
-                if not files and matched_files == 0:
+                if not files and not jobs:
                     form.add_error(
                         'folder_path',
                         _('No readable files were found in the specified path.')
                     )
                     return render(request, 'vault/import.html', {'form': form})
 
+                # Import from uploaded files
                 if files:
-                    # One session for every uploaded file: large batches and
-                    # parse workers regardless of how many files were chosen.
-                    session = BulkImportSession()
+                    # Create one job for all uploaded files
+                    job = create_import_job(
+                        source_name=f'{len(files)} uploaded file(s)',
+                        source_path='',
+                    )
+                    session = DurableImportSession(job)
                     for uploaded_file in files:
                         uploaded_file.seek(0)
-                        session.add_lines(uploaded_file)
-                    created_files, skipped_files = session.finish()
-                    created_total += created_files
-                    skipped_total += skipped_files
+                        session.run(uploaded_file)
+                    jobs.append(job)
 
+            # Aggregate results from all jobs
+            created_total = sum(j.total_committed for j in jobs)
+            skipped_total = sum(j.total_skipped for j in jobs)
+            failed_total = sum(j.total_failed for j in jobs)
+
+            # Build success message
             if created_total == 0 and skipped_total > 0:
                 messages.warning(
                     request,
-                    _('No new records were created. Existing values were '
+                    _('No new records were created. Existing values were '\
                       'reused and %d line(s) were not valid records.')
                     % skipped_total
                 )
             else:
-                messages.success(
-                    request,
-                    ngettext(
-                        'Successfully imported %(count)s record.',
-                        'Successfully imported %(count)s records.',
-                        created_total,
-                    )
-                    % {'count': created_total}
-                    + ' '
-                    + _('Filtered out %(count)s non-record lines.')
-                    % {'count': skipped_total}
-                )
-            return redirect('vault:browse')
+                msg = ngettext(
+                    'Successfully imported %(count)s record.',
+                    'Successfully imported %(count)s records.',
+                    created_total,
+                ) % {'count': created_total}
+                msg += ' ' + _('Filtered out %(count)s non-record lines.') % {'count': skipped_total}
+                if failed_total > 0:
+                    msg += ' ' + _('%(count)s record(s) failed.') % {'count': failed_total}
+                messages.success(request, msg)
+
+            # Redirect to import jobs list if multiple jobs, or job detail if single
+            if len(jobs) == 1:
+                return redirect('vault:import_job_detail', job_id=jobs[0].job_id)
+            else:
+                return redirect('vault:import_jobs')
         elif progress_request:
             return JsonResponse(
                 {'error': '; '.join(

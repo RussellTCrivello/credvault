@@ -1,17 +1,23 @@
-"""Bulk-import every line of every text file inside a folder (or a single file)."""
+"""Bulk-import every line of every text file inside a folder (or a single file).
+
+Uses the durable import engine to track every record with full auditability,
+checkpointing, and recovery support.  Each import creates an ImportJob that
+survives interruptions and can be resumed.
+"""
 
 import os
 
 from django.core.management.base import BaseCommand
 
-from vault.importer import import_path, stage_rows, worker_count
+from vault.import_engine import durable_import_path
+from vault.importer import search_indexes_suspended, stage_rows, worker_count
 
 
 class Command(BaseCommand):
     help = (
         "Recursively read every text file in one or more folders (or single "
-        "files), parse each line, and store valid records. This is the "
-        "fastest path for very large volumes."
+        "files), parse each line, and store valid records. Uses the durable "
+        "import engine with full auditability and recovery support."
     )
 
     def add_arguments(self, parser):
@@ -54,34 +60,50 @@ class Command(BaseCommand):
 
         if not quiet:
             self.stdout.write(
-                f"Batch size {stage_rows():,} rows; "
+                f"Durable import engine: batch size {stage_rows():,} rows; "
                 f"{worker_count()} parse worker(s); "
                 f"fast mode {'on' if fast else 'off'}."
             )
 
-        def _report(filepath, created, skipped, running_total):
-            if not quiet:
-                self.stdout.write(
-                    f"{filepath}: +{created} records, {skipped} skipped "
-                    f"(running total +{running_total})"
-                )
-
         total_created = 0
         total_skipped = 0
-        for base in paths:
-            created_base, skipped_base, count = import_path(
-                base, ext=ext, on_file=_report, fast_mode=fast
-            )
-            if count == 0:
-                self.stdout.write(
-                    self.style.WARNING(f"No matching files found: {base}")
-                )
-            total_created += created_base
-            total_skipped += skipped_base
+        total_jobs = 0
 
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"Done. Imported {total_created} record(s); "
-                f"skipped {total_skipped} non-record line(s)."
+        # Use the durable engine with optional fast mode
+        context = search_indexes_suspended() if fast else _null_context()
+        with context:
+            for base in paths:
+                job = durable_import_path(base, ext=ext)
+                total_jobs += 1
+                
+                if not quiet:
+                    self.stdout.write(
+                        f"{base}: job {job.job_id} — "
+                        f"{job.total_committed} records committed, "
+                        f"{job.total_skipped} skipped, "
+                        f"{job.total_failed} failed"
+                    )
+                
+                total_created += job.total_committed
+                total_skipped += job.total_skipped
+
+        if total_jobs == 0:
+            self.stdout.write(
+                self.style.WARNING("No paths were processed.")
             )
-        )
+        else:
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Done. {total_jobs} import job(s) completed. "
+                    f"Imported {total_created} record(s); "
+                    f"skipped {total_skipped} non-record line(s)."
+                )
+            )
+
+
+class _null_context:
+    """A no-op context manager for when fast mode is off."""
+    def __enter__(self):
+        return self
+    def __exit__(self, *args):
+        return False
