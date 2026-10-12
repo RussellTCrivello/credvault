@@ -175,16 +175,25 @@ The web import page (including its streaming progress mode) and the
 source line receives a hash-only `ImportRecord` outcome; account rows, ledger
 outcomes, counters, and the gap-free checkpoint commit together in one
 PostgreSQL transaction per batch. The durable transaction explicitly sets
-` synchronous_commit = on`, and the job-row lease is fenced at each batch so
-a stale worker cannot commit or release a replacement worker's lease.
+`synchronous_commit = on`, and the job-row lease is fenced at each batch so a
+stale worker cannot commit or release a replacement worker's lease.
+
+The streaming import UI receives the durable job ID as soon as its manifest is
+recorded. The Import jobs list and job detail page show database-backed status,
+stage, progress, and counters; Pause, Continue, and Stop requests update the
+job row and take effect at a durable batch boundary. Pause keeps the live
+worker at that checkpoint until continued or cancelled. Path-backed jobs can
+also be resumed after a worker exits if their source manifest still matches.
 
 The path-backed engine records a source manifest (ordered relative filenames,
 byte sizes, and content digests) and validates it before and after import or
 recovery. A changed source is refused rather than replayed under old line
 positions. Upload bytes are not retained on disk: upload jobs keep a manifest
 hash and ledger but an interrupted upload with unaccounted lines cannot be
-automatically resumed. It remains partial/paused until the source is supplied
-again through a new import. The lower-level `vault.importer` bulk functions
+replayed after its live request worker exits. While that worker is alive, Pause
+holds it at a committed checkpoint and Continue resumes the same in-memory
+upload stream; after a process/server restart, upload the source again to
+replay unaccounted lines. The lower-level `vault.importer` bulk functions
 remain for compatibility and performance tests; they do not create durable
 jobs or per-line ledgers and are not called by the production web/management
 entry points.
@@ -438,9 +447,11 @@ history; the PostgreSQL numbers above replaced them.
   paths on the `importfolder` command.
 * Records loaded in bulk and records saved through the ORM produce the same
   fingerprint (`vault/tests_performance.py` checks it).
-* Counts: list, search and overview totals stop at `VAULT_COUNT_CAP` (default
-  10,000) and show "10,000+", so a page never runs a full `COUNT(*)`. Exports
-  still stream every matching record.
+* Counts and pagination: list, search, overview, import-job, and import-ledger
+  pages use exact queryset totals and have no 10,000-row ceiling; page links can
+  reach every matching row, and displayed counts do not use a `+` estimate.
+  Exact PostgreSQL counts may take time for broad queries on very large tables;
+  result rows remain paginated and exports stream every matching record.
 * Reference pages: "usage" is counted only for the values on the current page,
   not for the whole reference table.
 * Search: exact (B-tree) on the search page, substring through the `pg_trgm`

@@ -15,10 +15,11 @@ import unittest
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.core.paginator import Paginator
+from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 
-from .counts import CappedPaginator, capped_count, count_label
+from .counts import count_label, exact_count
 from .importer import (
     BulkImportSession, bulk_import_lines, import_path, stage_rows, worker_count,
 )
@@ -87,7 +88,7 @@ class BulkLoadMatchesOrmTests(TestCase):
         self.assertEqual(Email.objects.count(), 0)
 
 
-class CappedCountTests(TestCase):
+class ExactCountTests(TestCase):
     def setUp(self):
         # Records go through the loader, the real write path for bulk data.
         bulk_import_lines(
@@ -95,33 +96,47 @@ class CappedCountTests(TestCase):
             for i in range(25)
         )
 
-    def test_exact_below_the_cap(self):
-        self.assertEqual(capped_count(Account.objects.all(), cap=100), (25, False))
+    def test_count_is_exact_below_ten_thousand(self):
+        self.assertEqual(exact_count(Account.objects.all()), 25)
 
-    def test_stops_at_the_cap(self):
-        self.assertEqual(capped_count(Account.objects.all(), cap=10), (10, True))
+    def test_count_labels_are_exact_and_formatted(self):
+        self.assertEqual(count_label(10000), '10,000')
+        self.assertEqual(count_label(10001), '10,001')
+        self.assertEqual(count_label(42), '42')
 
-    def test_label_marks_capped_totals(self):
-        self.assertEqual(count_label(10000, True), '10,000+')
-        self.assertEqual(count_label(42, False), '42')
+    def test_paginator_uses_the_full_queryset_count(self):
+        paginator = Paginator(Account.objects.order_by('id'), per_page=10)
+        self.assertEqual(paginator.count, 25)
+        self.assertEqual(paginator.num_pages, 3)
+        self.assertEqual(paginator.page(3).start_index(), 21)
 
-    def test_paginator_uses_the_cap_not_a_full_count(self):
-        paginator = CappedPaginator(
-            Account.objects.order_by('id'), per_page=10, cap=20,
+    def test_search_shows_exact_total_and_reaches_page_beyond_ten_thousand(self):
+        total = 10005
+        bulk_import_lines(
+            parse_line(
+                f'https://large-results.example/login|large-user{i}|'
+                f'large-secret{i}'
+            )
+            for i in range(total)
         )
-        self.assertEqual(paginator.count, 20)
-        self.assertTrue(paginator.capped)
-        self.assertEqual(paginator.num_pages, 2)
-
-    @override_settings(VAULT_COUNT_CAP=5)
-    def test_search_page_shows_the_plus_when_capped(self):
-        get_user_model().objects.create_superuser('admin', 'a@example.com', PASSWORD)
+        get_user_model().objects.create_superuser(
+            'admin', 'a@example.com', PASSWORD,
+        )
         self.client.login(username='admin', password=PASSWORD)
-        response = self.client.get(
-            reverse('vault:search'), {'field': 'url', 'q': 'https://example.com/login'}
-        )
+
+        response = self.client.get(reverse('vault:search'), {
+            'field': 'url',
+            'q': 'https://large-results.example/login',
+            'page': '101',
+        })
+
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, '5+')
+        self.assertEqual(response.context['total'], total)
+        self.assertEqual(response.context['page_obj'].number, 101)
+        self.assertEqual(response.context['page_obj'].paginator.num_pages, 101)
+        self.assertEqual(len(response.context['records']), 5)
+        self.assertContains(response, '10,005 matching records')
+        self.assertNotContains(response, '10,000+')
 
 
 class ReferenceUsageTests(TestCase):

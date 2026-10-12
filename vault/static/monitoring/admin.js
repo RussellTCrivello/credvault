@@ -50,6 +50,11 @@
   }
 
   function handleEvent(event, xhr) {
+    if (event.type === "job") {
+      progressPanel._addLiveImportJob?.(event);
+      return;
+    }
+
     if (event.type === "phase" && event.phase === "counting") {
       setStep("count");
       status.textContent = label("countingLabel");
@@ -683,6 +688,386 @@
           }
         });
       }
+    });
+  });
+})();
+
+// Shared durable job status/actions for the import stream, history and detail.
+const importJobUI = (() => {
+  const terminalStatuses = new Set([
+    "completed", "completed_with_errors", "failed", "interrupted",
+  ]);
+
+  function number(value) {
+    return new Intl.NumberFormat().format(Number(value || 0));
+  }
+
+  function updateBadge(element, data) {
+    if (!element) return;
+    element.dataset.status = data.status;
+    element.textContent = data.cancellation_pending
+      ? element.dataset.cancelPendingLabel || data.status_display
+      : data.status_display;
+    element.classList.remove("success", "error", "warning", "info", "outline");
+    if (data.status === "completed") element.classList.add("success");
+    else if (["failed", "completed_with_errors"].includes(data.status)) {
+      element.classList.add("error");
+    } else if (["processing", "pending"].includes(data.status)) {
+      element.classList.add("info");
+    } else if (["paused", "interrupted"].includes(data.status)) {
+      element.classList.add("warning");
+    } else {
+      element.classList.add("outline");
+    }
+  }
+
+  function updateActionLinks(jobId, data) {
+    document.querySelectorAll("[data-import-job-action-link]").forEach((link) => {
+      if (link.dataset.jobId !== jobId) return;
+      const action = link.dataset.importJobActionLink;
+      const capability = {
+        pause: data.can_pause,
+        resume: data.can_resume,
+        cancel: data.can_cancel,
+      }[action];
+      link.hidden = !capability;
+    });
+  }
+
+  function active(data) {
+    return ["pending", "processing", "paused"].includes(data.status)
+      || Boolean(data.cancellation_pending);
+  }
+
+  function actionRoot(link) {
+    return link.closest("[data-import-job-list-monitor]")
+      || document.querySelector("[data-import-job-monitor]")
+      || document.querySelector("[data-import-progress]");
+  }
+
+  async function postAction(root, action, url, feedback, button, onUpdate) {
+    if (action === "cancel") {
+      const message = root.dataset.cancelConfirmLabel;
+      if (message && !window.confirm(message)) return;
+    }
+    if (button) button.disabled = true;
+    if (feedback) feedback.textContent = root.dataset.actionPendingLabel || "";
+
+    const csrfInput = root.querySelector('[data-import-job-csrf] input[name="csrfmiddlewaretoken"]')
+      || root.closest("form")?.querySelector('input[name="csrfmiddlewaretoken"]')
+      || document.querySelector('input[name="csrfmiddlewaretoken"]');
+    const headers = {
+      Accept: "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+    };
+    if (csrfInput) headers["X-CSRFToken"] = csrfInput.value;
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        credentials: "same-origin",
+        headers,
+      });
+      const result = await response.json();
+      if (result.job && onUpdate) onUpdate(result.job);
+      if (!response.ok || !result.ok) {
+        throw new Error(result.message || root.dataset.actionErrorLabel || "Request failed.");
+      }
+      if (feedback) feedback.textContent = result.message || "";
+    } catch (error) {
+      if (feedback) {
+        feedback.textContent = error.message || root.dataset.actionErrorLabel || "Request failed.";
+      }
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  async function readStatus(url) {
+    const response = await fetch(url, {
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error("Status unavailable.");
+    return response.json();
+  }
+
+  return { number, updateBadge, updateActionLinks, active, actionRoot, postAction, readStatus };
+})();
+
+// The streaming importer reveals per-job controls as soon as the server has
+// committed a durable ImportJob row. Buttons call the server and the UI polls
+// the job record instead of treating browser-only progress as authoritative.
+(function setupLiveImportJobControls() {
+  const progressPanel = document.querySelector("[data-import-progress]");
+  const jobList = progressPanel?.querySelector("[data-import-job-list]");
+  const jobsPanel = progressPanel?.querySelector("[data-import-live-jobs]");
+  if (!progressPanel || !jobList || !jobsPanel) return;
+
+  const entries = new Map();
+  const label = (key) => progressPanel.dataset[key] || "";
+
+  function updateEntry(entry, data) {
+    entry.data = data;
+    const statusText = data.cancellation_pending
+      ? label("cancelPendingLabel") : data.status_display;
+    entry.status.textContent = `${statusText} · ${data.stage_display}`;
+    entry.progress.value = data.progress_percent;
+    entry.progress.setAttribute("aria-valuenow", String(Math.round(data.progress_percent)));
+    entry.progress.setAttribute("aria-valuetext", `${data.progress_percent.toFixed(1)}%`);
+    entry.percent.textContent = `${data.progress_percent.toFixed(1)}%`;
+    entry.counts.textContent = `${label("committedLabel")}: ${importJobUI.number(data.total_committed)}; `
+      + `${label("skippedLabel")}: ${importJobUI.number(data.total_skipped)}; `
+      + `${label("failedCountLabel")}: ${importJobUI.number(data.total_failed)}; `
+      + `${label("remainingLabel")}: ${importJobUI.number(data.remaining_count)}`;
+    importJobUI.updateBadge(entry.badge, data);
+    for (const [action, button] of Object.entries(entry.buttons)) {
+      button.hidden = !data[`can_${action}`];
+    }
+    importJobUI.updateActionLinks(data.job_id, data);
+  }
+
+  function schedulePoll(entry, delay = 1800) {
+    window.clearTimeout(entry.timer);
+    if (!entry.data || !importJobUI.active(entry.data)) return;
+    entry.timer = window.setTimeout(async () => {
+      try {
+        updateEntry(entry, await importJobUI.readStatus(entry.urls.status));
+        schedulePoll(entry);
+      } catch {
+        entry.feedback.textContent = label("statusUnavailableLabel");
+        schedulePoll(entry, 4000);
+      }
+    }, delay);
+  }
+
+  function addJob(event) {
+    if (entries.has(event.job_id)) return;
+    jobsPanel.hidden = false;
+
+    const card = document.createElement("article");
+    card.className = "import-live-job";
+    const heading = document.createElement("div");
+    heading.className = "import-live-job-heading";
+    const jobLink = document.createElement("a");
+    jobLink.className = "import-live-job-link";
+    jobLink.href = event.detail_url;
+    jobLink.textContent = `${label("importJobLabel")}: ${event.source_name || event.job_id}`;
+    const badge = document.createElement("span");
+    badge.className = "badge outline";
+    badge.textContent = label("statusUnavailableLabel");
+    badge.dataset.cancelPendingLabel = label("cancelPendingLabel");
+    heading.append(jobLink, badge);
+
+    const progressRow = document.createElement("div");
+    progressRow.className = "import-live-job-progress-row";
+    const progress = document.createElement("progress");
+    progress.className = "import-live-job-progress";
+    progress.max = 100;
+    progress.value = 0;
+    progress.setAttribute("aria-label", label("liveProgressLabel"));
+    const percent = document.createElement("output");
+    percent.textContent = "0%";
+    progressRow.append(progress, percent);
+
+    const status = document.createElement("p");
+    status.className = "import-live-job-status";
+    status.setAttribute("role", "status");
+    status.setAttribute("aria-live", "polite");
+    const counts = document.createElement("p");
+    counts.className = "field-help import-live-job-counts";
+    const actions = document.createElement("div");
+    actions.className = "import-live-job-actions";
+    const feedback = document.createElement("p");
+    feedback.className = "field-help import-live-job-feedback";
+    feedback.setAttribute("role", "status");
+    feedback.setAttribute("aria-live", "polite");
+
+    const urls = {
+      pause: event.pause_url,
+      resume: event.resume_url,
+      cancel: event.cancel_url,
+      status: event.status_url,
+    };
+    const buttons = {};
+    for (const [action, key] of [
+      ["pause", "pauseControlLabel"],
+      ["resume", "continueControlLabel"],
+      ["cancel", "stopControlLabel"],
+    ]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `button small-button${action === "cancel" ? " danger" : ""}`;
+      button.textContent = label(key);
+      button.hidden = true;
+      button.addEventListener("click", () => {
+        importJobUI.postAction(
+          progressPanel, action, urls[action], feedback, button,
+          (data) => updateEntry(entry, data),
+        );
+      });
+      buttons[action] = button;
+      actions.appendChild(button);
+    }
+
+    card.append(heading, status, progressRow, counts, actions, feedback);
+    jobList.appendChild(card);
+    const entry = { card, badge, status, progress, percent, counts, actions, feedback, buttons, urls, data: null, timer: null };
+    entries.set(event.job_id, entry);
+    updateEntry(entry, {
+      job_id: event.job_id,
+      status: "pending",
+      status_display: label("statusUnavailableLabel"),
+      stage_display: "",
+      progress_percent: 0,
+      total_committed: 0,
+      total_skipped: 0,
+      total_failed: 0,
+      remaining_count: 0,
+      can_pause: false,
+      can_resume: false,
+      can_cancel: true,
+    });
+    schedulePoll(entry, 0);
+  }
+
+  // Keep the event reader incremental: a job card appears before the first
+  // (potentially large) durable import batch completes.
+  progressPanel.addEventListener("import:job-created", (event) => addJob(event.detail));
+  progressPanel._addLiveImportJob = addJob;
+})();
+
+(function setupImportJobDetailMonitor() {
+  const root = document.querySelector("[data-import-job-monitor]");
+  if (!root) return;
+  const status = root.querySelector("[data-job-status]");
+  const stage = root.querySelector("[data-job-stage]");
+  const progress = root.querySelector("[data-job-progress]");
+  const progressLabel = root.querySelector("[data-job-progress-label]");
+  const feedback = root.querySelector("[data-job-feedback]");
+  const counterNames = {
+    discovered: "total_discovered",
+    attempted: "total_attempted",
+    committed: "total_committed",
+    skipped: "total_skipped",
+    failed: "total_failed",
+    remaining: "remaining_count",
+  };
+
+  function update(data) {
+    importJobUI.updateBadge(status, data);
+    if (stage) stage.textContent = data.stage_display;
+    if (progress) progress.style.width = `${Math.max(0, Math.min(100, data.progress_percent))}%`;
+    if (progressLabel) progressLabel.textContent = `${data.progress_percent.toFixed(1)}%`;
+    root.querySelectorAll("[data-job-counter]").forEach((element) => {
+      const key = counterNames[element.dataset.jobCounter];
+      if (key) element.textContent = importJobUI.number(data[key]);
+    });
+    importJobUI.updateActionLinks(data.job_id, data);
+    if (feedback && data.cancellation_pending) {
+      feedback.textContent = root.dataset.cancelPendingLabel || "";
+    } else if (feedback && data.status === "paused") {
+      feedback.textContent = data.status_display;
+    }
+  }
+
+  let timer = null;
+  async function poll() {
+    try {
+      const data = await importJobUI.readStatus(root.dataset.statusUrl);
+      update(data);
+      if (importJobUI.active(data)) {
+        timer = window.setTimeout(poll, Number(root.dataset.pollInterval || 2000));
+      }
+    } catch {
+      timer = window.setTimeout(poll, 5000);
+    }
+  }
+  poll();
+  window.addEventListener("pagehide", () => window.clearTimeout(timer), { once: true });
+})();
+
+(function setupImportJobListMonitor() {
+  const root = document.querySelector("[data-import-job-list-monitor]");
+  if (!root) return;
+  const rows = [...root.querySelectorAll("[data-import-job-row]")];
+  const counters = {
+    attempted: "total_attempted",
+    discovered: "total_discovered",
+  };
+
+  function updateRow(row, data) {
+    importJobUI.updateBadge(row.querySelector("[data-job-status]"), data);
+    const stage = row.querySelector("[data-job-stage]");
+    if (stage) stage.textContent = data.stage_display;
+    const progress = row.querySelector("[data-job-progress]");
+    if (progress) progress.style.width = `${Math.max(0, Math.min(100, data.progress_percent))}%`;
+    const progressLabel = row.querySelector("[data-job-progress-label]");
+    if (progressLabel) progressLabel.textContent = `${data.progress_percent.toFixed(1)}%`;
+    row.querySelectorAll("[data-job-counter]").forEach((element) => {
+      const key = counters[element.dataset.jobCounter];
+      if (key) element.textContent = importJobUI.number(data[key]);
+    });
+    const idLink = row.querySelector("td:first-child a");
+    if (idLink) importJobUI.updateActionLinks(data.job_id, data);
+    if (data.cancellation_pending) {
+      const feedback = row.querySelector("[data-job-feedback]");
+      if (feedback) feedback.textContent = root.dataset.cancelPendingLabel || "";
+    }
+  }
+
+  rows.forEach((row) => {
+    const status = row.querySelector("[data-job-status]")?.dataset.status;
+    if (!["pending", "processing", "paused", "cancelled"].includes(status)) return;
+    let timer = null;
+    const poll = async () => {
+      try {
+        const data = await importJobUI.readStatus(row.dataset.statusUrl);
+        updateRow(row, data);
+        if (importJobUI.active(data)) {
+          timer = window.setTimeout(poll, 2500);
+        }
+      } catch {
+        timer = window.setTimeout(poll, 5000);
+      }
+    };
+    poll();
+    window.addEventListener("pagehide", () => window.clearTimeout(timer), { once: true });
+  });
+})();
+
+(function setupImportJobActionLinks() {
+  document.querySelectorAll("[data-import-job-action-link]").forEach((link) => {
+    link.addEventListener("click", (event) => {
+      const root = importJobUI.actionRoot(link);
+      const url = link.dataset.postUrl;
+      if (!root || !url) return; // No-JavaScript fallback: GET confirmation page.
+      event.preventDefault();
+      const row = link.closest("[data-import-job-row]");
+      const feedback = row?.querySelector("[data-job-feedback]")
+        || root.querySelector("[data-job-feedback]");
+      importJobUI.postAction(
+        root,
+        link.dataset.importJobActionLink,
+        url,
+        feedback,
+        link,
+        (data) => {
+          if (row) {
+            row.querySelectorAll("[data-import-job-action-link]").forEach((sibling) => {
+              const capability = {
+                pause: data.can_pause,
+                resume: data.can_resume,
+                cancel: data.can_cancel,
+              }[sibling.dataset.importJobActionLink];
+              sibling.hidden = !capability;
+            });
+          } else {
+            importJobUI.updateActionLinks(data.job_id, data);
+          }
+        },
+      );
     });
   });
 })();

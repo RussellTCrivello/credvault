@@ -404,6 +404,11 @@ class WorkspaceInterfaceTests(TestCase):
         count_events = [
             event for event in events if event['type'] == 'count_progress'
         ]
+        job_events = [event for event in events if event['type'] == 'job']
+        self.assertEqual(len(job_events), 1)
+        self.assertTrue(job_events[0]['job_id'])
+        self.assertIn('/status/', job_events[0]['status_url'])
+        self.assertIn('/pause/', job_events[0]['pause_url'])
         self.assertEqual(progress_events[0]['total'], 4)
         self.assertEqual(progress_events[-1]['processed'], 4)
         self.assertEqual(count_events[-1]['files_scanned'], 2)
@@ -743,11 +748,12 @@ class WorkspaceInterfaceTests(TestCase):
             self.assertEqual(account.compute_fingerprint(), account.fingerprint)
 
     def test_parse_pool_prefers_fork_and_falls_back_to_spawn(self):
-        # Windows offers no 'fork' start method; the pool must be built
-        # from the contexts the platform actually supports (the old code
-        # asked for 'fork' unconditionally and raised ValueError there).
+        # Prefer fork where the context factory really supports it; on Windows
+        # the only supported method is spawn.
+        import multiprocessing
         from .importer import _parse_context
 
+        real_methods = multiprocessing.get_all_start_methods()
         with mock.patch(
             'multiprocessing.get_all_start_methods',
             return_value=['spawn'],
@@ -757,7 +763,27 @@ class WorkspaceInterfaceTests(TestCase):
             'multiprocessing.get_all_start_methods',
             return_value=['fork', 'spawn'],
         ):
-            self.assertEqual(_parse_context().get_start_method(), 'fork')
+            expected = 'fork' if 'fork' in real_methods else 'spawn'
+            self.assertEqual(_parse_context().get_start_method(), expected)
+
+    def test_parse_context_falls_back_when_fork_context_is_rejected(self):
+        import multiprocessing
+        from .importer import _parse_context
+
+        real_get_context = multiprocessing.get_context
+
+        def reject_fork(method=None):
+            if method == 'fork':
+                raise ValueError("cannot find context for 'fork'")
+            return real_get_context(method)
+
+        with mock.patch(
+            'multiprocessing.get_all_start_methods',
+            return_value=['fork', 'spawn'],
+        ), mock.patch(
+            'multiprocessing.get_context', side_effect=reject_fork,
+        ):
+            self.assertEqual(_parse_context().get_start_method(), 'spawn')
 
     def test_spawn_workers_store_the_same_records_as_inline_parsing(self):
         # The exact code path Windows takes (spawn pool), forced on any

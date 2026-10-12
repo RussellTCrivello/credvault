@@ -2,6 +2,7 @@
 {% block title %}{% trans "Import records" %}{% endblock %}
 {% block heading %}{% trans "Import records" %}{% endblock %}
 {% block intro %}<p class="page-intro">{% trans "Add records in bulk from a text file -- or a whole folder of files." %}</p>{% endblock %}
+{% block header_actions %}<a class="button" href="{% url 'vault:import_jobs' %}">{% trans "Import jobs" %}</a>{% endblock %}
 {% block content %}
   <section class="vault-panel form-panel import-panel">
     <div class="vault-note import-note"><strong>{% trans "Supported file formats" %}</strong><br />{% trans "Text files with colon, pipe, tab, or semicolon-delimited rows are supported. Empty lines and comments are ignored. Every line of every selected file is read; only lines that match the format are stored." %}</div>
@@ -46,7 +47,20 @@
            data-files-complete-label="{% trans 'files processed' %}"
            data-file-label="{% trans 'File' %}"
            data-created-label="{% trans 'records imported' %}"
-           data-skipped-label="{% trans 'non-record lines skipped' %}">
+           data-skipped-label="{% trans 'non-record lines skipped' %}"
+           data-committed-label="{% trans 'records committed' %}"
+           data-remaining-label="{% trans 'lines remaining' %}"
+           data-cancel-pending-label="{% trans 'Stopping at the next durable batch…' %}"
+           data-action-pending-label="{% trans 'Saving your request…' %}"
+           data-action-error-label="{% trans 'The request could not be saved. Refresh the job status and try again.' %}"
+           data-status-unavailable-label="{% trans 'Waiting for the server to report job status…' %}"
+           data-cancel-confirm-label="{% trans 'Stop this import? The committed records will remain in the vault.' %}"
+           data-import-job-label="{% trans 'Import job' %}"
+           data-pause-control-label="{% trans 'Pause' %}"
+           data-continue-control-label="{% trans 'Continue' %}"
+           data-stop-control-label="{% trans 'Stop' %}"
+           data-view-job-label="{% trans 'View job' %}"
+           data-live-progress-label="{% trans 'Durable job progress' %}">
         <div class="import-progress-heading">
           <div>
             <p class="eyebrow">{% trans "IMPORT STATUS" %}</p>
@@ -62,6 +76,11 @@
         </ol>
         <progress class="import-progress-bar" max="100" aria-label="{% trans 'Import progress' %}"></progress>
         <p class="field-help import-progress-detail"></p>
+        <section class="import-live-jobs" data-import-live-jobs hidden>
+          <h2>{% trans "Manage active import jobs" %}</h2>
+          <p class="field-help">{% trans "Pause, continue, or stop a job. Requests are saved to the job in the database and take effect at a durable batch boundary." %}</p>
+          <div class="import-live-job-list" data-import-job-list></div>
+        </section>
       </section>
       <div class="form-actions"><a class="button" href="{% url 'vault:browse' %}">{% trans "Cancel" %}</a><button class="button primary" type="submit">{% trans "Import" %}</button></div>
     </form>

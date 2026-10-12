@@ -12,11 +12,13 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 from unittest import mock
 
 from django.contrib.auth import get_user_model
-from django.db import connection
+from django.db import close_old_connections, connection, connections
 from django.test import Client, RequestFactory, TestCase, TransactionTestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -129,6 +131,8 @@ class DurableOutcomeAuditTests(TestCase):
         job.refresh_from_db()
         self.assertEqual(job.status, 'cancelled')
         self.assertEqual(stale_worker.status, 'cancelled')
+        self.assertEqual(job.worker_id, 'complete-race-worker')
+        release_lease(stale_worker, 'complete-race-worker')
 
     def test_cancel_between_claim_and_start_does_not_resurrect_job(self):
         job = create_import_job(source_name='synthetic-start-race.txt')
@@ -136,6 +140,7 @@ class DurableOutcomeAuditTests(TestCase):
         self.assertTrue(job.mark_cancelled())
 
         self.assertFalse(job.mark_started(worker_id='start-race-worker'))
+        release_lease(job, 'start-race-worker')
         job.refresh_from_db()
         self.assertEqual(job.status, 'cancelled')
         self.assertEqual(job.worker_id, '')
@@ -319,6 +324,113 @@ class DurableOutcomeAuditTests(TestCase):
             'vault:import_job_records', args=[job.job_id],
         ))
         self.assertNotContains(response, 'synthetic-secret-never-rendered')
+
+
+class LiveImportControlTests(TransactionTestCase):
+    """Pause/continue/stop actions coordinate through durable job rows."""
+
+    reset_sequences = True
+
+    def _run_in_worker(self, job, lines, *, on_progress, result):
+        close_old_connections()
+        try:
+            worker_job = ImportJob.objects.get(pk=job.pk)
+            DurableImportSession(
+                worker_job,
+                batch_rows=1,
+                workers=1,
+                on_progress=on_progress,
+            ).run(lines)
+        except BaseException as error:  # copied to the test thread
+            result['error'] = error
+        finally:
+            connections.close_all()
+
+    def test_pause_holds_at_a_committed_batch_until_continue(self):
+        job = create_import_job(
+            source_name='synthetic-live-pause-upload.txt',
+            options={'source_kind': 'upload', 'source_replayable': False},
+        )
+        job.total_discovered = 2
+        job.save(update_fields=['total_discovered'])
+        paused = threading.Event()
+        pause_request = {'accepted': False}
+        result = {}
+        lines = [
+            b'https://live-pause.example/login|first-user|synthetic-first-secret\n',
+            b'https://live-pause.example/login|second-user|synthetic-second-secret\n',
+        ]
+
+        def request_pause(position):
+            if position == 1 and not paused.is_set():
+                current = ImportJob.objects.get(pk=job.pk)
+                pause_request['accepted'] = current.mark_paused()
+                paused.set()
+
+        worker = threading.Thread(
+            target=self._run_in_worker,
+            args=(job, lines),
+            kwargs={'on_progress': request_pause, 'result': result},
+            daemon=True,
+        )
+        worker.start()
+        self.assertTrue(paused.wait(10), 'Worker never reached the pause control.')
+        time.sleep(0.1)
+        job.refresh_from_db()
+        self.assertTrue(pause_request['accepted'])
+        self.assertTrue(worker.is_alive(), 'Paused worker exited instead of waiting.')
+        self.assertEqual(job.status, 'paused')
+        self.assertEqual(job.total_committed, 1)
+        self.assertEqual(job.records.count(), 1)
+        self.assertTrue(job.can_resume())
+
+        try:
+            self.assertTrue(job.mark_resumed())
+            worker.join(10)
+            self.assertFalse(worker.is_alive(), 'Worker did not continue after resume.')
+            job.refresh_from_db()
+            self.assertEqual(job.status, 'completed')
+            self.assertEqual(job.total_committed, 2)
+            self.assertEqual(job.total_attempted, 2)
+            self.assertEqual(Account.objects.count(), 2)
+        finally:
+            if worker.is_alive():
+                job.refresh_from_db()
+                job.mark_cancelled()
+                worker.join(10)
+
+    def test_cancel_stops_after_the_current_durable_batch(self):
+        job = create_import_job(source_name='synthetic-live-cancel.txt')
+        job.total_discovered = 3
+        job.save(update_fields=['total_discovered'])
+        cancel_request = {'accepted': False}
+        result = {}
+        lines = [
+            b'https://live-cancel.example/login|first-user|synthetic-first-secret\n',
+            b'https://live-cancel.example/login|second-user|synthetic-second-secret\n',
+            b'https://live-cancel.example/login|third-user|synthetic-third-secret\n',
+        ]
+
+        def request_cancel(position):
+            if position == 1 and not cancel_request['accepted']:
+                current = ImportJob.objects.get(pk=job.pk)
+                cancel_request['accepted'] = current.mark_cancelled()
+
+        worker = threading.Thread(
+            target=self._run_in_worker,
+            args=(job, lines),
+            kwargs={'on_progress': request_cancel, 'result': result},
+            daemon=True,
+        )
+        worker.start()
+        worker.join(10)
+        self.assertFalse(worker.is_alive(), 'Cancelled worker did not stop.')
+        self.assertTrue(cancel_request['accepted'])
+        job.refresh_from_db()
+        self.assertEqual(job.status, 'cancelled')
+        self.assertEqual(job.total_attempted, 1)
+        self.assertEqual(job.records.count(), 1)
+        self.assertEqual(Account.objects.count(), 1)
 
 
 class RecordSortAuditTests(TestCase):

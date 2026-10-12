@@ -526,17 +526,12 @@ class ImportJob(models.Model):
         return True
 
     def mark_paused(self, worker_id=None):
-        """Pause only a currently processing job; safe to resume."""
+        """Persist a pause request for a worker with a live lease."""
         now = timezone.now()
-        query = ImportJob.objects.filter(pk=self.pk)
+        query = ImportJob.objects.filter(pk=self.pk, status='processing')
+        query = query.filter(lease_expires_at__gt=now).exclude(worker_id='')
         if worker_id:
-            query = query.filter(
-                status__in=('processing', 'paused'),
-                worker_id=worker_id,
-                lease_expires_at__gt=now,
-            )
-        else:
-            query = query.filter(status='processing')
+            query = query.filter(worker_id=worker_id)
         if not query.update(status='paused', last_activity_at=now):
             self._refresh_lifecycle_state()
             return False
@@ -544,23 +539,83 @@ class ImportJob(models.Model):
         self.last_activity_at = now
         return True
 
-    def mark_cancelled(self, worker_id=None):
-        """Cancel an active job without reviving a concurrently completed one."""
+    def mark_resumed(self):
+        """Resume a paused worker in place when its lease is still live."""
         now = timezone.now()
         query = ImportJob.objects.filter(
-            pk=self.pk, status__in=('pending', 'processing', 'paused'),
+            pk=self.pk,
+            status='paused',
+            worker_id__gt='',
+            lease_expires_at__gt=now,
         )
+        if not query.update(status='processing', last_activity_at=now):
+            self._refresh_lifecycle_state()
+            return False
+        self.status = 'processing'
+        self.last_activity_at = now
+        return True
+
+    def mark_cancelled(self, worker_id=None):
+        """Cancel an active job; let a live worker flush its current batch."""
+        now = timezone.now()
+        active = ('pending', 'processing', 'paused')
         if worker_id:
-            query = query.filter(
-                worker_id=worker_id, lease_expires_at__gt=now,
+            # The worker observes the durable cancellation on its next poll,
+            # commits any already-parsed batch under this still-live lease,
+            # then releases it. It can never finalize the job as completed.
+            updated = ImportJob.objects.filter(
+                pk=self.pk,
+                status__in=(*active, 'cancelled'),
+                worker_id=worker_id,
+                lease_expires_at__gt=now,
+            ).update(
+                status='cancelled',
+                completed_at=now,
+                last_activity_at=now,
             )
-        if not query.update(
+            if not updated:
+                self._refresh_lifecycle_state()
+                return False
+            self.status = 'cancelled'
+            self.completed_at = now
+            self.last_activity_at = now
+            return True
+
+        # Keep the fencing lease for an active worker so its current complete
+        # batch can commit. Jobs with no live owner are cancelled and cleared
+        # atomically; stale workers cannot reclaim them.
+        updated = ImportJob.objects.filter(
+            pk=self.pk,
+            status__in=active,
+            worker_id__gt='',
+            lease_expires_at__gt=now,
+        ).update(
+            status='cancelled',
+            completed_at=now,
+            last_activity_at=now,
+        )
+        if updated:
+            self.status = 'cancelled'
+            self.completed_at = now
+            self.last_activity_at = now
+            return True
+
+        unowned = (
+            models.Q(worker_id='')
+            | models.Q(worker_id__isnull=True)
+            | models.Q(lease_expires_at__isnull=True)
+            | models.Q(lease_expires_at__lte=now)
+        )
+        updated = ImportJob.objects.filter(
+            pk=self.pk, status__in=active,
+        ).filter(unowned).update(
             status='cancelled',
             completed_at=now,
             last_activity_at=now,
             worker_id='',
             lease_expires_at=None,
-        ):
+        )
+        if not updated:
             self._refresh_lifecycle_state()
             return False
         self.status = 'cancelled'
@@ -575,8 +630,11 @@ class ImportJob(models.Model):
         now = timezone.now()
         query = ImportJob.objects.filter(pk=self.pk)
         if worker_id:
+            # A pause may race the worker's final source read. Completion is
+            # still correct once every source position has a durable outcome;
+            # cancellation remains terminal and is deliberately not accepted.
             query = query.filter(
-                status='processing',
+                status__in=('processing', 'paused'),
                 worker_id=worker_id,
                 lease_expires_at__gt=now,
             )
@@ -617,8 +675,11 @@ class ImportJob(models.Model):
         now = timezone.now()
         query = ImportJob.objects.filter(pk=self.pk)
         if worker_id:
+            # If a pause request races an unrecoverable source/runtime error,
+            # record the failure while still fencing to this live worker.
+            # A cancellation is never overwritten by this transition.
             query = query.filter(
-                status='processing',
+                status__in=('processing', 'paused'),
                 worker_id=worker_id,
                 lease_expires_at__gt=now,
             )
@@ -657,7 +718,9 @@ class ImportJob(models.Model):
     def mark_interrupted(self, worker_id=None):
         """Mark an interruption only while the caller still owns the job."""
         now = timezone.now()
-        query = ImportJob.objects.filter(pk=self.pk, status='processing')
+        query = ImportJob.objects.filter(
+            pk=self.pk, status__in=('processing', 'paused'),
+        )
         if worker_id:
             query = query.filter(
                 worker_id=worker_id, lease_expires_at__gt=now,
@@ -710,55 +773,63 @@ class ImportJob(models.Model):
         """Source lines not yet durably assigned a terminal outcome."""
         return max(0, self.total_discovered - self.total_attempted)
 
+    def _has_replayable_source(self):
+        """Whether the source can be safely re-read after this worker exits."""
+        return bool(
+            self.source_path
+            or (self.options or {}).get('source_replayable', False)
+        )
+
+    def _has_live_lease(self, now=None):
+        now = now or timezone.now()
+        return bool(
+            self.worker_id
+            and self.lease_expires_at
+            and self.lease_expires_at > now
+        )
+
     def can_resume(self):
-        """True only when no live lease currently owns the job."""
+        """True for a live paused worker or an abandoned replayable source."""
         now = timezone.now()
-        if self.status == 'pending':
-            lease_expired = (
-                not self.worker_id
-                or self.lease_expires_at is None
-                or self.lease_expires_at <= now
+        live_lease = self._has_live_lease(now)
+        replayable = self._has_replayable_source()
+
+        if self.status == 'paused':
+            # A live streaming request is waiting at a durable batch boundary;
+            # it can continue even for an upload whose bytes are not retained.
+            return live_lease or (
+                replayable and not live_lease
             )
+        if self.status == 'pending':
+            lease_expired = not live_lease
             has_recoverable_work = bool(
                 self.source_path
-                or self.source_hash
-                or self.total_discovered
-                or self.records.exists()
+                or (self.options or {}).get('source_replayable', False)
             )
             return lease_expired and has_recoverable_work
-        if self.status in ('paused', 'interrupted', 'failed'):
-            return (
-                not self.worker_id
-                or self.lease_expires_at is None
-                or self.lease_expires_at <= now
-            )
+        if self.status in ('interrupted', 'failed'):
+            return not live_lease and replayable
         if self.status == 'completed_with_errors':
             return (
-                self.records.filter(status='failed', retryable=True).exists()
-                and (
-                    not self.worker_id
-                    or self.lease_expires_at is None
-                    or self.lease_expires_at <= now
-                )
+                replayable
+                and not live_lease
+                and self.records.filter(status='failed', retryable=True).exists()
             )
         # A processing job whose lease has expired was abandoned by a
-        # crashed worker; recovery may take it over.
+        # crashed worker; recovery may take it over only with a durable source.
         return (
             self.status == 'processing'
-            and (
-                not self.worker_id
-                or self.lease_expires_at is None
-                or self.lease_expires_at <= now
-            )
+            and not live_lease
+            and replayable
         )
 
     def can_cancel(self):
-        """True if the job is still active and can be cancelled."""
-        return self.status in ('pending', 'processing')
+        """True if the job is still active, including while paused."""
+        return self.status in ('pending', 'processing', 'paused')
 
     def can_pause(self):
-        """True if the job is processing and can be paused."""
-        return self.status == 'processing'
+        """True only while a processing worker owns a live lease."""
+        return self.status == 'processing' and self._has_live_lease()
 
     @property
     def progress_percent(self):

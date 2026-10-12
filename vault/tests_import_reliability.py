@@ -156,30 +156,76 @@ class ImportJobModelTests(TestCase):
         job.refresh_from_db()
         self.assertEqual(job.status, 'interrupted')
 
-    def test_mark_paused_and_cancelled(self):
-        """Jobs can be paused and cancelled."""
+    def test_final_pause_race_does_not_leave_a_fully_imported_job_paused(self):
+        """A worker may finish if pause arrives after its last source line."""
         job = create_import_job(source_name='test.txt')
-        job.mark_started()
-        
-        job.mark_paused()
+        self.assertTrue(job.mark_started(worker_id='final-boundary-worker'))
+        self.assertTrue(job.mark_paused(worker_id='final-boundary-worker'))
+
+        self.assertTrue(job.mark_completed(worker_id='final-boundary-worker'))
+        job.refresh_from_db()
+        self.assertEqual(job.status, 'completed')
+        self.assertEqual(job.worker_id, '')
+        self.assertIsNone(job.lease_expires_at)
+
+    def test_interruption_during_pause_is_recoverable(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source_path = os.path.join(temp_dir, 'synthetic-source.txt')
+            with open(source_path, 'w', encoding='utf-8') as source:
+                source.write('https://synthetic.example/login|user|secret\n')
+            job = create_import_job(
+                source_name='synthetic-source.txt', source_path=source_path,
+            )
+            self.assertTrue(job.mark_started(
+                worker_id='interrupted-paused-worker',
+            ))
+            self.assertTrue(job.mark_paused(
+                worker_id='interrupted-paused-worker',
+            ))
+
+            self.assertTrue(job.mark_interrupted(
+                worker_id='interrupted-paused-worker',
+            ))
+            release_lease(job, 'interrupted-paused-worker')
+            job.refresh_from_db()
+            self.assertEqual(job.status, 'interrupted')
+            self.assertTrue(job.can_resume())
+
+    def test_mark_paused_resumed_and_cancelled(self):
+        """A live worker can pause, continue in place, and be cancelled."""
+        job = create_import_job(source_name='test.txt')
+        self.assertTrue(job.mark_started(worker_id='lifecycle-worker'))
+
+        self.assertTrue(job.mark_paused())
         job.refresh_from_db()
         self.assertEqual(job.status, 'paused')
-        
-        job.mark_cancelled()
+        self.assertTrue(job.can_resume())
+        self.assertTrue(job.mark_resumed())
+        job.refresh_from_db()
+        self.assertEqual(job.status, 'processing')
+
+        self.assertTrue(job.mark_paused(worker_id='lifecycle-worker'))
+        self.assertTrue(job.mark_cancelled())
         job.refresh_from_db()
         self.assertEqual(job.status, 'cancelled')
+        self.assertEqual(job.worker_id, 'lifecycle-worker')
+        release_lease(job, 'lifecycle-worker')
 
-    def test_can_resume(self):
-        """Only paused, interrupted, or failed jobs can resume."""
+    def test_can_resume_requires_a_live_worker_or_replayable_source(self):
         job = create_import_job(source_name='test.txt')
         self.assertFalse(job.can_resume())
 
         job.status = 'paused'
+        self.assertFalse(job.can_resume())
+        job.worker_id = 'live-upload-worker'
+        job.lease_expires_at = timezone.now() + timezone.timedelta(minutes=5)
         self.assertTrue(job.can_resume())
 
+        job.worker_id = ''
+        job.lease_expires_at = None
+        job.source_path = '/synthetic/source.txt'
         job.status = 'interrupted'
         self.assertTrue(job.can_resume())
-
         job.status = 'failed'
         self.assertTrue(job.can_resume())
 
@@ -187,15 +233,22 @@ class ImportJobModelTests(TestCase):
         self.assertFalse(job.can_resume())
 
     def test_can_cancel_and_pause(self):
-        """Cancel and pause have correct preconditions."""
+        """Cancel works while pending/paused; pause requires a live worker."""
         job = create_import_job(source_name='test.txt')
-        self.assertTrue(job.can_cancel())  # pending can be cancelled
-        self.assertFalse(job.can_pause())  # pending cannot be paused
-        
+        self.assertTrue(job.can_cancel())
+        self.assertFalse(job.can_pause())
+
         job.status = 'processing'
         self.assertTrue(job.can_cancel())
+        self.assertFalse(job.can_pause())
+        job.worker_id = 'live-worker'
+        job.lease_expires_at = timezone.now() + timezone.timedelta(minutes=5)
         self.assertTrue(job.can_pause())
-        
+
+        job.status = 'paused'
+        self.assertTrue(job.can_cancel())
+        self.assertFalse(job.can_pause())
+
         job.status = 'completed'
         self.assertFalse(job.can_cancel())
         self.assertFalse(job.can_pause())
@@ -881,9 +934,28 @@ class ImportManagementViewTests(TestCase):
         self.client.force_login(administrator)
 
     def test_import_jobs_list_page_renders(self):
-        """Import jobs list page renders successfully."""
+        """Import jobs list page renders and links to live controls."""
         response = self.client.get(reverse('vault:import_jobs'))
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Import jobs')
+        self.assertContains(response, 'data-import-job-list-monitor')
+
+    def test_import_jobs_list_reaches_pages_after_the_first_hundred(self):
+        for index in range(101):
+            create_import_job(source_name=f'synthetic-job-{index}.txt')
+
+        response = self.client.get(reverse('vault:import_jobs'), {'page': 2})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['page_obj'].number, 2)
+        self.assertEqual(response.context['page_obj'].paginator.count, 101)
+        self.assertEqual(len(response.context['jobs']), 1)
+
+    def test_import_page_exposes_live_server_job_controls(self):
+        response = self.client.get(reverse('vault:import'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-import-live-jobs')
+        self.assertContains(response, 'Manage active import jobs')
         self.assertContains(response, 'Import jobs')
 
     def test_import_job_detail_page_renders(self):
@@ -894,6 +966,8 @@ class ImportManagementViewTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, job.source_name)
+        self.assertContains(response, 'data-import-job-monitor')
+        self.assertContains(response, 'Stop import')
 
     def test_import_job_verify_page_renders(self):
         """Import job verification page renders successfully."""
@@ -915,7 +989,7 @@ class ImportManagementViewTests(TestCase):
     def test_import_job_cancel_action(self):
         """Cancel action works via POST."""
         job = create_import_job(source_name='test.txt')
-        job.mark_started()
+        job.mark_started(worker_id='cancel-view-worker')
 
         response = self.client.post(
             reverse('vault:import_job_cancel', args=[job.job_id])
@@ -928,7 +1002,7 @@ class ImportManagementViewTests(TestCase):
     def test_import_job_pause_action(self):
         """Pause action works via POST."""
         job = create_import_job(source_name='test.txt')
-        job.mark_started()
+        job.mark_started(worker_id='pause-view-worker')
 
         response = self.client.post(
             reverse('vault:import_job_pause', args=[job.job_id])
@@ -938,11 +1012,27 @@ class ImportManagementViewTests(TestCase):
         job.refresh_from_db()
         self.assertEqual(job.status, 'paused')
 
-    def test_import_job_resume_action(self):
-        """Resume action works via POST."""
+    def test_import_job_pause_ajax_response_returns_persisted_status(self):
         job = create_import_job(source_name='test.txt')
-        job.mark_started()
-        job.mark_interrupted()
+        job.mark_started(worker_id='pause-ajax-worker')
+
+        response = self.client.post(
+            reverse('vault:import_job_pause', args=[job.job_id]),
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+            HTTP_ACCEPT='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['ok'])
+        self.assertEqual(response.json()['job']['status'], 'paused')
+        self.assertTrue(response.json()['job']['can_resume'])
+
+    def test_import_job_resume_action_continues_a_live_paused_worker(self):
+        job = create_import_job(source_name='test-upload.txt')
+        job.options = {'source_kind': 'upload', 'source_replayable': False}
+        job.save(update_fields=['options'])
+        job.mark_started(worker_id='resume-view-worker')
+        self.assertTrue(job.mark_paused())
 
         response = self.client.post(
             reverse('vault:import_job_resume', args=[job.job_id])
@@ -950,5 +1040,21 @@ class ImportManagementViewTests(TestCase):
         self.assertEqual(response.status_code, 302)
 
         job.refresh_from_db()
-        # After resume, job should be in processing or paused state
-        self.assertIn(job.status, ['processing', 'paused', 'completed'])
+        self.assertEqual(job.status, 'processing')
+        self.assertEqual(job.worker_id, 'resume-view-worker')
+
+    def test_import_job_status_endpoint_reports_durable_counters(self):
+        job = create_import_job(source_name='status-test.txt')
+        job.total_discovered = 12345
+        job.save(update_fields=['total_discovered'])
+        job.mark_started(worker_id='status-view-worker')
+
+        response = self.client.get(
+            reverse('vault:import_job_status', args=[job.job_id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['job_id'], str(job.job_id))
+        self.assertEqual(response.json()['total_discovered'], 12345)
+        self.assertTrue(response.json()['can_pause'])
+        self.assertTrue(response.json()['can_cancel'])

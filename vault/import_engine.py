@@ -24,6 +24,7 @@ import logging
 import os
 import signal
 import threading
+import time
 import uuid
 from typing import NamedTuple
 
@@ -913,21 +914,73 @@ class DurableImportSession:
     def _handle_signal(self, signum, frame):
         self._interrupted = True
 
-    def _should_stop(self):
-        """Check all stop conditions."""
+    def _should_stop(self, flush_batch=None):
+        """Poll durable control state and wait in place while paused."""
         if self._interrupted or self._cancelled:
             return True
         if self._cancel_check and self._cancel_check():
             self._cancelled = True
             return True
-        # Re-read status from DB (another process may have cancelled)
+
         try:
-            self.job.refresh_from_db(fields=['status'])
+            self.job.refresh_from_db(fields=[
+                'status', 'worker_id', 'lease_expires_at',
+            ])
         except Exception:
-            pass
-        if self.job.status in ('cancelled', 'paused'):
-            if self.job.status == 'paused':
-                self._paused = True
+            # A real database failure will surface on the next durable batch;
+            # do not turn a transient status-read failure into data loss.
+            return False
+
+        if self.job.status == 'cancelled':
+            self._cancelled = True
+            return True
+        if self.job.status == 'paused':
+            self._paused = True
+            if flush_batch:
+                flush_batch()
+            renew_at = time.monotonic()
+            while True:
+                if self._interrupted:
+                    return True
+                if self._cancel_check and self._cancel_check():
+                    self._cancelled = True
+                    return True
+                now = time.monotonic()
+                if now >= renew_at:
+                    if not renew_lease(self.job, self._worker_id):
+                        self._lease_lost = True
+                        return True
+                    renew_at = now + max(1, IMPORT_LEASE_SECONDS // 3)
+                time.sleep(0.25)
+                try:
+                    self.job.refresh_from_db(fields=[
+                        'status', 'worker_id', 'lease_expires_at',
+                    ])
+                except Exception:
+                    continue
+                if self.job.status == 'cancelled':
+                    self._cancelled = True
+                    return True
+                if self.job.status == 'paused':
+                    continue
+                if (
+                    self.job.status != 'processing'
+                    or self.job.worker_id != self._worker_id
+                    or self.job.lease_expires_at is None
+                    or self.job.lease_expires_at <= timezone.now()
+                ):
+                    self._lease_lost = True
+                    return True
+                self._paused = False
+                return False
+
+        if (
+            self.job.status != 'processing'
+            or self.job.worker_id != self._worker_id
+            or self.job.lease_expires_at is None
+            or self.job.lease_expires_at <= timezone.now()
+        ):
+            self._lease_lost = True
             return True
         return False
 
@@ -955,6 +1008,7 @@ class DurableImportSession:
         batch_valid_count = 0
         batch_outcome_count = 0
         lease_counter = 0
+        control_poll_counter = 128
 
         def flush_batch():
             nonlocal batch_valid_count, batch_outcome_count
@@ -973,9 +1027,11 @@ class DurableImportSession:
 
         try:
             for item in lines_iterable:
-                if self._should_stop():
-                    flush_batch()
-                    break
+                if control_poll_counter >= 128:
+                    if self._should_stop(flush_batch=flush_batch):
+                        flush_batch()
+                        break
+                    control_poll_counter = 0
 
                 if isinstance(item, PositionedLine):
                     if item.position < 1:
@@ -1027,11 +1083,15 @@ class DurableImportSession:
                         batch_metas.append(meta)
                         batch_valid_count += 1
 
+                control_poll_counter += 1
                 if (
                     batch_valid_count >= batch_limit
                     or batch_outcome_count >= batch_limit
                 ):
                     flush_batch()
+                    # Recheck immediately after each durable commit so a
+                    # pause/cancel request takes effect at the next boundary.
+                    control_poll_counter = 128
 
                 lease_counter += 1
                 if lease_counter >= 1000:
@@ -1042,7 +1102,11 @@ class DurableImportSession:
                             'Import worker no longer owns this job.'
                         )
 
-            flush_batch()
+            # Catch a late pause/cancel even when it arrives after the final
+            # line but before the worker commits its terminal state.
+            self._should_stop(flush_batch=flush_batch)
+            if not self._lease_lost:
+                flush_batch()
 
             # Derive the final state after all complete transactions. A stop
             # request takes effect at a batch boundary; unflushed lines are
@@ -1051,10 +1115,10 @@ class DurableImportSession:
                 return job
             if self._cancelled:
                 job.mark_cancelled(worker_id=self._worker_id)
-            elif self._paused:
-                job.mark_paused(worker_id=self._worker_id)
             elif self._interrupted:
                 job.mark_interrupted(worker_id=self._worker_id)
+            elif self._paused:
+                job.mark_paused(worker_id=self._worker_id)
             else:
                 job.refresh_counters()
                 if job.total_attempted < job.total_discovered:
@@ -1663,7 +1727,8 @@ def verify_import_job(job):
 # ---------------------------------------------------------------------------
 
 def durable_import_file(filepath, job=None, on_progress=None,
-                        cancel_check=None, batch_rows=None):
+                        cancel_check=None, batch_rows=None,
+                        on_job_created=None):
     """Import one path-backed file after pinning and verifying its manifest."""
     filepath = os.path.abspath(filepath)
     if job is None:
@@ -1692,6 +1757,9 @@ def durable_import_file(filepath, job=None, on_progress=None,
         _digest, _size, _line_count, files = _validate_source_manifest(
             job, filepath,
         )
+
+    if on_job_created:
+        on_job_created(job)
 
     def line_generator():
         yield from _iter_source_lines(job, filepath, '*', files)
@@ -1750,7 +1818,7 @@ def _uploaded_manifest(uploaded_files):
 
 def durable_import_uploads(uploaded_files, source_name=None, on_progress=None,
                             cancel_check=None, batch_rows=None,
-                            expected_line_count=None):
+                            expected_line_count=None, on_job_created=None):
     """Import uploaded streams durably; bytes are not retained for recovery."""
     uploaded_files = list(uploaded_files)
     if not uploaded_files:
@@ -1772,6 +1840,8 @@ def durable_import_uploads(uploaded_files, source_name=None, on_progress=None,
     )
     job.total_discovered = line_count
     job.save(update_fields=['total_discovered'])
+    if on_job_created:
+        on_job_created(job)
 
     def all_lines():
         for uploaded_file in uploaded_files:
@@ -1798,7 +1868,7 @@ def durable_import_uploads(uploaded_files, source_name=None, on_progress=None,
 
 def durable_import_path(target_path, ext='*', on_progress=None,
                         cancel_check=None, batch_rows=None,
-                        expected_line_count=None):
+                        expected_line_count=None, on_job_created=None):
     """Import all matching files using one immutable path manifest/job."""
     target_path = os.path.abspath(target_path)
     digest, byte_size, total_lines, files = _source_manifest(
@@ -1817,6 +1887,8 @@ def durable_import_path(target_path, ext='*', on_progress=None,
     )
     job.total_discovered = total_lines
     job.save(update_fields=['total_discovered'])
+    if on_job_created:
+        on_job_created(job)
 
     session = DurableImportSession(
         job,

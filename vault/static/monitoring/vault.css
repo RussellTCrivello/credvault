@@ -137,3 +137,94 @@
 .vault-sidebar nav a.active {
   font-weight: 600;
 }
+
+/* Durable import controls and live database-backed progress. */
+.import-live-jobs {
+  border-top: 1px solid var(--border-color, #ddd);
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+}
+
+.import-live-jobs h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.1rem;
+}
+
+.import-live-job-list {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+}
+
+.import-live-job {
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 0.75rem;
+  padding: 0.85rem 1rem;
+  background: var(--surface-color, rgba(127, 127, 127, 0.04));
+}
+
+.import-live-job-heading,
+.import-live-job-progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.import-live-job-link {
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+.import-live-job-progress-row {
+  margin: 0.65rem 0 0.25rem;
+}
+
+.import-live-job-progress {
+  flex: 1;
+  width: 100%;
+  min-width: 8rem;
+  height: 0.75rem;
+}
+
+.import-live-job-status,
+.import-live-job-counts,
+.import-live-job-feedback {
+  margin: 0.3rem 0;
+}
+
+.import-live-job-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.65rem;
+}
+
+.import-job-progress-track {
+  display: inline-block;
+  vertical-align: middle;
+  width: 12.5rem;
+  max-width: 100%;
+}
+
+.import-list-progress-track {
+  width: 6.25rem;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.import-job-monitor [data-job-feedback]:empty,
+.import-job-list-monitor [data-job-feedback]:empty {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .import-live-job-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .import-job-progress-track {
+    width: 8rem;
+  }
+}

@@ -6,9 +6,14 @@
   <a class="button primary" href="{% url 'vault:import' %}">{% trans "New import" %} <span aria-hidden="true">+</span></a>
 {% endblock %}
 {% block content %}
-  <section class="vault-panel">
+  <section class="vault-panel import-job-list-monitor" data-import-job-list-monitor
+       data-cancel-pending-label="{% trans 'Stopping at the next durable batch…' %}"
+       data-cancel-confirm-label="{% trans 'Stop this import? The committed records will remain in the vault.' %}"
+       data-action-pending-label="{% trans 'Saving your request…' %}"
+       data-action-error-label="{% trans 'The request could not be saved. Refresh the job status and try again.' %}">
+    <form class="import-job-csrf" data-import-job-csrf hidden>{% csrf_token %}</form>
     <div class="table-toolbar">
-      <div><h2>{% trans "Recent imports" %}</h2></div>
+      <div><h2>{% trans "Import history" %}</h2></div>
     </div>
     <div class="vault-table-wrap">
       <table class="vault-table">
@@ -25,27 +30,29 @@
         </thead>
         <tbody>
           {% for job in jobs %}
-            <tr>
+            <tr data-import-job-row data-status-url="{% url 'vault:import_job_status' job.job_id %}">
               <td class="mono"><a href="{% url 'vault:import_job_detail' job.job_id %}">{{ job.job_id|truncatechars:12 }}</a></td>
               <td dir="ltr">{{ job.source_name|truncatechars:50 }}</td>
               <td>
-                <span class="badge {% if job.status == 'completed' %}success{% elif job.status == 'failed' %}error{% elif job.status == 'processing' %}info{% elif job.status == 'interrupted' %}warning{% else %}outline{% endif %}">
+                <span class="badge {% if job.status == 'completed' %}success{% elif job.status == 'failed' or job.status == 'completed_with_errors' %}error{% elif job.status == 'processing' %}info{% elif job.status == 'interrupted' %}warning{% else %}outline{% endif %}" data-job-status data-status="{{ job.status }}" data-cancel-pending-label="{% trans 'Stopping at the next durable batch…' %}">
                   {{ job.get_status_display }}
                 </span>
               </td>
-              <td>{{ job.get_stage_display }}</td>
+              <td data-job-stage>{{ job.get_stage_display }}</td>
               <td>
-                <div class="progress-bar" style="width: 100px; display: inline-block;">
-                  <div style="width: {{ job.progress_percent }}%; background: currentColor; height: 8px; border-radius: 4px;"></div>
+                <div class="progress-bar import-list-progress-track">
+                  <div data-job-progress style="width: {{ job.progress_percent }}%; background: currentColor; height: 8px; border-radius: 4px;"></div>
                 </div>
-                <span>{{ job.progress_percent|floatformat:1 }}%</span>
+                <span data-job-progress-label>{{ job.progress_percent|floatformat:1 }}%</span>
+                <small class="cell-secondary"><span data-job-counter="attempted">{{ job.total_attempted }}</span> / <span data-job-counter="discovered">{{ job.total_discovered }}</span> {% trans "lines" %}</small>
               </td>
               <td>{{ job.created_at|date:"Y-m-d H:i" }}</td>
               <td>
                 <a class="button small-button" href="{% url 'vault:import_job_detail' job.job_id %}">{% trans "View" %}</a>
-                {% if job.can_resume %}
-                  <a class="button small-button" href="{% url 'vault:import_job_resume' job.job_id %}">{% trans "Resume" %}</a>
-                {% endif %}
+                <a class="button small-button" data-import-job-action-link="resume" data-job-id="{{ job.job_id }}" data-post-url="{% url 'vault:import_job_resume' job.job_id %}" href="{% url 'vault:import_job_resume' job.job_id %}"{% if not job.can_resume %} hidden{% endif %}>{% trans "Continue" %}</a>
+                <a class="button small-button" data-import-job-action-link="pause" data-job-id="{{ job.job_id }}" data-post-url="{% url 'vault:import_job_pause' job.job_id %}" href="{% url 'vault:import_job_pause' job.job_id %}"{% if not job.can_pause %} hidden{% endif %}>{% trans "Pause" %}</a>
+                <a class="button small-button danger" data-import-job-action-link="cancel" data-job-id="{{ job.job_id }}" data-post-url="{% url 'vault:import_job_cancel' job.job_id %}" href="{% url 'vault:import_job_cancel' job.job_id %}"{% if not job.can_cancel %} hidden{% endif %}>{% trans "Stop" %}</a>
+                <small class="cell-secondary" data-job-feedback role="status" aria-live="polite"></small>
               </td>
             </tr>
           {% empty %}
@@ -54,5 +61,6 @@
         </tbody>
       </table>
     </div>
+    {% include "vault/pagination.html" %}
   </section>
 {% endblock %}

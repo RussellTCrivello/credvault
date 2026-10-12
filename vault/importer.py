@@ -298,8 +298,16 @@ def _parse_context():
 
     methods = multiprocessing.get_all_start_methods()
     for method in ("fork", "spawn"):
-        if method in methods:
+        if method not in methods:
+            continue
+        try:
             return multiprocessing.get_context(method)
+        except ValueError:
+            # A runtime may advertise a method which its context factory
+            # cannot construct (notably Windows builds and test embedders).
+            # Treat the factory as authoritative and try the next portable
+            # method instead of letting an unsupported ``fork`` abort import.
+            continue
     return multiprocessing.get_context()
 
 
