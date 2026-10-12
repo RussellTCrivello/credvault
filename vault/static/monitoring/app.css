@@ -1568,6 +1568,34 @@ textarea.text-input {
      break instead of pushing the page wider than the viewport. */
   overflow-wrap: anywhere;
 }
+/* Import form: maximum-speed checkbox inside a bordered option card. */
+.check-option-field {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--bg);
+}
+
+.check-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 12.5px;
+  font-weight: 540;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.check-option input {
+  margin-top: 2px;
+  width: 15px;
+  height: 15px;
+}
+
+.check-option span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -1,14 +1,35 @@
+"""
+Performance and bulk-load checks.
+
+Everything here runs in the normal test run except
+:class:`ImportThroughputTests`, which writes hundreds of thousands of rows and
+is therefore skipped unless ``VAULT_RUN_PERFORMANCE=1``: it measures the
+importer on the machine it runs on (see README.md, "Tuning for a fast
+machine").
+"""
+
+import os
+import tempfile
+import time
+import unittest
+
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.test import TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 
 from .counts import CappedPaginator, capped_count, count_label
-from .importer import bulk_import_lines
-from .models import Account, Email, Pass, Url, User
+from .importer import (
+    BulkImportSession, bulk_import_lines, import_path, stage_rows, worker_count,
+)
+from .models import Account, Email, Ip, Pass, Url, User
 from .utils import parse_line
 
 PASSWORD = 'correct-horse-battery'
+
+#: Set VAULT_RUN_PERFORMANCE=1 to include the throughput measurement.
+PERFORMANCE_ENABLED = os.environ.get('VAULT_RUN_PERFORMANCE') == '1'
+DEFAULT_PERF_LINES = 200000
 
 
 class BulkLoadMatchesOrmTests(TestCase):
@@ -169,3 +190,85 @@ class CopyConversionTests(TestCase):
             converter_for('date')('2026-10-11'), dt.date(2026, 10, 11)
         )
         self.assertEqual(converter_for('bigint')(42), 42)
+
+
+def synthetic_line(index):
+    """One valid record, mostly unique so the insert work is real."""
+    return (
+        f'https://host{index % 50000}.example.com/login/{index}'
+        f'|user{index}@perf.example|Secret-{index}'
+        f'|10.{(index // 250) % 250}.{index % 250}.{index % 250}'
+    )
+
+
+class ImportThroughputTests(TransactionTestCase):
+    """
+    Opt-in import measurement: lines per second on this machine.
+
+    Run it on the machine you care about -- it uses the settings you export:
+
+        VAULT_RUN_PERFORMANCE=1 VAULT_PERF_LINES=1000000 VAULT_PERF_FAST=1 \
+            POSTGRES_PASSWORD='...' .venv/bin/python manage.py test \
+            vault.tests_performance.ImportThroughputTests
+
+    ``VAULT_PERF_LINES`` picks the size (default 200,000), ``VAULT_PERF_FAST=1``
+    imports with the search indexes suspended, and
+    ``VAULT_IMPORT_BATCH_ROWS`` / ``VAULT_IMPORT_WORKERS`` are the importer
+    knobs being compared (README.md, "Tuning for a fast machine").
+    """
+
+    @unittest.skipUnless(
+        PERFORMANCE_ENABLED,
+        'set VAULT_RUN_PERFORMANCE=1 to run the throughput measurement',
+    )
+    def test_import_throughput(self):
+        lines = int(os.environ.get('VAULT_PERF_LINES', DEFAULT_PERF_LINES))
+        fast_mode = os.environ.get('VAULT_PERF_FAST') == '1'
+
+        handle = tempfile.NamedTemporaryFile(
+            'w', suffix='.txt', delete=False, encoding='utf-8'
+        )
+        path = handle.name
+        try:
+            for index in range(lines):
+                handle.write(synthetic_line(index) + '\n')
+            handle.close()
+
+            started = time.time()
+            created, skipped, files = import_path(
+                path, ext='txt', fast_mode=fast_mode
+            )
+            elapsed = time.time() - started
+        finally:
+            handle.close()
+            if os.path.exists(path):
+                os.unlink(path)
+
+        self.assertEqual(created + skipped, lines)
+        self.assertEqual((files, skipped), (1, 0))
+        self.assertEqual(Account.objects.count(), lines)
+        for model in (Url, Email, Pass, Ip):
+            self.assertGreater(model.objects.count(), 0)
+
+        print(
+            f'\nPerformance: {created:,} records in {elapsed:.1f}s '
+            f'({created / elapsed:,.0f} lines/s); fast mode '
+            f'{"on" if fast_mode else "off"}; batch '
+            f'{stage_rows():,} rows; {worker_count()} parse worker(s)'
+        )
+
+    @unittest.skipUnless(
+        PERFORMANCE_ENABLED,
+        'set VAULT_RUN_PERFORMANCE=1 to run the throughput measurement',
+    )
+    def test_bulk_session_and_orm_agree(self):
+        # The same check as BulkLoadMatchesOrmTests, through the batching
+        # session the importer now uses (workers included).
+        session = BulkImportSession(workers=2, batch_rows=250)
+        session.add_lines(
+            (synthetic_line(index) + '\n').encode() for index in range(500)
+        )
+        created, skipped = session.finish()
+        self.assertEqual((created, skipped), (500, 0))
+        for account in Account.objects.all():
+            self.assertEqual(account.compute_fingerprint(), account.fingerprint)

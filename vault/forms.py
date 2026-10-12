@@ -271,14 +271,42 @@ class ReferenceForm(forms.Form):
         return canonical
 
 
+class MultipleFileInput(forms.ClearableFileInput):
+    """File picker that accepts any number of files in one selection."""
+
+    allow_multiple_selected = True
+
+    def __init__(self, attrs=None):
+        attrs = {'class': 'form-control', **(attrs or {})}
+        super().__init__(attrs)
+
+
+class MultipleFileField(forms.FileField):
+    """
+    FileField that keeps every selected file instead of only the first one.
+
+    The import view reads the files straight from ``request.FILES.getlist``,
+    so the field itself only has to clean each selected file.
+    """
+
+    widget = MultipleFileInput
+
+    def clean(self, data, initial=None):
+        single_clean = super().clean
+        if isinstance(data, (list, tuple)):
+            return [single_clean(item, initial) for item in data]
+        return single_clean(data, initial)
+
+
 class ImportFileForm(forms.Form):
     """
     Replaces: filepath = input("[?] Enter path to the data file: ")
-    Users can upload a file, select an entire folder from the browser, or
-    provide a local/server directory or file path for very large datasets.
+    Users can upload one or many files at once, select an entire folder from
+    the browser, or list any number of local/server directories or file paths
+    for very large datasets.
     """
 
-    file = forms.FileField(
+    file = MultipleFileField(
         label=_("Select data file to import"),
         required=False,
         help_text=_(
@@ -290,17 +318,32 @@ class ImportFileForm(forms.Form):
         )
     )
     folder_path = forms.CharField(
-        label=_("Or enter a local/server folder or file path"),
-        max_length=2048,
+        label=_("Or enter local/server folder or file paths"),
+        max_length=16384,
         required=False,
-        widget=forms.TextInput(attrs={
+        widget=forms.Textarea(attrs={
             'class': 'form-control',
             'dir': 'ltr',
+            'rows': 3,
             'placeholder': _('/path/to/folder'),
         }),
         help_text=_(
-            "For very large folders already on disk, enter the directory "
-            "path here to recursively read every file and store valid lines."
+            "One path per line -- every text file under each path is read "
+            "recursively and its valid lines are stored. Use this for very "
+            "large folders already on disk."
+        ),
+    )
+    fast = forms.BooleanField(
+        label=_(
+            "Maximum speed (drop the search indexes during the import "
+            "and rebuild them afterwards)"
+        ),
+        required=False,
+        help_text=_(
+            "Recommended for imports of millions of lines: the reference "
+            "values are loaded without the trigram search indexes, which "
+            "are rebuilt once at the end. Substring (advanced) searches are "
+            "slower while the import runs; exact searches are unaffected."
         ),
     )
 
