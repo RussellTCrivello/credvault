@@ -1,0 +1,58 @@
+{% extends "vault/base.html" %}{% load i18n %}
+{% block title %}{% trans "Import jobs" %}{% endblock %}
+{% block heading %}{% trans "Import jobs" %}{% endblock %}
+{% block intro %}<p class="page-intro">{% trans "Track and manage import operations with full auditability and recovery." %}</p>{% endblock %}
+{% block header_actions %}
+  <a class="button primary" href="{% url 'vault:import' %}">{% trans "New import" %} <span aria-hidden="true">+</span></a>
+{% endblock %}
+{% block content %}
+  <section class="vault-panel">
+    <div class="table-toolbar">
+      <div><h2>{% trans "Recent imports" %}</h2></div>
+    </div>
+    <div class="vault-table-wrap">
+      <table class="vault-table">
+        <thead>
+          <tr>
+            <th scope="col">{% trans "Job ID" %}</th>
+            <th scope="col">{% trans "Source" %}</th>
+            <th scope="col">{% trans "Status" %}</th>
+            <th scope="col">{% trans "Stage" %}</th>
+            <th scope="col">{% trans "Progress" %}</th>
+            <th scope="col">{% trans "Created" %}</th>
+            <th scope="col">{% trans "Actions" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for job in jobs %}
+            <tr>
+              <td class="mono"><a href="{% url 'vault:import_job_detail' job.job_id %}">{{ job.job_id|truncatechars:12 }}</a></td>
+              <td dir="ltr">{{ job.source_name|truncatechars:50 }}</td>
+              <td>
+                <span class="badge {% if job.status == 'completed' %}success{% elif job.status == 'failed' %}error{% elif job.status == 'processing' %}info{% elif job.status == 'interrupted' %}warning{% else %}outline{% endif %}">
+                  {{ job.get_status_display }}
+                </span>
+              </td>
+              <td>{{ job.get_stage_display }}</td>
+              <td>
+                <div class="progress-bar" style="width: 100px; display: inline-block;">
+                  <div style="width: {{ job.progress_percent }}%; background: currentColor; height: 8px; border-radius: 4px;"></div>
+                </div>
+                <span>{{ job.progress_percent|floatformat:1 }}%</span>
+              </td>
+              <td>{{ job.created_at|date:"Y-m-d H:i" }}</td>
+              <td>
+                <a class="button small-button" href="{% url 'vault:import_job_detail' job.job_id %}">{% trans "View" %}</a>
+                {% if job.can_resume %}
+                  <a class="button small-button" href="{% url 'vault:import_job_resume' job.job_id %}">{% trans "Resume" %}</a>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="7"><div class="empty-state"><h2>{% trans "No import jobs" %}</h2><p>{% trans "Start an import to see it here." %}</p></div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

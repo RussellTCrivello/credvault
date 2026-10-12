@@ -1216,3 +1216,132 @@ def export_json(request):
         'attachment; filename="vault_export.json"'
     )
     return response
+
+
+# ---------------------------------------------------------------------------
+# Import job management views
+# ---------------------------------------------------------------------------
+
+def import_job_list(request):
+    """List all import jobs with their status and progress."""
+    from .models import ImportJob
+
+    jobs = ImportJob.objects.order_by('-created_at')[:100]
+    return render(request, 'vault/import_jobs.html', {
+        'jobs': jobs,
+    })
+
+
+def import_job_detail(request, job_id):
+    """Show details of a specific import job."""
+    from .models import ImportJob
+
+    job = get_object_or_404(ImportJob, job_id=job_id)
+    recent_records = job.records.order_by('-processed_at')[:50]
+    recent_failures = job.records.filter(status='failed').order_by('-processed_at')[:20]
+
+    return render(request, 'vault/import_job_detail.html', {
+        'job': job,
+        'recent_records': recent_records,
+        'recent_failures': recent_failures,
+    })
+
+
+def import_job_resume(request, job_id):
+    """Resume an interrupted or paused import job."""
+    from .models import ImportJob
+    from .import_engine import recover_job
+
+    job = get_object_or_404(ImportJob, job_id=job_id)
+    if not job.can_resume():
+        messages.error(request, _('This job cannot be resumed.'))
+        return redirect('vault:import_job_detail', job_id=job.job_id)
+
+    if request.method == 'POST':
+        # Attempt recovery
+        recover_job(job)
+        messages.success(request, _('Job recovery initiated.'))
+        return redirect('vault:import_job_detail', job_id=job.job_id)
+
+    return render(request, 'vault/import_job_confirm.html', {
+        'job': job,
+        'action': 'resume',
+    })
+
+
+def import_job_cancel(request, job_id):
+    """Cancel an active import job."""
+    from .models import ImportJob
+
+    job = get_object_or_404(ImportJob, job_id=job_id)
+    if not job.can_cancel():
+        messages.error(request, _('This job cannot be cancelled.'))
+        return redirect('vault:import_job_detail', job_id=job.job_id)
+
+    if request.method == 'POST':
+        job.mark_cancelled()
+        messages.success(request, _('Job cancelled.'))
+        return redirect('vault:import_job_detail', job_id=job.job_id)
+
+    return render(request, 'vault/import_job_confirm.html', {
+        'job': job,
+        'action': 'cancel',
+    })
+
+
+def import_job_pause(request, job_id):
+    """Pause an active import job."""
+    from .models import ImportJob
+
+    job = get_object_or_404(ImportJob, job_id=job_id)
+    if not job.can_pause():
+        messages.error(request, _('This job cannot be paused.'))
+        return redirect('vault:import_job_detail', job_id=job.job_id)
+
+    if request.method == 'POST':
+        job.mark_paused()
+        messages.success(request, _('Job paused.'))
+        return redirect('vault:import_job_detail', job_id=job.job_id)
+
+    return render(request, 'vault/import_job_confirm.html', {
+        'job': job,
+        'action': 'pause',
+    })
+
+
+def import_job_verify(request, job_id):
+    """Verify the integrity of an import job."""
+    from .models import ImportJob
+    from .import_engine import verify_import_job
+
+    job = get_object_or_404(ImportJob, job_id=job_id)
+    results = verify_import_job(job)
+
+    return render(request, 'vault/import_job_verify.html', {
+        'job': job,
+        'results': results,
+    })
+
+
+def import_job_records(request, job_id):
+    """List all records for an import job with filtering and pagination."""
+    from .models import ImportJob
+
+    job = get_object_or_404(ImportJob, job_id=job_id)
+
+    # Filtering
+    status_filter = request.GET.get('status', '')
+    records = job.records.all()
+    if status_filter:
+        records = records.filter(status=status_filter)
+
+    # Pagination
+    paginator = CappedPaginator(records, 100)
+    page_number = request.GET.get('page', '1')
+    page_obj = paginator.get_page(page_number)
+
+    return render(request, 'vault/import_job_records.html', {
+        'job': job,
+        'page_obj': page_obj,
+        'status_filter': status_filter,
+    })

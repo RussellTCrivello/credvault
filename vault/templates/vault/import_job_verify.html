@@ -1,0 +1,79 @@
+{% extends "vault/base.html" %}{% load i18n %}
+{% block title %}{% trans "Verify" %}: {{ job.source_name }}{% endblock %}
+{% block heading %}{% trans "Import verification" %}{% endblock %}
+{% block content %}
+  <section class="vault-panel">
+    <div class="detail-grid">
+      <div class="detail-item full-width">
+        <label>{% trans "Verification status" %}</label>
+        <div>
+          {% if results.verified %}
+            <span class="badge success">{% trans "Verified - No discrepancies" %}</span>
+          {% else %}
+            <span class="badge error">{% trans "Discrepancies found" %}</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="detail-item">
+        <label>{% trans "Discovered" %}</label>
+        <div>{{ results.counters.discovered }}</div>
+      </div>
+      <div class="detail-item">
+        <label>{% trans "Committed" %}</label>
+        <div>{{ results.counters.committed }}</div>
+      </div>
+      <div class="detail-item">
+        <label>{% trans "Skipped" %}</label>
+        <div>{{ results.counters.skipped }}</div>
+      </div>
+      <div class="detail-item">
+        <label>{% trans "Failed" %}</label>
+        <div>{{ results.counters.failed }}</div>
+      </div>
+      <div class="detail-item">
+        <label>{% trans "Pending" %}</label>
+        <div>{{ results.counters.pending }}</div>
+      </div>
+    </div>
+  </section>
+
+  {% if results.discrepancies %}
+    <section class="vault-panel">
+      <div class="table-toolbar">
+        <div><h2>{% trans "Discrepancies" %}</h2></div>
+      </div>
+      <div class="vault-table-wrap">
+        <table class="vault-table">
+          <thead>
+            <tr>
+              <th scope="col">{% trans "Type" %}</th>
+              <th scope="col">{% trans "Details" %}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for disc in results.discrepancies %}
+              <tr>
+                <td>{{ disc.type }}</td>
+                <td>
+                  {% if disc.field %}
+                    {{ disc.field }}: expected {{ disc.expected }}, actual {{ disc.actual }}
+                  {% elif disc.count %}
+                    {{ disc.count }} records
+                  {% else %}
+                    {{ disc }}
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% endif %}
+
+  <section class="vault-panel">
+    <div class="form-actions">
+      <a class="button" href="{% url 'vault:import_job_detail' job.job_id %}">{% trans "Back to job" %}</a>
+    </div>
+  </section>
+{% endblock %}

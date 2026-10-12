@@ -1,0 +1,57 @@
+{% extends "vault/base.html" %}{% load i18n %}
+{% block title %}{% trans "Records" %}: {{ job.source_name }}{% endblock %}
+{% block heading %}{% trans "Import records" %}{% endblock %}
+{% block intro %}<p class="page-intro">{% trans "Job:" %} {{ job.job_id }}</p>{% endblock %}
+{% block content %}
+  <section class="vault-panel">
+    <div class="table-toolbar">
+      <div>
+        <h2>{% trans "Source records" %}</h2>
+        <p class="vault-muted">{{ job.total_discovered }} {% trans "total" %}</p>
+      </div>
+      <div class="vault-actions">
+        <form method="get" class="inline-form">
+          <select name="status" onchange="this.form.submit()" class="form-control">
+            <option value="">{% trans "All statuses" %}</option>
+            <option value="committed" {% if status_filter == 'committed' %}selected{% endif %}>{% trans "Committed" %}</option>
+            <option value="skipped" {% if status_filter == 'skipped' %}selected{% endif %}>{% trans "Skipped" %}</option>
+            <option value="failed" {% if status_filter == 'failed' %}selected{% endif %}>{% trans "Failed" %}</option>
+            <option value="pending" {% if status_filter == 'pending' %}selected{% endif %}>{% trans "Pending" %}</option>
+          </select>
+        </form>
+        <a class="button" href="{% url 'vault:import_job_detail' job.job_id %}">{% trans "Back to job" %}</a>
+      </div>
+    </div>
+    <div class="vault-table-wrap">
+      <table class="vault-table">
+        <thead>
+          <tr>
+            <th scope="col">{% trans "Position" %}</th>
+            <th scope="col">{% trans "Status" %}</th>
+            <th scope="col">{% trans "Source line" %}</th>
+            <th scope="col">{% trans "Error" %}</th>
+            <th scope="col">{% trans "Processed" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for record in page_obj %}
+            <tr>
+              <td>{{ record.source_position }}</td>
+              <td>
+                <span class="badge {% if record.status == 'committed' %}success{% elif record.status == 'failed' %}error{% elif record.status == 'skipped' %}warning{% else %}outline{% endif %}">
+                  {{ record.get_status_display }}
+                </span>
+              </td>
+              <td class="mono" dir="ltr">{{ record.source_line|truncatechars:80 }}</td>
+              <td>{{ record.error_message|truncatechars:60 }}</td>
+              <td>{{ record.processed_at|date:"H:i:s"|default:"—" }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5"><div class="empty-state"><h2>{% trans "No records" %}</h2></div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% include "vault/pagination.html" %}
+  </section>
+{% endblock %}

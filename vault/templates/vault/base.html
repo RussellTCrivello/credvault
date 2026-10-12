@@ -27,7 +27,7 @@
           <a href="{% url 'vault:dashboard' %}" {% if request.resolver_match.url_name == 'dashboard' %}class="active" aria-current="page"{% endif %}>{% trans "Overview" %}</a>
           <a href="{% url 'vault:browse' %}" {% if request.resolver_match.url_name == 'browse' or request.resolver_match.url_name == 'detail' or request.resolver_match.url_name == 'update' or request.resolver_match.url_name == 'delete' %}class="active" aria-current="page"{% endif %}>{% trans "Records" %}</a>
           <a href="{% url 'vault:search' %}" {% if request.resolver_match.url_name == 'search' or request.resolver_match.url_name == 'advanced_search' %}class="active" aria-current="page"{% endif %}>{% trans "Search" %}</a>
-          <a href="{% url 'vault:import' %}" {% if request.resolver_match.url_name == 'import' %}class="active" aria-current="page"{% endif %}>{% trans "Import data" %}</a>
+          <a href="{% url 'vault:import' %}" {% if request.resolver_match.url_name == 'import' or request.resolver_match.url_name == 'import_jobs' or request.resolver_match.url_name == 'import_job_detail' %}class="active" aria-current="page"{% endif %}>{% trans "Import data" %}</a>
           <a href="{% url 'vault:references_index' %}" {% if request.resolver_match.url_name == 'references_index' or request.resolver_match.url_name == 'references' or request.resolver_match.url_name == 'reference_delete' %}class="active" aria-current="page"{% endif %}>{% trans "References" %}</a>
         </nav>
         <div class="vault-sidebar-bottom">

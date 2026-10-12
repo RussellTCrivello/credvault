@@ -600,3 +600,81 @@
     });
   });
 })();
+
+// Click-to-sort column headers for sortable tables.
+(function setupSortableTables() {
+  const tables = document.querySelectorAll(".sortable-table");
+  if (!tables.length) return;
+
+  // Sort mapping: column key -> Django queryset order_by parameter
+  const SORT_MAP = {
+    id: { asc: "newest", desc: "oldest" },
+    url: { asc: "url", desc: "-url" },
+    account_type: { asc: "account_type", desc: "-account_type" },
+    identifier: { asc: "identifier", desc: "-identifier" },
+    ip: { asc: "ip", desc: "-ip" },
+  };
+
+  // Read current sort from URL params
+  function getCurrentSort() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("sort") || "newest";
+  }
+
+  // Read the base URL for the table (without sort/page params)
+  function getBaseUrl(table) {
+    return table.dataset.sortBase || window.location.pathname + window.location.search;
+  }
+
+  tables.forEach((table) => {
+    const headers = table.querySelectorAll("th.sortable");
+    const currentSort = getCurrentSort();
+    const baseUrl = getBaseUrl(table);
+
+    headers.forEach((th) => {
+      const col = th.dataset.sortCol;
+      const indicator = th.querySelector(".sort-indicator");
+      const mapping = SORT_MAP[col];
+      if (!mapping) return;
+
+      // Mark the currently sorted column
+      if (mapping.asc === currentSort || currentSort === mapping.asc) {
+        th.classList.add("is-sorted-asc");
+        if (indicator) indicator.textContent = "▲";
+        th.setAttribute("aria-sort", "ascending");
+      } else if (mapping.desc === currentSort || "-" + mapping.asc === currentSort) {
+        th.classList.add("is-sorted-desc");
+        if (indicator) indicator.textContent = "▼";
+        th.setAttribute("aria-sort", "descending");
+      }
+
+      th.addEventListener("click", () => {
+        const params = new URLSearchParams(
+          baseUrl.includes("?") ? baseUrl.split("?")[1] : ""
+        );
+        const basePath = baseUrl.split("?")[0];
+
+        // Toggle sort direction
+        if (th.classList.contains("is-sorted-asc")) {
+          params.set("sort", mapping.desc);
+        } else {
+          params.set("sort", mapping.asc);
+        }
+        // Reset to page 1 when sorting changes
+        params.delete("page");
+
+        window.location.href = basePath + "?" + params.toString();
+      });
+
+      th.style.cursor = "pointer";
+      th.setAttribute("role", "columnheader button");
+      th.setAttribute("tabindex", "0");
+      th.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          th.click();
+        }
+      });
+    });
+  });
+})();

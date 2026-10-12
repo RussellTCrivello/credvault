@@ -40,6 +40,13 @@ urlpatterns = [
     path('references/<str:kind>/delete/<int:pk>/',
          views.reference_delete, name='reference_delete'),
     path('import/', views.import_from_file, name='import'),
+    path('import/jobs/', views.import_job_list, name='import_jobs'),
+    path('import/jobs/<uuid:job_id>/', views.import_job_detail, name='import_job_detail'),
+    path('import/jobs/<uuid:job_id>/resume/', views.import_job_resume, name='import_job_resume'),
+    path('import/jobs/<uuid:job_id>/cancel/', views.import_job_cancel, name='import_job_cancel'),
+    path('import/jobs/<uuid:job_id>/pause/', views.import_job_pause, name='import_job_pause'),
+    path('import/jobs/<uuid:job_id>/verify/', views.import_job_verify, name='import_job_verify'),
+    path('import/jobs/<uuid:job_id>/records/', views.import_job_records, name='import_job_records'),
     path('export/csv/', views.export_csv, name='export_csv'),
     path('export/json/', views.export_json, name='export_json'),
 ]

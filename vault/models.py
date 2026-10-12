@@ -1,8 +1,10 @@
 import hashlib
+import uuid
 
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.functions import Lower
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from .validators import (
@@ -287,3 +289,418 @@ class Account(models.Model):
                 _('This exact relationship already exists.')
             )
         super().save(*args, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Import job tracking and record-level ledger
+# ---------------------------------------------------------------------------
+# These models provide durable import tracking so that every import is
+# traceable, interruption-safe, resumable, idempotent, and verifiable.
+# See the IMPORT_LIFECYCLE design document for the state machine and
+# recovery protocol.
+
+#: How long a worker lease lasts before it expires and another worker
+#: can take over.  Default: 5 minutes.
+IMPORT_LEASE_SECONDS = 300
+
+
+class ImportJob(models.Model):
+    """
+    Persistent record of one import operation.
+
+    Survives application restarts, process crashes and forced termination.
+    The authoritative source of truth for import progress -- the frontend
+    must never be the only place progress is tracked.
+
+    State machine:
+        pending -> processing -> completed
+                              -> completed_with_errors
+                              -> failed
+        processing -> paused -> processing  (user resumes)
+        processing -> cancelled
+        processing -> interrupted  (crash / kill -- recovered on restart)
+        interrupted -> recovering -> processing  (recovery run)
+    """
+
+    STATUS_CHOICES = [
+        ('pending', _('Pending')),
+        ('processing', _('Processing')),
+        ('paused', _('Paused')),
+        ('completed', _('Completed')),
+        ('completed_with_errors', _('Completed with errors')),
+        ('failed', _('Failed')),
+        ('cancelled', _('Cancelled')),
+        ('interrupted', _('Interrupted')),
+    ]
+
+    STAGE_CHOICES = [
+        ('initializing', _('Initializing')),
+        ('scanning', _('Scanning')),
+        ('parsing', _('Parsing')),
+        ('importing', _('Importing')),
+        ('finalizing', _('Finalizing')),
+        ('recovering', _('Recovering')),
+        ('complete', _('Complete')),
+    ]
+
+    #: Stable external identifier.  Survives database row moves; safe to
+    #: put in URLs and API responses.
+    job_id = models.UUIDField(
+        _('Job ID'), unique=True, default=uuid.uuid4, editable=False,
+    )
+
+    # -- Source identity --------------------------------------------------
+    source_name = models.CharField(
+        _('Source name'), max_length=1024,
+    )
+    source_path = models.TextField(_('Source path'), blank=True)
+    source_size = models.BigIntegerField(
+        _('Source size (bytes)'), null=True, blank=True,
+    )
+    source_hash = models.CharField(
+        _('Source hash'), max_length=64, blank=True,
+        help_text=_('SHA-256 of the source file(s), for change detection.'),
+    )
+
+    # -- Configuration ----------------------------------------------------
+    import_format = models.CharField(
+        _('Import format'), max_length=50, default='auto',
+    )
+    options = models.JSONField(
+        _('Import options'), default=dict, blank=True,
+    )
+
+    # -- Lifecycle --------------------------------------------------------
+    status = models.CharField(
+        _('Status'), max_length=30, choices=STATUS_CHOICES,
+        default='pending', db_index=True,
+    )
+    stage = models.CharField(
+        _('Stage'), max_length=30, choices=STAGE_CHOICES,
+        default='initializing',
+    )
+
+    # -- Timestamps -------------------------------------------------------
+    created_at = models.DateTimeField(
+        _('Created at'), default=timezone.now, db_index=True,
+    )
+    started_at = models.DateTimeField(
+        _('Started at'), null=True, blank=True,
+    )
+    last_activity_at = models.DateTimeField(
+        _('Last activity at'), null=True, blank=True,
+    )
+    completed_at = models.DateTimeField(
+        _('Completed at'), null=True, blank=True,
+    )
+
+    # -- Counters (recalculated from ImportRecord rows on recovery) -------
+    total_discovered = models.BigIntegerField(
+        _('Total discovered'), default=0,
+    )
+    total_committed = models.BigIntegerField(
+        _('Total committed'), default=0,
+    )
+    total_skipped = models.BigIntegerField(
+        _('Total skipped'), default=0,
+    )
+    total_failed = models.BigIntegerField(
+        _('Total failed'), default=0,
+    )
+
+    # -- Recovery ---------------------------------------------------------
+    last_checkpoint = models.JSONField(
+        _('Last checkpoint'), default=dict, blank=True,
+    )
+    recovery_attempts = models.IntegerField(
+        _('Recovery attempts'), default=0,
+    )
+    last_error = models.TextField(_('Last error'), blank=True)
+
+    # -- Concurrency ------------------------------------------------------
+    worker_id = models.CharField(
+        _('Worker ID'), max_length=255, blank=True,
+    )
+    lease_expires_at = models.DateTimeField(
+        _('Lease expires at'), null=True, blank=True,
+    )
+
+    # -- Version ----------------------------------------------------------
+    importer_version = models.CharField(
+        _('Importer version'), max_length=50, default='2.0',
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = _('Import Job')
+        verbose_name_plural = _('Import Jobs')
+        indexes = [
+            models.Index(
+                fields=['status'], name='vault_importjob_status_idx',
+            ),
+            models.Index(
+                fields=['-created_at'], name='vault_importjob_created_idx',
+            ),
+            models.Index(
+                fields=['worker_id', 'lease_expires_at'],
+                name='vault_importjob_lease_idx',
+            ),
+        ]
+
+    def __str__(self):
+        return f"ImportJob {self.job_id} ({self.status})"
+
+    # -- Lifecycle helpers ------------------------------------------------
+
+    def mark_started(self, worker_id=None):
+        """Transition from pending/interrupted to processing."""
+        self.status = 'processing'
+        self.stage = 'importing'
+        self.started_at = self.started_at or timezone.now()
+        self.last_activity_at = timezone.now()
+        if worker_id:
+            self.worker_id = worker_id
+            self.lease_expires_at = timezone.now() + timezone.timedelta(
+                seconds=IMPORT_LEASE_SECONDS,
+            )
+        self.save(update_fields=[
+            'status', 'stage', 'started_at', 'last_activity_at',
+            'worker_id', 'lease_expires_at',
+        ])
+
+    def mark_paused(self):
+        """User-requested pause; safe to resume."""
+        self.status = 'paused'
+        self.last_activity_at = timezone.now()
+        self.save(update_fields=['status', 'last_activity_at'])
+
+    def mark_cancelled(self):
+        """User-requested cancellation; does not auto-resume."""
+        self.status = 'cancelled'
+        self.completed_at = timezone.now()
+        self.last_activity_at = timezone.now()
+        self.save(update_fields=[
+            'status', 'completed_at', 'last_activity_at',
+        ])
+
+    def mark_completed(self, has_errors=False):
+        """Import finished."""
+        self.status = 'completed_with_errors' if has_errors else 'completed'
+        self.stage = 'complete'
+        self.completed_at = timezone.now()
+        self.last_activity_at = timezone.now()
+        self.save(update_fields=[
+            'status', 'stage', 'completed_at', 'last_activity_at',
+        ])
+
+    def mark_failed(self, error_message=''):
+        """Import failed unrecoverably."""
+        self.status = 'failed'
+        self.completed_at = timezone.now()
+        self.last_activity_at = timezone.now()
+        self.last_error = error_message[:4000]
+        self.save(update_fields=[
+            'status', 'completed_at', 'last_activity_at', 'last_error',
+        ])
+
+    def mark_interrupted(self):
+        """Crash or forced termination detected."""
+        self.status = 'interrupted'
+        self.last_activity_at = timezone.now()
+        self.save(update_fields=['status', 'last_activity_at'])
+
+    def refresh_counters(self):
+        """Recalculate counters from the authoritative ImportRecord rows."""
+        records = self.records.all()
+        self.total_discovered = records.count()
+        self.total_committed = records.filter(status='committed').count()
+        self.total_skipped = records.filter(status='skipped').count()
+        self.total_failed = records.filter(status='failed').count()
+        self.last_activity_at = timezone.now()
+        self.save(update_fields=[
+            'total_discovered', 'total_committed', 'total_skipped',
+            'total_failed', 'last_activity_at',
+        ])
+
+    def can_resume(self):
+        """True if the job can be resumed or recovered."""
+        return self.status in (
+            'paused', 'interrupted', 'failed',
+        )
+
+    def can_cancel(self):
+        """True if the job is still active and can be cancelled."""
+        return self.status in ('pending', 'processing')
+
+    def can_pause(self):
+        """True if the job is processing and can be paused."""
+        return self.status == 'processing'
+
+    @property
+    def progress_percent(self):
+        """Progress as a percentage, based on committed records."""
+        if not self.total_discovered:
+            return 0.0
+        accounted = self.total_committed + self.total_skipped + self.total_failed
+        return min(100.0, (accounted / self.total_discovered) * 100)
+
+
+class ImportRecord(models.Model):
+    """
+    Ledger entry for one source record within an import job.
+
+    Each source line (or deterministic position) gets exactly one
+    ImportRecord.  The status tracks the outcome:
+
+        pending     -- discovered but not yet processed
+        processing  -- currently being parsed/inserted
+        committed   -- durably written to the database
+        skipped     -- invalid format, duplicate, or intentionally skipped
+        failed      -- error during processing, eligible for retry
+
+    The idempotency_key is a hash of the import job and source position,
+    ensuring that retries cannot create duplicate ledger entries.
+    """
+
+    STATUS_CHOICES = [
+        ('pending', _('Pending')),
+        ('processing', _('Processing')),
+        ('committed', _('Committed')),
+        ('skipped', _('Skipped')),
+        ('failed', _('Failed')),
+    ]
+
+    import_job = models.ForeignKey(
+        ImportJob, on_delete=models.CASCADE, related_name='records',
+        verbose_name=_('Import job'),
+    )
+    source_position = models.BigIntegerField(
+        _('Source position'),
+        help_text=_('Line number or byte offset in the source.'),
+    )
+    source_hash = models.CharField(
+        _('Source hash'), max_length=64,
+        help_text=_('SHA-256 of the source line, for change detection.'),
+    )
+    source_line = models.TextField(
+        _('Source line'), blank=True,
+        help_text=_('Original source line, for debugging (truncated if long).'),
+    )
+
+    status = models.CharField(
+        _('Status'), max_length=20, choices=STATUS_CHOICES,
+        default='pending', db_index=True,
+    )
+
+    # Reference to the created Account (if committed)
+    account = models.ForeignKey(
+        Account, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='import_records', verbose_name=_('Account'),
+    )
+
+    # Error information (if failed)
+    error_message = models.TextField(_('Error message'), blank=True)
+    error_category = models.CharField(
+        _('Error category'), max_length=50, blank=True,
+    )
+
+    processed_at = models.DateTimeField(
+        _('Processed at'), null=True, blank=True,
+    )
+
+    # Idempotency: unique per (job, position)
+    idempotency_key = models.CharField(
+        _('Idempotency key'), max_length=128, unique=True,
+        help_text=_(
+            'Deterministic key to prevent duplicate processing on retry.'
+        ),
+    )
+
+    class Meta:
+        ordering = ['import_job', 'source_position']
+        verbose_name = _('Import Record')
+        verbose_name_plural = _('Import Records')
+        indexes = [
+            models.Index(
+                fields=['import_job', 'status'],
+                name='vault_importrec_job_status_idx',
+            ),
+            models.Index(
+                fields=['import_job', 'source_position'],
+                name='vault_importrec_job_pos_idx',
+            ),
+            models.Index(
+                fields=['idempotency_key'],
+                name='vault_importrec_idem_idx',
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"ImportRecord job={self.import_job_id} "
+            f"pos={self.source_position} ({self.status})"
+        )
+
+    @staticmethod
+    def compute_idempotency_key(job_id, source_position):
+        """Deterministic idempotency key for a source record."""
+        payload = f"{job_id}:{source_position}"
+        return hashlib.sha256(payload.encode('utf-8')).hexdigest()[:64]
+
+
+class ImportRecoveryLog(models.Model):
+    """
+    Audit trail of recovery attempts for an interrupted import job.
+
+    Each recovery run creates one ImportRecoveryLog entry, recording what
+    was found, what was reconciled, and the outcome.
+    """
+
+    OUTCOME_CHOICES = [
+        ('success', _('Success')),
+        ('partial', _('Partial')),
+        ('failed', _('Failed')),
+    ]
+
+    import_job = models.ForeignKey(
+        ImportJob, on_delete=models.CASCADE, related_name='recovery_logs',
+        verbose_name=_('Import job'),
+    )
+    attempt_number = models.IntegerField(_('Attempt number'))
+    recovery_started_at = models.DateTimeField(
+        _('Recovery started at'), default=timezone.now,
+    )
+    recovery_completed_at = models.DateTimeField(
+        _('Recovery completed at'), null=True, blank=True,
+    )
+
+    # Reconciliation results
+    records_committed = models.BigIntegerField(
+        _('Records committed'), default=0,
+    )
+    records_pending = models.BigIntegerField(
+        _('Records pending'), default=0,
+    )
+    records_failed = models.BigIntegerField(
+        _('Records failed'), default=0,
+    )
+    reconciliation_details = models.JSONField(
+        _('Reconciliation details'), default=dict, blank=True,
+    )
+
+    outcome = models.CharField(
+        _('Outcome'), max_length=20, choices=OUTCOME_CHOICES,
+        default='success',
+    )
+    notes = models.TextField(_('Notes'), blank=True)
+
+    class Meta:
+        ordering = ['-recovery_started_at']
+        verbose_name = _('Import Recovery Log')
+        verbose_name_plural = _('Import Recovery Logs')
+
+    def __str__(self):
+        return (
+            f"RecoveryLog job={self.import_job_id} "
+            f"attempt={self.attempt_number} ({self.outcome})"
+        )

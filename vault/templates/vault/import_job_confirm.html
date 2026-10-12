@@ -1,0 +1,24 @@
+{% extends "vault/base.html" %}{% load i18n %}
+{% block title %}{% trans "Confirm" %} {{ action }}{% endblock %}
+{% block heading %}{% trans "Confirm action" %}{% endblock %}
+{% block content %}
+  <section class="vault-panel form-panel">
+    <div class="vault-note">
+      <p>{% trans "Job:" %} {{ job.job_id }}</p>
+      <p>{% trans "Source:" %} {{ job.source_name }}</p>
+      <p>{% trans "Status:" %} {{ job.get_status_display }}</p>
+    </div>
+    <form method="post">
+      {% csrf_token %}
+      <div class="form-actions">
+        <a class="button" href="{% url 'vault:import_job_detail' job.job_id %}">{% trans "Cancel" %}</a>
+        <button class="button primary" type="submit">
+          {% if action == 'resume' %}{% trans "Resume job" %}
+          {% elif action == 'cancel' %}{% trans "Cancel job" %}
+          {% elif action == 'pause' %}{% trans "Pause job" %}
+          {% endif %}
+        </button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

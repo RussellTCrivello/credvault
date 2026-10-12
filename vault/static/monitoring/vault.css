@@ -46,3 +46,80 @@
 @media(max-width:760px){.vault-shell{grid-template-columns:1fr}.vault-sidebar{position:static;height:auto;padding:12px 16px;display:grid;grid-template-columns:1fr auto;gap:8px;border-right:0;border-bottom:1px solid var(--line)}.vault-sidebar .brand{margin:0}.vault-sidebar .nav-label{display:none}.vault-sidebar nav{grid-column:1/-1;display:flex;overflow:auto}.vault-sidebar-bottom{margin:0;display:block}.vault-sidebar-bottom .button{padding:6px 9px;min-height:30px}.vault-main{padding-top:20px}.vault-form{grid-template-columns:1fr}.vault-form .wide{grid-column:auto}.vault-toolbar form{max-width:none}}
 
 @media(max-width:760px){.workspace-card{display:none}}
+
+/* Sortable table headers */
+.sortable-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  transition: background-color 0.15s ease;
+}
+
+.sortable-table th.sortable:hover {
+  background-color: var(--surface-hover, rgba(0, 0, 0, 0.04));
+}
+
+.sortable-table th.sortable:focus-visible {
+  outline: 2px solid var(--focus-ring, #0066cc);
+  outline-offset: -2px;
+}
+
+.sortable-table th.sortable .sort-indicator {
+  display: inline-block;
+  width: 1em;
+  font-size: 0.7em;
+  vertical-align: middle;
+  opacity: 0.4;
+}
+
+.sortable-table th.sortable.is-sorted-asc .sort-indicator,
+.sortable-table th.sortable.is-sorted-desc .sort-indicator {
+  opacity: 1;
+}
+
+/* Import job status badges */
+.badge.success { background: #d4edda; color: #155724; }
+.badge.error { background: #f8d7da; color: #721c24; }
+.badge.warning { background: #fff3cd; color: #856404; }
+.badge.info { background: #d1ecf1; color: #0c5460; }
+
+/* Import job detail grid */
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 1rem;
+}
+
+.detail-item label {
+  display: block;
+  font-size: 0.85rem;
+  opacity: 0.7;
+  margin-bottom: 0.25rem;
+}
+
+.detail-item.full-width {
+  grid-column: 1 / -1;
+}
+
+.success-text { color: #155724; }
+.error-text { color: #721c24; }
+
+/* Progress bar */
+.progress-bar {
+  background: var(--border-color, #ddd);
+  border-radius: 4px;
+  overflow: hidden;
+  height: 8px;
+}
+
+/* Inline form for filters */
+.inline-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Import jobs link in nav */
+.vault-sidebar nav a.active {
+  font-weight: 600;
+}
