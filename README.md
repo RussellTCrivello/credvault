@@ -156,6 +156,48 @@ the search page says so. The two tiers are locked in by the tests
 `test_quick_search_stays_exact_for_non_domain_values` in
 `vault/tests.py`).
 
+The "`domain` also matches paths under the domain" half of quick search is
+implemented as B-tree range scans (`lower(name) >= 'https://example.com/'`
+up to the highest code point). Those comparisons run under `COLLATE "C"`
+(byte order), backed by the `vault_url_name_lower_c_idx` index added by
+migration `0006`. Byte order is the only collation in which a
+prefix-plus-upper-bound range means exactly "starts with the prefix": in a
+locale collation -- the default on clusters initialized by the Windows
+installer, for example -- the upper bound does not reliably sort above
+ordinary text, and the same scan silently matches nothing. Comparing under
+`"C"` makes domain search behave identically in every database collation,
+and the index keeps it a fast, indexed tier alongside the exact matches.
+
+# Import jobs and recovery
+
+Every import that is not the streaming progress flow creates a durable
+`ImportJob` (migration `0005`) with a per-line ledger (`ImportRecord`):
+accounts and their ledger rows commit together in one transaction per
+batch, counters are recalculated from the ledger, and a lease makes sure
+only one worker processes a job at a time.
+
+Redirect behavior after an import (settled, and asserted by
+`vault/tests.py`):
+
+* **One job** -- a file/folder upload or a single path -- redirects to the
+  job detail page `/import/jobs/<job-id>/`, where the job's status, stage,
+  progress bar and committed/skipped/failed counters can be inspected.
+* **Several jobs** -- one per path listed in the text area -- redirects to
+  the job list `/import/jobs/`.
+* **The streaming progress flow** (the JavaScript uploader,
+  `X-Import-Progress: 1`) keeps its own contract: the final NDJSON `done`
+  event carries the redirect to `/records/` for the browser.
+
+Recovery: `recover_job()` reconciles the ledger against the database,
+persists the recalculated counters, and -- when the job's source can be
+re-read (path-based imports store `source_path` and the extension filter)
+-- resumes exactly the source positions the ledger has not accounted for,
+keeping each line's original position and idempotency key. Uploaded files
+are not kept on disk, so their jobs are reconciled and settled, but cannot
+be resumed automatically. The **Resume** button on the job page runs the
+same recovery. A `processing` job whose lease has expired counts as
+abandoned by a crashed worker and can be taken over.
+
 # Performance
 
 Two sets of numbers, both measured with the code in this repository:
@@ -259,6 +301,14 @@ POSTGRES_PASSWORD='choose-a-password' .venv/bin/python manage.py importfolder \
 * The same options exist on the **Import records** page: the maximum-speed
   checkbox, one folder or file path per line in the text area, and a file
   picker that accepts any number of files in one selection.
+* Parse workers start with `fork` where POSIX provides it and with `spawn`
+  where it does not. On Windows an explicit `VAULT_IMPORT_WORKERS` greater
+  than 1 is honored through a spawn pool (each worker pays a one-off Python
+  startup; parsing results are identical -- locked in by
+  `test_spawn_workers_store_the_same_records_as_inline_parsing`); without
+  the setting, Windows parses inline in one process. Frozen Windows
+  executables must call `multiprocessing.freeze_support()` at startup
+  before workers can be used.
 
 ### `postgresql.conf`
 

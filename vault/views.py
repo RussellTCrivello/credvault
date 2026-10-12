@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.db.models import Count, ProtectedError, Q
-from django.db.models.functions import Lower
+from django.db.models.functions import Collate, Lower
 from django.http import JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -113,21 +113,36 @@ def _is_domain_like_query(q_lower):
     return '.' in q_lower and '/' not in q_lower and '@' not in q_lower
 
 
+#: Upper bound for byte-order prefix range scans: the highest Unicode code
+#: point, so ``prefix <= value < prefix || _CODE_POINT_MAX`` covers every
+#: string that starts with ``prefix``.
+_CODE_POINT_MAX = '\U0010ffff'
+
+
 def _match_url_ids(raw_value, force_domain=False):
     """
-    Look up matching Url IDs using the B-tree index on LOWER(name).
+    Look up matching Url IDs using B-tree indexes on LOWER(name).
 
     - Always matches the exact URL (case-insensitive).
     - When the query is a domain (e.g. 'example.com') or force_domain=True,
       also performs indexed range scans for URLs hosted on that domain
       (https://domain/..., http://domain/..., https://www.domain/..., etc.).
+
+    The range scans compare under COLLATE "C" (byte order), backed by the
+    ``vault_url_name_lower_c_idx`` index from migration 0006. Byte order is
+    the only ordering in which ``prefix <= value < prefix || max-code-point``
+    means exactly "value starts with prefix": in a locale collation (the
+    Windows installer's default, for example) the U+FFFF bound does not
+    reliably sort above ordinary text, and the very same scan silently
+    matches nothing. Comparing under "C" makes domain search behave
+    identically in every database collation.
     """
     q_lower = (raw_value or '').strip().lower()
     if not q_lower:
         return []
 
     exact_set = {q_lower, q_lower.rstrip('/')}
-    clauses = Q(_n__in=exact_set)
+    range_clauses = Q()
 
     if force_domain or _is_domain_like_query(q_lower):
         dom = extract_domain(q_lower)
@@ -141,11 +156,20 @@ def _match_url_ids(raw_value, force_domain=False):
                     exact_set.add(base)
                     for sep in ('/', ':', '?', '#'):
                         prefix = base + sep
-                        clauses |= Q(_n__gte=prefix, _n__lt=prefix + '\uffff')
-            clauses |= Q(_n__in=exact_set)
+                        range_clauses |= Q(
+                            _nc__gte=prefix,
+                            _nc__lt=prefix + _CODE_POINT_MAX,
+                        )
+
+    clauses = Q(_n__in=exact_set)
+    if range_clauses.children:
+        clauses |= range_clauses
 
     ids = (
-        Url.objects.annotate(_n=Lower('name'))
+        Url.objects.annotate(
+            _n=Lower('name'),
+            _nc=Collate(Lower('name'), 'C'),
+        )
         .filter(clauses)
         .values('id')
     )
@@ -828,6 +852,14 @@ def import_from_file(request):
     
     The optional maximum-speed mode suspends the trigram search indexes
     for the duration and rebuilds them afterwards.
+
+    Redirect after a successful import (documented behavior, see README
+    "Import jobs"): a single job lands on its detail page
+    (/import/jobs/<job-id>/), where the job's status, stage, progress and
+    counters can be inspected; several jobs (one per listed path) land on
+    the job list.  The streaming progress flow (X-Import-Progress) keeps
+    its own contract: the final NDJSON 'done' event carries the redirect
+    to /records/ for the browser.
     """
     from .import_engine import (
         durable_import_file, durable_import_path, create_import_job,
@@ -893,17 +925,24 @@ def import_from_file(request):
                     )
                     return render(request, 'vault/import.html', {'form': form})
 
-                # Import from uploaded files
+                # Import from uploaded files: one job, ONE session over all
+                # files.  Running a session per file would restart the line
+                # numbering for every file, so the per-(job, position)
+                # idempotency keys would collide and the ledger rows of
+                # every file after the first would be silently dropped.
                 if files:
-                    # Create one job for all uploaded files
                     job = create_import_job(
                         source_name=f'{len(files)} uploaded file(s)',
                         source_path='',
                     )
                     session = DurableImportSession(job)
-                    for uploaded_file in files:
-                        uploaded_file.seek(0)
-                        session.run(uploaded_file)
+
+                    def uploaded_lines():
+                        for uploaded_file in files:
+                            uploaded_file.seek(0)
+                            yield from uploaded_file
+
+                    session.run(uploaded_lines())
                     jobs.append(job)
 
             # Aggregate results from all jobs
@@ -1263,7 +1302,7 @@ def import_job_detail(request, job_id):
 def import_job_resume(request, job_id):
     """Resume an interrupted or paused import job."""
     from .models import ImportJob
-    from .import_engine import recover_job
+    from .import_engine import lines_factory_for_job, recover_job
 
     job = get_object_or_404(ImportJob, job_id=job_id)
     if not job.can_resume():
@@ -1271,8 +1310,9 @@ def import_job_resume(request, job_id):
         return redirect('vault:import_job_detail', job_id=job.job_id)
 
     if request.method == 'POST':
-        # Attempt recovery
-        recover_job(job)
+        # Attempt recovery; jobs whose source is a path on this machine
+        # are re-read and their unaccounted lines reprocessed.
+        recover_job(job, lines_iterable_factory=lines_factory_for_job(job))
         messages.success(request, _('Job recovery initiated.'))
         return redirect('vault:import_job_detail', job_id=job.job_id)
 

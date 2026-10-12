@@ -34,6 +34,7 @@ import os
 import signal
 import threading
 import uuid
+from typing import NamedTuple
 
 from django.db import connection, models as dj_models, transaction
 from django.utils import timezone
@@ -101,6 +102,21 @@ _ACCOUNT_INSERT_RETURNING = (
 def _current_worker_id():
     """Stable identifier for the current process."""
     return f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
+
+
+class PositionedLine(NamedTuple):
+    """
+    One source line together with its original 1-based source position.
+
+    Recovery yields these when it resumes a job: the ledger position (and
+    therefore the idempotency key) must keep matching the position in the
+    source even when earlier lines were already processed, or when ledger
+    rows for skipped lines were lost with the crash.  Plain lines (str or
+    bytes) are still accepted everywhere and are numbered sequentially.
+    """
+
+    position: int
+    line: object
 
 
 # ---------------------------------------------------------------------------
@@ -289,7 +305,12 @@ def _durable_flush_batch(rows, record_metas, job_pk):
       5. Create ImportRecord rows: 'committed' for rows whose
          fingerprint was in the RETURNING set, 'skipped' for the rest.
 
-    All in one transaction so the ledger and data are always consistent.
+    All in one transaction so the ledger and data are always consistent:
+    a crash either loses the whole batch (resume re-processes those
+    lines) or keeps accounts *and* their ledger rows together.  Writing
+    the ledger after the commit would leave a window where committed
+    accounts have no ledger entry and recovery would mislabel the lines
+    as duplicates.
     """
     if not rows:
         return 0
@@ -321,11 +342,13 @@ def _durable_flush_batch(rows, record_metas, job_pk):
                 fp: acc_id for fp, acc_id in cursor.fetchall()
             }
 
-    # After the transaction committed, determine outcomes for each row.
-    # Compute fingerprints using Python + batch reference lookups.
-    committed_count = _write_ledger_entries(
-        rows, record_metas, job_pk, newly_created, now,
-    )
+        # Still inside the transaction: determine outcomes for each row
+        # (Python fingerprints + batch reference lookups on this same
+        # connection) and write the ledger entries, so accounts and their
+        # ImportRecord rows commit or roll back together.
+        committed_count = _write_ledger_entries(
+            rows, record_metas, job_pk, newly_created, now,
+        )
     return committed_count
 
 
@@ -551,14 +574,21 @@ class DurableImportSession:
             batch_rows = []
             batch_metas = []
 
-            for line in lines_iterable:
+            for item in lines_iterable:
                 if self._should_stop():
                     # Flush partial batch at safe boundary
                     if batch_rows:
                         _durable_flush_batch(batch_rows, batch_metas, job.pk)
                     break
 
-                self._position += 1
+                if isinstance(item, PositionedLine):
+                    # Recovery replay: keep the original source position so
+                    # the ledger and idempotency keys stay faithful.
+                    self._position = item.position
+                    line = item.line
+                else:
+                    self._position += 1
+                    line = item
                 line_hash = _hash_source_line(line)
                 idem_key = ImportRecord.compute_idempotency_key(
                     job.job_id, self._position,
@@ -694,8 +724,14 @@ def recover_job(job, lines_iterable_factory=None):
     job.save(update_fields=['status', 'stage', 'recovery_attempts'])
 
     try:
-        # Step 1: Reconcile committed records with actual database
+        # Step 1: Reconcile committed records with actual database state.
+        # The foreign key makes a dangling account_id unreachable through
+        # the ORM (inserting one is rejected and deleting an Account NULLs
+        # the link via SET_NULL), but reconciliation still defends against
+        # it: manual database surgery or a partial restore could leave a
+        # committed ledger row pointing at a row that no longer exists.
         committed_recs = job.records.filter(status='committed')
+        previously_committed = committed_recs.count()
         missing_count = 0
         orphaned_account_ids = []
 
@@ -725,54 +761,78 @@ def recover_job(job, lines_iterable_factory=None):
         log.records_failed = failed_count
         log.reconciliation_details = {
             'missing_accounts': missing_count,
-            'previously_committed': committed_recs.count(),
+            'previously_committed': previously_committed,
             'orphaned_account_ids': orphaned_account_ids[:100],
             'total_ledger_records': total_records,
         }
 
-        # Step 4: Recalculate counters from ledger
+        # Step 4: Recalculate counters from the authoritative ledger AND
+        # persist them right away.  The mark_* transitions below save only
+        # their own fields (update_fields), so without this save the
+        # recalculated counters would never reach the database and a
+        # refresh_from_db() would still show the stale pre-recovery values.
         job.total_discovered = total_records
         job.total_committed = actual_committed
         job.total_skipped = skipped_count
         job.total_failed = failed_count
         job.last_activity_at = timezone.now()
+        job.save(update_fields=[
+            'total_discovered', 'total_committed', 'total_skipped',
+            'total_failed', 'last_activity_at',
+        ])
 
-        # Step 5: Determine final state
-        if pending_count > 0 and lines_iterable_factory:
+        # Step 5: Resume the source when the caller can re-read it.  The
+        # engine only writes ledger rows as it processes, so after a crash
+        # the unaccounted work is "positions the ledger has no row for" --
+        # not just rows left in 'pending'.  Positions are carried through
+        # (PositionedLine) so replayed lines keep their original source
+        # positions and idempotency keys.
+        remaining = None
+        if lines_iterable_factory is not None:
+            processed_positions = set(
+                job.records.exclude(status='pending')
+                .values_list('source_position', flat=True)
+            )
+            remaining = [
+                PositionedLine(position, line)
+                for position, line in enumerate(
+                    lines_iterable_factory(), start=1,
+                )
+                if position not in processed_positions
+            ]
+
+        if remaining:
             # Can actually resume processing
             log.outcome = 'partial'
             log.notes = (
-                f'Resumed with {pending_count} pending records; '
-                f'{actual_committed} previously committed, '
+                f'Resumed with {len(remaining)} unaccounted source line(s); '
+                f'{previously_committed} previously committed, '
                 f'{missing_count} missing accounts detected'
             )
             job.status = 'processing'
             job.stage = 'importing'
             log.save()
-            job.save()
+            job.save(update_fields=[
+                'status', 'stage', 'last_activity_at',
+            ])
 
-            # Resume processing the remaining lines
             try:
                 session = DurableImportSession(job)
-                # Skip already-processed lines
-                processed_positions = set(
-                    job.records.exclude(status='pending')
-                    .values_list('source_position', flat=True)
+                # Defensive default for any plain (unpositioned) line.
+                session._position = max(
+                    job.records.values_list(
+                        'source_position', flat=True,
+                    ),
+                    default=0,
                 )
-                lines = lines_iterable_factory()
-                remaining_lines = []
-                for i, line in enumerate(lines, start=1):
-                    if i not in processed_positions:
-                        remaining_lines.append(line)
-
-                if remaining_lines:
-                    session._position = max(processed_positions) if processed_positions else 0
-                    session.run(iter(remaining_lines))
+                session.run(iter(remaining))
             except Exception as resume_exc:
                 logger.exception(
                     "Resume of job %s failed: %s", job.job_id, resume_exc
                 )
                 job.mark_failed(f'Resume failed: {resume_exc}')
+            log.recovery_completed_at = timezone.now()
+            log.save(update_fields=['recovery_completed_at'])
         elif pending_count > 0:
             # Has pending records but no way to reprocess
             log.outcome = 'partial'
@@ -781,8 +841,10 @@ def recover_job(job, lines_iterable_factory=None):
                 f'(no lines factory provided for resume)'
             )
             job.status = 'paused'
+            job.last_activity_at = timezone.now()
+            log.recovery_completed_at = timezone.now()
             log.save()
-            job.save()
+            job.save(update_fields=['status', 'last_activity_at'])
         elif missing_count > 0:
             log.outcome = 'partial'
             log.notes = (
@@ -815,6 +877,47 @@ def recover_job(job, lines_iterable_factory=None):
 # ---------------------------------------------------------------------------
 # Verification
 # ---------------------------------------------------------------------------
+
+def lines_factory_for_job(job):
+    """
+    Callable that re-reads a job's source lines, or None when impossible.
+
+    Path-based imports store their source path (and the extension filter
+    used to collect files) on the job, so recovery can resume them: the
+    factory yields the lines in exactly the order the import session saw
+    them, which is what keeps source positions and idempotency keys
+    stable across a resume.  Uploaded files are not kept on disk, so
+    their jobs cannot be re-read and recovery settles them instead.
+    """
+    path = (job.source_path or '').strip()
+    if not path:
+        return None
+    ext = (job.options or {}).get('ext', '*')
+
+    if os.path.isfile(path):
+        def factory():
+            with open(path, 'rb') as handle:
+                return handle.readlines()
+        return factory
+
+    if os.path.isdir(path):
+        files = collect_files_from_path(path, ext=ext)
+        if not files:
+            return None
+
+        def factory():
+            def lines():
+                for filepath in files:
+                    try:
+                        with open(filepath, 'rb') as handle:
+                            yield from handle
+                    except OSError:
+                        continue
+            return lines()
+        return factory
+
+    return None
+
 
 def verify_import_job(job):
     """
@@ -956,6 +1059,7 @@ def durable_import_path(target_path, ext='*', on_progress=None,
         job = create_import_job(
             source_name=os.path.basename(target_path),
             source_path=target_path,
+            options={'ext': ext},
         )
         job.mark_completed()
         return job
@@ -963,6 +1067,7 @@ def durable_import_path(target_path, ext='*', on_progress=None,
     job = create_import_job(
         source_name=os.path.basename(target_path),
         source_path=target_path,
+        options={'ext': ext},
     )
 
     # Count total lines for progress

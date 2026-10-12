@@ -39,8 +39,9 @@ Speed for very large jobs:
 * Parsing and canonicalizing run in worker processes (``VAULT_IMPORT_WORKERS``,
   default: up to 4 or the CPU count) while the previous batch is already being
   copied and merged, so parsing overlaps the database round-trips instead of
-  adding to them. Workers are fork-based; anywhere forks are unavailable the
-  same pipeline runs in one process.
+  adding to them. Workers start with ``fork`` where it is available and with
+  ``spawn`` where it is not (Windows); without an explicit worker setting,
+  platforms that only offer ``spawn`` parse inline in one process.
 * Optional "fast mode" (``--fast`` on importfolder, the checkbox on the import
   page) drops the five trigram search indexes for the duration and rebuilds
   them once at the end. Updating those indexes on every new reference value is
@@ -260,18 +261,44 @@ def worker_count():
     """
     Parse workers to use (``VAULT_IMPORT_WORKERS`` override).
 
-    Defaults to up to 4 or the CPU count, whichever is smaller. Fork-based
-    workers need a POSIX system; anywhere else the import parses inline.
+    An explicit override is honored on every platform: workers run in a
+    fork pool where fork exists and in a spawn pool where it does not
+    (Windows) -- see ``_parse_context``.  Without the override the
+    default is up to 4 or the CPU count, whichever is smaller, on POSIX;
+    other platforms default to 1 (inline parsing), because spawn pays a
+    process-startup cost that only pays off when it is asked for.
     """
-    if os.name != "posix":
-        return 1
     try:
         value = int(os.environ.get("VAULT_IMPORT_WORKERS", 0))
     except (TypeError, ValueError):
         value = 0
-    if value <= 0:
-        value = min(4, os.cpu_count() or 1)
-    return max(1, value)
+    if value > 0:
+        return value
+    if os.name != "posix":
+        return 1
+    return max(1, min(4, os.cpu_count() or 1))
+
+
+def _parse_context():
+    """
+    multiprocessing context for the parse workers.
+
+    ``fork`` is the cheapest start method and is used wherever POSIX
+    provides it.  Windows has no fork context -- asking for one raises
+    ``ValueError`` -- so the fallback is ``spawn``.  The workers only run
+    ``_parse_chunk`` (a module-level function over plain str/bytes
+    lines), so both contexts parse identically; spawn children re-import
+    this module without touching the database, and the parent's main
+    module is re-imported under multiprocessing's ``__mp_main__`` guard
+    (``manage.py`` is guarded), so no recursive process creation.
+    """
+    import multiprocessing
+
+    methods = multiprocessing.get_all_start_methods()
+    for method in ("fork", "spawn"):
+        if method in methods:
+            return multiprocessing.get_context(method)
+    return multiprocessing.get_context()
 
 
 def _flush_batch(rows):
@@ -377,9 +404,9 @@ class BulkImportSession:
     One import job: accumulate lines, store them in large COPY batches.
 
     Raw lines handed to :meth:`add_lines` are parsed in worker processes
-    (when the platform supports forks) while the parent process copies and
-    merges the previous batch, so parsing and database work overlap. Use it
-    as a context manager or call :meth:`finish` exactly once.
+    (fork where available, spawn elsewhere) while the parent process copies
+    and merges the previous batch, so parsing and database work overlap.
+    Use it as a context manager or call :meth:`finish` exactly once.
 
     ``batch_rows`` and ``workers`` default to the environment-tunable values
     (``VAULT_IMPORT_BATCH_ROWS`` / ``VAULT_IMPORT_WORKERS``).
@@ -402,11 +429,7 @@ class BulkImportSession:
 
     def _parse_pool(self):
         if self._pool is None:
-            import multiprocessing
-
-            self._pool = multiprocessing.get_context("fork").Pool(
-                processes=self._workers
-            )
+            self._pool = _parse_context().Pool(processes=self._workers)
         return self._pool
 
     def _absorb(self, rows, skipped):

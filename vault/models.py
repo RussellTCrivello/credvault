@@ -524,8 +524,14 @@ class ImportJob(models.Model):
 
     def can_resume(self):
         """True if the job can be resumed or recovered."""
-        return self.status in (
-            'paused', 'interrupted', 'failed',
+        if self.status in ('paused', 'interrupted', 'failed'):
+            return True
+        # A processing job whose lease has expired was abandoned by a
+        # crashed worker; recovery may take it over.
+        return (
+            self.status == 'processing'
+            and self.lease_expires_at is not None
+            and self.lease_expires_at <= timezone.now()
         )
 
     def can_cancel(self):
