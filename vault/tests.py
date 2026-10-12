@@ -417,6 +417,17 @@ class WorkspaceInterfaceTests(TestCase):
             .count(),
             2,
         )
+        job = latest_import_job()
+        job.refresh_from_db()
+        self.assertEqual(job.status, 'completed')
+        self.assertEqual(job.total_discovered, 4)
+        self.assertEqual(job.total_attempted, 4)
+        self.assertEqual(job.records.count(), 4)
+        self.assertTrue(job.source_hash)
+        self.assertTrue(all(
+            source_line == ''
+            for source_line in job.records.values_list('source_line', flat=True)
+        ))
 
     def test_import_progress_counts_lines_from_folder_paths(self):
         tmp_dir = tempfile.mkdtemp()
@@ -449,6 +460,12 @@ class WorkspaceInterfaceTests(TestCase):
             self.assertEqual(events[-1]['created'], 2)
             self.assertEqual(events[-1]['skipped'], 1)
             self.assertEqual(events[-1]['files'], 2)
+            job = latest_import_job()
+            job.refresh_from_db()
+            self.assertEqual(job.status, 'completed')
+            self.assertEqual(job.total_discovered, 3)
+            self.assertEqual(job.records.count(), 3)
+            self.assertTrue(job.source_hash)
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 

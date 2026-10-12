@@ -28,8 +28,10 @@ duplicates: the same email written as ``Person@Example.COM`` or
 format (``not-an-ip`` in the IP column, ``b@@ad`` in the identifier column)
 is counted as skipped instead of being stored.
 
-It is used by the web file/folder import flows and by the importfolder
-management command.
+The web and management-command entry points use ``vault.import_engine``
+for durable jobs and per-line ledgers. This lower-level bulk API remains
+available for compatibility and performance tests; callers that use it
+directly do not get job tracking or automatic recovery.
 
 Speed for very large jobs:
 

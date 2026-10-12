@@ -59,7 +59,21 @@
   background-color: var(--surface-hover, rgba(0, 0, 0, 0.04));
 }
 
-.sortable-table th.sortable:focus-visible {
+.sortable-table th.sortable .sort-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: inherit;
+  background: transparent;
+}
+
+.sortable-table th.sortable:focus-visible,
+.sortable-table th.sortable .sort-control:focus-visible {
   outline: 2px solid var(--focus-ring, #0066cc);
   outline-offset: -2px;
 }

@@ -28,7 +28,7 @@
           <tr>
             <th scope="col">{% trans "Position" %}</th>
             <th scope="col">{% trans "Status" %}</th>
-            <th scope="col">{% trans "Source line" %}</th>
+            <th scope="col">{% trans "Source SHA-256" %}</th>
             <th scope="col">{% trans "Error" %}</th>
             <th scope="col">{% trans "Processed" %}</th>
           </tr>
@@ -42,8 +42,8 @@
                   {{ record.get_status_display }}
                 </span>
               </td>
-              <td class="mono" dir="ltr">{{ record.source_line|truncatechars:80 }}</td>
-              <td>{{ record.error_message|truncatechars:60 }}</td>
+              <td class="mono" dir="ltr">{{ record.source_hash|truncatechars:20 }}</td>
+              <td>{% if record.error_category %}{{ record.error_category }}{% elif record.status == 'failed' %}{% trans "Sensitive details redacted" %}{% else %}—{% endif %}</td>
               <td>{{ record.processed_at|date:"H:i:s"|default:"—" }}</td>
             </tr>
           {% empty %}

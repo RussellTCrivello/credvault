@@ -25,7 +25,7 @@
       <div class="detail-item">
         <label>{% trans "Status" %}</label>
         <div>
-          <span class="badge {% if job.status == 'completed' %}success{% elif job.status == 'failed' %}error{% elif job.status == 'processing' %}info{% elif job.status == 'interrupted' %}warning{% else %}outline{% endif %}">
+          <span class="badge {% if job.status == 'completed' %}success{% elif job.status == 'failed' or job.status == 'completed_with_errors' %}error{% elif job.status == 'processing' %}info{% elif job.status == 'interrupted' %}warning{% else %}outline{% endif %}">
             {{ job.get_status_display }}
           </span>
         </div>
@@ -46,6 +46,10 @@
       <div class="detail-item">
         <label>{% trans "Total discovered" %}</label>
         <div>{{ job.total_discovered }}</div>
+      </div>
+      <div class="detail-item">
+        <label>{% trans "Attempted" %}</label>
+        <div>{{ job.total_attempted }}</div>
       </div>
       <div class="detail-item">
         <label>{% trans "Committed" %}</label>
@@ -82,7 +86,7 @@
       {% if job.last_error %}
         <div class="detail-item full-width">
           <label>{% trans "Last error" %}</label>
-          <div class="error-text">{{ job.last_error }}</div>
+          <div class="error-text">{% trans "The importer recorded a failure. Sensitive error details are redacted." %}</div>
         </div>
       {% endif %}
     </div>
@@ -106,7 +110,7 @@
             {% for record in recent_failures %}
               <tr>
                 <td>{{ record.source_position }}</td>
-                <td>{{ record.error_message|truncatechars:100 }}</td>
+                <td>{% trans "Sensitive details redacted" %}</td>
                 <td>{{ record.error_category }}</td>
               </tr>
             {% endfor %}

@@ -87,8 +87,9 @@
     if (event.type === "done") {
       setStep("complete");
       setPercent(100);
-      status.textContent = label("completeLabel");
-      detail.textContent = `${number(event.created)} ${label("createdLabel")}; ${number(event.skipped)} ${label("skippedLabel")}; ${number(event.files)} ${label("filesCompleteLabel")}`;
+      const failed = Number(event.failed || 0);
+      status.textContent = failed ? label("failedLabel") : label("completeLabel");
+      detail.textContent = `${number(event.created)} ${label("createdLabel")}; ${number(event.skipped)} ${label("skippedLabel")}; ${number(failed)} ${label("failedCountLabel")}; ${number(event.files)} ${label("filesCompleteLabel")}`;
       form.setAttribute("aria-busy", "false");
       window.setTimeout(() => window.location.assign(event.redirect), 900);
     }
@@ -608,7 +609,7 @@
 
   // Sort mapping: column key -> Django queryset order_by parameter
   const SORT_MAP = {
-    id: { asc: "newest", desc: "oldest" },
+    id: { asc: "id", desc: "-id" },
     url: { asc: "url", desc: "-url" },
     account_type: { asc: "account_type", desc: "-account_type" },
     identifier: { asc: "identifier", desc: "-identifier" },
@@ -648,33 +649,40 @@
         th.setAttribute("aria-sort", "descending");
       }
 
-      th.addEventListener("click", () => {
+      const control = th.querySelector(".sort-control") || th;
+      control.addEventListener("click", () => {
         const params = new URLSearchParams(
           baseUrl.includes("?") ? baseUrl.split("?")[1] : ""
         );
         const basePath = baseUrl.split("?")[0];
 
-        // Toggle sort direction
+        // Toggle direction for this typed, server-side sort key.
         if (th.classList.contains("is-sorted-asc")) {
           params.set("sort", mapping.desc);
         } else {
           params.set("sort", mapping.asc);
         }
-        // Reset to page 1 when sorting changes
         params.delete("page");
-
         window.location.href = basePath + "?" + params.toString();
       });
 
-      th.style.cursor = "pointer";
-      th.setAttribute("role", "columnheader button");
-      th.setAttribute("tabindex", "0");
-      th.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          th.click();
-        }
-      });
+      if (control !== th) {
+        const label = control.dataset.sortLabel || control.textContent.trim();
+        control.setAttribute(
+          "aria-label",
+          `${label}, ${th.classList.contains("is-sorted-asc") ? "currently ascending; activate to sort descending" : "activate to sort ascending"}`
+        );
+      } else {
+        // Legacy markup stays keyboard operable, but the th retains its
+        // native columnheader role (a header is not also a button role).
+        th.setAttribute("tabindex", "0");
+        th.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            th.click();
+          }
+        });
+      }
     });
   });
 })();

@@ -170,11 +170,24 @@ and the index keeps it a fast, indexed tier alongside the exact matches.
 
 # Import jobs and recovery
 
-Every import that is not the streaming progress flow creates a durable
-`ImportJob` (migration `0005`) with a per-line ledger (`ImportRecord`):
-accounts and their ledger rows commit together in one transaction per
-batch, counters are recalculated from the ledger, and a lease makes sure
-only one worker processes a job at a time.
+The web import page (including its streaming progress mode) and the
+`importfolder` management command use the durable `ImportJob` engine. Each
+source line receives a hash-only `ImportRecord` outcome; account rows, ledger
+outcomes, counters, and the gap-free checkpoint commit together in one
+PostgreSQL transaction per batch. The durable transaction explicitly sets
+` synchronous_commit = on`, and the job-row lease is fenced at each batch so
+a stale worker cannot commit or release a replacement worker's lease.
+
+The path-backed engine records a source manifest (ordered relative filenames,
+byte sizes, and content digests) and validates it before and after import or
+recovery. A changed source is refused rather than replayed under old line
+positions. Upload bytes are not retained on disk: upload jobs keep a manifest
+hash and ledger but an interrupted upload with unaccounted lines cannot be
+automatically resumed. It remains partial/paused until the source is supplied
+again through a new import. The lower-level `vault.importer` bulk functions
+remain for compatibility and performance tests; they do not create durable
+jobs or per-line ledgers and are not called by the production web/management
+entry points.
 
 Redirect behavior after an import (settled, and asserted by
 `vault/tests.py`):
@@ -195,8 +208,21 @@ re-read (path-based imports store `source_path` and the extension filter)
 keeping each line's original position and idempotency key. Uploaded files
 are not kept on disk, so their jobs are reconciled and settled, but cannot
 be resumed automatically. The **Resume** button on the job page runs the
-same recovery. A `processing` job whose lease has expired counts as
-abandoned by a crashed worker and can be taken over.
+same recovery. A `pending` job with no live owner, or a `processing` job with
+an expired/missing lease, counts as abandoned and may be taken over; a live
+lease blocks recovery. Recovery logs distinguish
+clean completion, partial recovery, and failure; an existing `failed` ledger
+row is not reported as a clean recovery.
+
+A real subprocess regression test exits with `os._exit` immediately after one
+batch commits, then verifies that recovery preserves that batch and imports
+the remaining path lines exactly once. This verifies that specific process
+crash/acknowledgement-loss window only. It does not simulate PostgreSQL
+process failure, host/power loss, storage-controller behavior, replica
+failover, or every possible termination point; durability still depends on
+PostgreSQL's WAL/fsync configuration and the storage stack honoring flushes.
+Do not interpret the test suite as a blanket proof of production crash
+safety.
 
 # Performance
 

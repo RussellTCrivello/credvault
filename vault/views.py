@@ -2,16 +2,20 @@ import csv
 import io
 import json
 import os
+import queue
+import threading
 from contextlib import nullcontext
 from urllib.parse import urlparse
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
-from django.db.models import Count, ProtectedError, Q
-from django.db.models.functions import Collate, Lower
+from django.db import close_old_connections, connection
+from django.db.models import CharField, Count, F, ProtectedError, Q
+from django.db.models.functions import Coalesce, Collate, Lower
 from django.http import JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.dateparse import parse_date
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy as _lazy, ngettext
 
@@ -21,8 +25,7 @@ from .forms import (
     ReferenceForm,
 )
 from .importer import (
-    STREAM_BATCH_SIZE, BulkImportSession, collect_files_from_path, import_path,
-    search_indexes_suspended,
+    STREAM_BATCH_SIZE, collect_files_from_path, search_indexes_suspended,
 )
 from .models import Account, Email, Ip, Pass, Url, User
 from .utils import extract_domain
@@ -230,6 +233,30 @@ def _has_any(ids):
     return bool(ids) if isinstance(ids, list) else ids.exists()
 
 
+def _sort_accounts(queryset, requested_sort):
+    """Apply an allow-listed, typed, deterministic ordering before paging."""
+    identifier = Coalesce(
+        'email__name', 'user__name', output_field=CharField(),
+    )
+    sort_map = {
+        'newest': ('-created_at', 'id'),
+        'oldest': ('created_at', 'id'),
+        'id': ('id',),
+        '-id': ('-id',),
+        'url': ('url__name', 'id'),
+        '-url': ('-url__name', 'id'),
+        'account_type': ('account_type', 'id'),
+        '-account_type': ('-account_type', 'id'),
+        'identifier': (identifier.asc(nulls_last=True), 'id'),
+        '-identifier': (identifier.desc(nulls_last=True), 'id'),
+        'ip': (F('ip__name').asc(nulls_last=True), 'id'),
+        '-ip': (F('ip__name').desc(nulls_last=True), 'id'),
+        'created_at': ('created_at', 'id'),
+        '-created_at': ('-created_at', 'id'),
+    }
+    return queryset.order_by(*sort_map.get(requested_sort, sort_map['newest']))
+
+
 def filter_accounts(params):
     """
     Build an Account queryset from URL query parameters.
@@ -313,21 +340,18 @@ def filter_accounts(params):
 
         created_from = params.get('created_from')
         if created_from:
+            created_from = parse_date(str(created_from))
+            if created_from is None:
+                return _sort_accounts(qs.none(), params.get('sort'))
             qs = qs.filter(created_at__date__gte=created_from)
         created_to = params.get('created_to')
         if created_to:
+            created_to = parse_date(str(created_to))
+            if created_to is None:
+                return _sort_accounts(qs.none(), params.get('sort'))
             qs = qs.filter(created_at__date__lte=created_to)
 
-        sort = params.get('sort') or 'newest'
-        if sort == 'oldest':
-            qs = qs.order_by('created_at', 'id')
-        elif sort == 'url':
-            qs = qs.order_by('url__name', 'id')
-        elif sort == 'identifier':
-            qs = qs.order_by('email__name', 'user__name', 'id')
-        else:
-            qs = qs.order_by('-created_at', 'id')
-        return qs
+        return _sort_accounts(qs, params.get('sort') or 'newest')
 
     search_term = q or keyword
     if not search_term:
@@ -335,16 +359,18 @@ def filter_accounts(params):
 
     if field == 'domain':
         ids = _match_url_ids(search_term, force_domain=True)
-        return qs.filter(url_id__in=ids)
+        return _sort_accounts(qs.filter(url_id__in=ids), params.get('sort'))
 
     if field == 'url':
         ids = _match_url_ids(search_term, force_domain=False)
-        return qs.filter(url_id__in=ids)
+        return _sort_accounts(qs.filter(url_id__in=ids), params.get('sort'))
 
     if field in _QUICK_SEARCH_MAP:
         model, fk = _QUICK_SEARCH_MAP[field]
         ids = _match_exact_ids(model, search_term)
-        return qs.filter(**{f"{fk}__in": ids})
+        return _sort_accounts(
+            qs.filter(**{f"{fk}__in": ids}), params.get('sort'),
+        )
 
     # Default ('all' or unspecified field or 'keyword'): check all 5 indexed
     # reference tables (Domain/URL, Email, Username, Password, IP) in < 1 ms.
@@ -370,7 +396,7 @@ def filter_accounts(params):
     if any(_has_any(ids) for ids in (
         url_ids, email_ids, user_ids, pass_ids, ip_ids,
     )):
-        return qs.filter(clauses)
+        return _sort_accounts(qs.filter(clauses), params.get('sort'))
 
     # If invoked via free-text keyword and no exact/domain match was found,
     # fall back to reference-table substring lookup.
@@ -390,15 +416,15 @@ def filter_accounts(params):
         ip_ids = _id_filter_values(
             Ip.objects.filter(name__icontains=keyword)
         )
-        return qs.filter(
+        return _sort_accounts(qs.filter(
             Q(url_id__in=url_ids)
             | Q(email_id__in=email_ids)
             | Q(user_id__in=user_ids)
             | Q(password_id__in=pass_ids)
             | Q(ip_id__in=ip_ids)
-        )
+        ), params.get('sort'))
 
-    return qs.none()
+    return _sort_accounts(qs.none(), params.get('sort'))
 
 
 def _paginate_accounts(request, queryset, per_page=100):
@@ -861,10 +887,7 @@ def import_from_file(request):
     its own contract: the final NDJSON 'done' event carries the redirect
     to /records/ for the browser.
     """
-    from .import_engine import (
-        durable_import_file, durable_import_path, create_import_job,
-        DurableImportSession, _hash_file,
-    )
+    from .import_engine import durable_import_path, durable_import_uploads
     
     if request.method == 'POST':
         progress_request = request.headers.get('X-Import-Progress') == '1'
@@ -931,18 +954,7 @@ def import_from_file(request):
                 # idempotency keys would collide and the ledger rows of
                 # every file after the first would be silently dropped.
                 if files:
-                    job = create_import_job(
-                        source_name=f'{len(files)} uploaded file(s)',
-                        source_path='',
-                    )
-                    session = DurableImportSession(job)
-
-                    def uploaded_lines():
-                        for uploaded_file in files:
-                            uploaded_file.seek(0)
-                            yield from uploaded_file
-
-                    session.run(uploaded_lines())
+                    job = durable_import_uploads(files)
                     jobs.append(job)
 
             # Aggregate results from all jobs
@@ -950,8 +962,17 @@ def import_from_file(request):
             skipped_total = sum(j.total_skipped for j in jobs)
             failed_total = sum(j.total_failed for j in jobs)
 
-            # Build success message
-            if created_total == 0 and skipped_total > 0:
+            incomplete_jobs = [
+                job for job in jobs
+                if job.status not in ('completed', 'completed_with_errors')
+            ]
+            if incomplete_jobs:
+                messages.error(
+                    request,
+                    _('One or more import jobs did not complete. Review the job details before retrying.'),
+                )
+            # Build success message only after checking every job's final state.
+            elif created_total == 0 and skipped_total > 0:
                 messages.warning(
                     request,
                     _('No new records were created. Existing values were '\
@@ -990,50 +1011,65 @@ def import_from_file(request):
 
 
 def _stream_import_progress(uploaded_files, paths, fast_mode=False):
-    """Import inputs while streaming exact line-count progress to the browser."""
+    """Stream line progress while using the same durable engine as imports."""
     def events():
         yield json.dumps({'type': 'phase', 'phase': 'counting'}) + '\n'
 
-        sources = []
+        path_groups = []
         for path in paths:
-            sources.extend(
-                ('path', filepath)
-                for filepath in collect_files_from_path(path, ext='*')
-            )
-        sources.extend(('upload', uploaded_file) for uploaded_file in uploaded_files)
+            path_groups.append((
+                path,
+                collect_files_from_path(path, ext='*'),
+            ))
 
-        counted_sources = []
+        source_items = [
+            ('path', group_index, filepath)
+            for group_index, (_path, group_files) in enumerate(path_groups)
+            for filepath in group_files
+        ]
+        source_items.extend(
+            ('upload', None, uploaded_file)
+            for uploaded_file in uploaded_files
+        )
+        total_files = len(source_items)
+        scanned = 0
         total_lines = 0
-        total_files = len(sources)
-        for file_number, (source_type, source) in enumerate(sources, start=1):
+        group_line_counts = [0 for _group in path_groups]
+        upload_line_count = 0
+
+        for source_type, group_index, source in source_items:
             try:
                 if source_type == 'upload':
                     source.seek(0)
                     line_count = sum(1 for _line in source)
                     source.seek(0)
                 else:
-                    # Binary counting matches the binary import below, so the
-                    # two always agree on what a line is.
                     with open(source, 'rb') as handle:
                         line_count = sum(1 for _line in handle)
-            except OSError:
+            except (OSError, ValueError):
                 yield json.dumps({
                     'type': 'error',
-                    'message': _('A selected file could not be read.'),
+                    'message': str(_('A selected file could not be read.')),
                 }) + '\n'
                 return
-            counted_sources.append((source_type, source, line_count))
+            scanned += 1
             total_lines += line_count
+            if source_type == 'upload':
+                upload_line_count += line_count
+            else:
+                group_line_counts[group_index] += line_count
             yield json.dumps({
                 'type': 'count_progress',
-                'files_scanned': file_number,
+                'files_scanned': scanned,
                 'total_files': total_files,
             }) + '\n'
 
-        if not counted_sources and not uploaded_files:
+        if not source_items:
             yield json.dumps({
                 'type': 'error',
-                'message': _('No readable files were found in the specified path.'),
+                'message': str(_(
+                    'No readable files were found in the specified path.'
+                )),
             }) + '\n'
             return
 
@@ -1044,99 +1080,160 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
             'total': total_lines,
         }) + '\n'
 
-        processed_lines = 0
-        created_total = 0
-        skipped_total = 0
+        updates = queue.Queue()
+        result = {
+            'created': 0,
+            'skipped': 0,
+            'failed': 0,
+            'job_ids': [],
+        }
+        worker_error = []
 
-        files_completed = 0
-        # One session for the whole job: batches stay large across files and
-        # parsing overlaps the database work.
-        session = BulkImportSession()
-        try:
-            with (search_indexes_suspended() if fast_mode else nullcontext()):
-                for file_number, (source_type, source, line_count) in enumerate(
-                    counted_sources, start=1
-                ):
-                    if source_type == 'upload':
-                        handle = source
-                        close_handle = False
-                        handle.seek(0)
-                    else:
-                        try:
-                            handle = open(source, 'rb')
-                        except OSError:
-                            yield json.dumps({
-                                'type': 'error',
-                                'message': _(
-                                    'A file changed or became unreadable during import.'
-                                ),
-                            }) + '\n'
-                            return
-                        close_handle = True
+        def import_worker(background=True):
+            if background:
+                close_old_connections()
+            try:
+                from .import_engine import (
+                    durable_import_path, durable_import_uploads,
+                )
+                context = (
+                    search_indexes_suspended()
+                    if fast_mode else nullcontext()
+                )
+                processed_before = 0
+                completed_files = 0
+                with context:
+                    for group_number, (path, group_files) in enumerate(
+                        path_groups, start=1,
+                    ):
+                        group_total = group_line_counts[group_number - 1]
 
-                    try:
-                        batch = []
-                        file_processed_lines = 0
-                        for line in handle:
-                            batch.append(line)
-                            file_processed_lines += 1
-                            if len(batch) >= STREAM_BATCH_SIZE:
-                                session.add_lines(batch)
-                                processed_lines += len(batch)
-                                batch.clear()
-                                yield json.dumps({
-                                    'type': 'progress',
-                                    'phase': 'processing',
-                                    'processed': processed_lines,
-                                    'total': total_lines,
-                                    'file_number': file_number,
-                                    'total_files': len(counted_sources),
-                                    'files_completed': files_completed,
-                                }) + '\n'
-                        if batch:
-                            session.add_lines(batch)
-                            processed_lines += len(batch)
-                            yield json.dumps({
+                        def path_progress(position, base=processed_before,
+                                          number=group_number):
+                            updates.put({
                                 'type': 'progress',
                                 'phase': 'processing',
-                                'processed': processed_lines,
+                                'processed': min(total_lines, base + position),
                                 'total': total_lines,
-                                'file_number': file_number,
-                                'total_files': len(counted_sources),
-                                'files_completed': files_completed,
-                            }) + '\n'
-                    finally:
-                        if close_handle:
-                            handle.close()
-                    if file_processed_lines != line_count:
-                        yield json.dumps({
-                            'type': 'error',
-                            'message': _(
-                                'A selected file changed while it was being imported. '
-                                'The progress total is no longer accurate.'
-                            ),
-                        }) + '\n'
-                        return
-                    files_completed += 1
-                    yield json.dumps({
-                        'type': 'progress',
-                        'phase': 'processing',
-                        'processed': processed_lines,
-                        'total': total_lines,
-                        'file_number': file_number,
-                        'total_files': len(counted_sources),
-                        'files_completed': files_completed,
-                    }) + '\n'
+                                'file_number': number,
+                                'total_files': max(1, len(path_groups)
+                                                   + bool(uploaded_files)),
+                                'files_completed': completed_files,
+                            })
 
-                created_total, skipped_total = session.finish()
-        finally:
-            session.close()
+                        job = durable_import_path(
+                            path,
+                            ext='*',
+                            on_progress=path_progress,
+                            batch_rows=STREAM_BATCH_SIZE,
+                            expected_line_count=group_total,
+                        )
+                        result['job_ids'].append(str(job.job_id))
+                        result['created'] += job.total_committed
+                        result['skipped'] += job.total_skipped
+                        result['failed'] += job.total_failed
+                        if job.status not in (
+                            'completed', 'completed_with_errors',
+                        ):
+                            worker_error.append('ImportIncomplete')
+                        processed_before += group_total
+                        completed_files += len(group_files)
+                        updates.put({
+                            'type': 'progress',
+                            'phase': 'processing',
+                            'processed': min(total_lines, processed_before),
+                            'total': total_lines,
+                            'file_number': group_number,
+                            'total_files': max(1, len(path_groups)
+                                               + bool(uploaded_files)),
+                            'files_completed': completed_files,
+                        })
 
+                    if uploaded_files:
+                        upload_group = len(path_groups) + 1
+
+                        def upload_progress(position, base=processed_before):
+                            updates.put({
+                                'type': 'progress',
+                                'phase': 'processing',
+                                'processed': min(total_lines, base + position),
+                                'total': total_lines,
+                                'file_number': upload_group,
+                                'total_files': upload_group,
+                                'files_completed': completed_files,
+                            })
+
+                        job = durable_import_uploads(
+                            uploaded_files,
+                            on_progress=upload_progress,
+                            batch_rows=STREAM_BATCH_SIZE,
+                            expected_line_count=upload_line_count,
+                        )
+                        result['job_ids'].append(str(job.job_id))
+                        result['created'] += job.total_committed
+                        result['skipped'] += job.total_skipped
+                        result['failed'] += job.total_failed
+                        if job.status not in (
+                            'completed', 'completed_with_errors',
+                        ):
+                            worker_error.append('ImportIncomplete')
+                        processed_before += upload_line_count
+                        completed_files += len(uploaded_files)
+                        updates.put({
+                            'type': 'progress',
+                            'phase': 'processing',
+                            'processed': min(total_lines, processed_before),
+                            'total': total_lines,
+                            'file_number': upload_group,
+                            'total_files': upload_group,
+                            'files_completed': completed_files,
+                        })
+            except Exception as exc:
+                # Do not include exception text: a parser/driver may include
+                # the raw credential line or SQL parameters in that message.
+                worker_error.append(type(exc).__name__)
+            finally:
+                if background:
+                    close_old_connections()
+                updates.put(None)
+
+        # Django TestCase and explicit outer transactions cannot share a
+        # database transaction with a worker thread. Run inline in that case
+        # so test/transaction isolation is preserved; normal production
+        # requests still process in the background and stream each batch.
+        background = not connection.in_atomic_block
+        worker = None
+        if background:
+            worker = threading.Thread(
+                target=import_worker,
+                kwargs={'background': True},
+                name='credvault-durable-import',
+                daemon=True,
+            )
+            worker.start()
+        else:
+            import_worker(background=False)
+        while True:
+            update = updates.get()
+            if update is None:
+                break
+            yield json.dumps(update) + '\n'
+        if worker is not None:
+            worker.join()
+
+        if worker_error:
+            yield json.dumps({
+                'type': 'error',
+                'message': str(_('Import failed; the durable job remains available for review.')),
+                'error_type': worker_error[0],
+            }) + '\n'
         yield json.dumps({
             'type': 'done',
-            'created': created_total,
-            'skipped': skipped_total,
-            'files': len(counted_sources),
+            'created': result['created'],
+            'skipped': result['skipped'],
+            'failed': result['failed'],
+            'files': total_files,
+            'jobs': result['job_ids'],
             'redirect': reverse('vault:browse'),
         }) + '\n'
 
@@ -1146,7 +1243,6 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
     response['Cache-Control'] = 'no-cache'
     response['X-Accel-Buffering'] = 'no'
     return response
-
 
 def _export_account_rows(request):
     """
@@ -1312,8 +1408,15 @@ def import_job_resume(request, job_id):
     if request.method == 'POST':
         # Attempt recovery; jobs whose source is a path on this machine
         # are re-read and their unaccounted lines reprocessed.
-        recover_job(job, lines_iterable_factory=lines_factory_for_job(job))
-        messages.success(request, _('Job recovery initiated.'))
+        recovery_log = recover_job(
+            job, lines_iterable_factory=lines_factory_for_job(job),
+        )
+        if recovery_log.outcome == 'success':
+            messages.success(request, _('Job recovery completed successfully.'))
+        elif recovery_log.outcome == 'partial':
+            messages.warning(request, recovery_log.notes)
+        else:
+            messages.error(request, recovery_log.notes)
         return redirect('vault:import_job_detail', job_id=job.job_id)
 
     return render(request, 'vault/import_job_confirm.html', {
@@ -1332,8 +1435,13 @@ def import_job_cancel(request, job_id):
         return redirect('vault:import_job_detail', job_id=job.job_id)
 
     if request.method == 'POST':
-        job.mark_cancelled()
-        messages.success(request, _('Job cancelled.'))
+        if job.mark_cancelled():
+            messages.success(request, _('Job cancelled.'))
+        else:
+            messages.warning(
+                request,
+                _('The job changed state before it could be cancelled.'),
+            )
         return redirect('vault:import_job_detail', job_id=job.job_id)
 
     return render(request, 'vault/import_job_confirm.html', {
@@ -1352,8 +1460,13 @@ def import_job_pause(request, job_id):
         return redirect('vault:import_job_detail', job_id=job.job_id)
 
     if request.method == 'POST':
-        job.mark_paused()
-        messages.success(request, _('Job paused.'))
+        if job.mark_paused():
+            messages.success(request, _('Job paused.'))
+        else:
+            messages.warning(
+                request,
+                _('The job changed state before it could be paused.'),
+            )
         return redirect('vault:import_job_detail', job_id=job.job_id)
 
     return render(request, 'vault/import_job_confirm.html', {
