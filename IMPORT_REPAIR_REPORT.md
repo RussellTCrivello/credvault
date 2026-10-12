@@ -355,10 +355,11 @@ tests**, and the following remain unverified:
    job) is covered only by the lease logic tests, not by parallel
    execution.
 
-## 6. Commit
+## 6. Pull request
 
-Changes are committed on branch `arena/527aaf46-credvault` (hash reported
-in the conversation / `git log -1`). Changed-file list: see section 2.
+This change set is submitted from branch `arena/527aaf46-credvault`; see
+the branch's commit history and pull request for the exact revision.
+Changed-file list: see section 2.
 
 **The import implementation should not be declared production-ready until
 items 1–3 of section 5 are verified on the target Windows/PostgreSQL
