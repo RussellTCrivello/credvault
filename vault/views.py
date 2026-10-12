@@ -2,6 +2,7 @@ import csv
 import io
 import json
 import os
+from contextlib import nullcontext
 from urllib.parse import urlparse
 
 from django.contrib import messages
@@ -20,10 +21,11 @@ from .forms import (
     ReferenceForm,
 )
 from .importer import (
-    STREAM_BATCH_SIZE, bulk_import_lines, collect_files_from_path, import_path,
+    STREAM_BATCH_SIZE, BulkImportSession, collect_files_from_path, import_path,
+    search_indexes_suspended,
 )
 from .models import Account, Email, Ip, Pass, Url, User
-from .utils import extract_domain, parse_line
+from .utils import extract_domain
 
 
 class StreamableDownloadResponse(StreamingHttpResponse):
@@ -807,12 +809,23 @@ def reference_delete(request, kind, pk):
     })
 
 
+def _split_paths(raw_value):
+    """Folder/file paths from the import textarea: one per line."""
+    return [
+        path.strip()
+        for path in (raw_value or '').splitlines()
+        if path.strip()
+    ]
+
+
 def import_from_file(request):
     """
-    Replaces: import_from_file() -- uploads one file, a whole folder of files,
-    or reads a local/server directory or file path directly from disk, storing
-    every line that meets the record format requirements and deduplicating
-    referenced values in bulk.
+    Replaces: import_from_file() -- uploads one or many files, a whole folder
+    of files, or reads any number of local/server directories or file paths
+    (one per line) directly from disk, storing every line that meets the
+    record format requirements and deduplicating referenced values in bulk.
+    The optional maximum-speed mode suspends the trigram search indexes for
+    the duration and rebuilds them afterwards.
     """
     if request.method == 'POST':
         progress_request = request.headers.get('X-Import-Progress') == '1'
@@ -821,9 +834,10 @@ def import_from_file(request):
             files = []
             files.extend(request.FILES.getlist('file'))
             files.extend(request.FILES.getlist('folder'))
-            folder_path = (form.cleaned_data.get('folder_path') or '').strip()
+            paths = _split_paths(form.cleaned_data.get('folder_path'))
+            fast_mode = bool(form.cleaned_data.get('fast'))
 
-            if not files and not folder_path:
+            if not files and not paths:
                 form.add_error(
                     None,
                     _('Please choose a file or a folder to import.')
@@ -839,47 +853,53 @@ def import_from_file(request):
                     )
                 return render(request, 'vault/import.html', {'form': form})
 
+            missing = [
+                path for path in paths
+                if not (os.path.isdir(path) or os.path.isfile(path))
+            ]
+            if missing:
+                message = (
+                    _('The specified folder or file path does not exist.')
+                    + ': ' + missing[0]
+                )
+                if progress_request:
+                    return JsonResponse({'error': message}, status=400)
+                form.add_error('folder_path', message)
+                return render(request, 'vault/import.html', {'form': form})
+
             if progress_request:
-                if folder_path and not (
-                    os.path.isdir(folder_path) or os.path.isfile(folder_path)
-                ):
-                    return JsonResponse(
-                        {'error': _('The specified folder or file path does not exist.')},
-                        status=400,
-                    )
-                return _stream_import_progress(files, folder_path)
+                return _stream_import_progress(files, paths, fast_mode)
 
             created_total = 0
             skipped_total = 0
+            matched_files = 0
 
-            if folder_path:
-                if not (os.path.isdir(folder_path) or os.path.isfile(folder_path)):
-                    form.add_error(
-                        'folder_path',
-                        _('The specified folder or file path does not exist.')
+            with (search_indexes_suspended() if fast_mode else nullcontext()):
+                for path in paths:
+                    created_path, skipped_path, matched = import_path(
+                        path, ext="*"
                     )
-                    return render(request, 'vault/import.html', {'form': form})
-                created_path, skipped_path, matched_files = import_path(
-                    folder_path, ext="*"
-                )
-                if matched_files == 0 and not files:
+                    matched_files += matched
+                    created_total += created_path
+                    skipped_total += skipped_path
+
+                if not files and matched_files == 0:
                     form.add_error(
                         'folder_path',
                         _('No readable files were found in the specified path.')
                     )
                     return render(request, 'vault/import.html', {'form': form})
-                created_total += created_path
-                skipped_total += skipped_path
 
-            if files:
-                parsed_stream = (
-                    parse_line(line)
-                    for uploaded_file in files
-                    for line in uploaded_file
-                )
-                created_files, skipped_files = bulk_import_lines(parsed_stream)
-                created_total += created_files
-                skipped_total += skipped_files
+                if files:
+                    # One session for every uploaded file: large batches and
+                    # parse workers regardless of how many files were chosen.
+                    session = BulkImportSession()
+                    for uploaded_file in files:
+                        uploaded_file.seek(0)
+                        session.add_lines(uploaded_file)
+                    created_files, skipped_files = session.finish()
+                    created_total += created_files
+                    skipped_total += skipped_files
 
             if created_total == 0 and skipped_total > 0:
                 messages.warning(
@@ -917,16 +937,16 @@ def import_from_file(request):
     return render(request, 'vault/import.html', {'form': form})
 
 
-def _stream_import_progress(uploaded_files, folder_path):
+def _stream_import_progress(uploaded_files, paths, fast_mode=False):
     """Import inputs while streaming exact line-count progress to the browser."""
     def events():
         yield json.dumps({'type': 'phase', 'phase': 'counting'}) + '\n'
 
         sources = []
-        if folder_path:
+        for path in paths:
             sources.extend(
                 ('path', filepath)
-                for filepath in collect_files_from_path(folder_path, ext='*')
+                for filepath in collect_files_from_path(path, ext='*')
             )
         sources.extend(('upload', uploaded_file) for uploaded_file in uploaded_files)
 
@@ -940,9 +960,9 @@ def _stream_import_progress(uploaded_files, folder_path):
                     line_count = sum(1 for _line in source)
                     source.seek(0)
                 else:
-                    with open(
-                        source, 'r', encoding='utf-8', errors='ignore'
-                    ) as handle:
+                    # Binary counting matches the binary import below, so the
+                    # two always agree on what a line is.
+                    with open(source, 'rb') as handle:
                         line_count = sum(1 for _line in handle)
             except OSError:
                 yield json.dumps({
@@ -975,60 +995,77 @@ def _stream_import_progress(uploaded_files, folder_path):
         processed_lines = 0
         created_total = 0
         skipped_total = 0
-        batch_size = STREAM_BATCH_SIZE
 
         files_completed = 0
-        for file_number, (source_type, source, line_count) in enumerate(
-            counted_sources, start=1
-        ):
-            if source_type == 'upload':
-                handle = source
-                close_handle = False
-            else:
-                try:
-                    handle = open(
-                        source, 'r', encoding='utf-8', errors='ignore'
-                    )
-                except OSError:
-                    yield json.dumps({
-                        'type': 'error',
-                        'message': _(
-                            'A file changed or became unreadable during import.'
-                        ),
-                    }) + '\n'
-                    return
-                close_handle = True
+        # One session for the whole job: batches stay large across files and
+        # parsing overlaps the database work.
+        session = BulkImportSession()
+        try:
+            with (search_indexes_suspended() if fast_mode else nullcontext()):
+                for file_number, (source_type, source, line_count) in enumerate(
+                    counted_sources, start=1
+                ):
+                    if source_type == 'upload':
+                        handle = source
+                        close_handle = False
+                        handle.seek(0)
+                    else:
+                        try:
+                            handle = open(source, 'rb')
+                        except OSError:
+                            yield json.dumps({
+                                'type': 'error',
+                                'message': _(
+                                    'A file changed or became unreadable during import.'
+                                ),
+                            }) + '\n'
+                            return
+                        close_handle = True
 
-            try:
-                batch = []
-                file_processed_lines = 0
-                for line in handle:
-                    batch.append(line)
-                    file_processed_lines += 1
-                    if len(batch) >= batch_size:
-                        created, skipped = bulk_import_lines(
-                            parse_line(item) for item in batch
-                        )
-                        created_total += created
-                        skipped_total += skipped
-                        processed_lines += len(batch)
-                        batch.clear()
+                    try:
+                        batch = []
+                        file_processed_lines = 0
+                        for line in handle:
+                            batch.append(line)
+                            file_processed_lines += 1
+                            if len(batch) >= STREAM_BATCH_SIZE:
+                                session.add_lines(batch)
+                                processed_lines += len(batch)
+                                batch.clear()
+                                yield json.dumps({
+                                    'type': 'progress',
+                                    'phase': 'processing',
+                                    'processed': processed_lines,
+                                    'total': total_lines,
+                                    'file_number': file_number,
+                                    'total_files': len(counted_sources),
+                                    'files_completed': files_completed,
+                                }) + '\n'
+                        if batch:
+                            session.add_lines(batch)
+                            processed_lines += len(batch)
+                            yield json.dumps({
+                                'type': 'progress',
+                                'phase': 'processing',
+                                'processed': processed_lines,
+                                'total': total_lines,
+                                'file_number': file_number,
+                                'total_files': len(counted_sources),
+                                'files_completed': files_completed,
+                            }) + '\n'
+                    finally:
+                        if close_handle:
+                            handle.close()
+                    if file_processed_lines != line_count:
                         yield json.dumps({
-                            'type': 'progress',
-                            'phase': 'processing',
-                            'processed': processed_lines,
-                            'total': total_lines,
-                            'file_number': file_number,
-                            'total_files': len(counted_sources),
-                            'files_completed': files_completed,
+                            'type': 'error',
+                            'message': _(
+                                'A selected file changed while it was being imported. '
+                                'The progress total is no longer accurate.'
+                            ),
                         }) + '\n'
-                if batch:
-                    created, skipped = bulk_import_lines(
-                        parse_line(item) for item in batch
-                    )
-                    created_total += created
-                    skipped_total += skipped
-                    processed_lines += len(batch)
+                        return
+                    files_completed += 1
                     yield json.dumps({
                         'type': 'progress',
                         'phase': 'processing',
@@ -1038,28 +1075,10 @@ def _stream_import_progress(uploaded_files, folder_path):
                         'total_files': len(counted_sources),
                         'files_completed': files_completed,
                     }) + '\n'
-            finally:
-                if close_handle:
-                    handle.close()
-            if file_processed_lines != line_count:
-                yield json.dumps({
-                    'type': 'error',
-                    'message': _(
-                        'A selected file changed while it was being imported. '
-                        'The progress total is no longer accurate.'
-                    ),
-                }) + '\n'
-                return
-            files_completed += 1
-            yield json.dumps({
-                'type': 'progress',
-                'phase': 'processing',
-                'processed': processed_lines,
-                'total': total_lines,
-                'file_number': file_number,
-                'total_files': len(counted_sources),
-                'files_completed': files_completed,
-            }) + '\n'
+
+                created_total, skipped_total = session.finish()
+        finally:
+            session.close()
 
         yield json.dumps({
             'type': 'done',
