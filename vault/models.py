@@ -332,6 +332,10 @@ class PerformanceSettings(models.Model):
         ('fast', _('Fast')),
         ('maximum', _('Maximum speed')),
     ]
+    COMPUTE_CHOICES = [
+        ('cpu', _('CPU')),
+        ('gpu', _('GPU (NVIDIA)')),
+    ]
 
     import_mode = models.CharField(
         _('Import speed'), max_length=10, choices=MODE_CHOICES,
@@ -340,6 +344,10 @@ class PerformanceSettings(models.Model):
     query_mode = models.CharField(
         _('Query speed'), max_length=10, choices=MODE_CHOICES,
         default='balanced',
+    )
+    # Recorded for a future GPU step. Nothing uses it yet: all work runs on the CPU.
+    compute_mode = models.CharField(
+        _('Compute'), max_length=5, choices=COMPUTE_CHOICES, default='cpu',
     )
     updated_at = models.DateTimeField(_('Date of adjustment'), auto_now=True)
 

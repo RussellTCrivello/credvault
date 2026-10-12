@@ -992,3 +992,29 @@ msgstr ""
 
 msgid "Not needed (C collation)"
 msgstr "غير مطلوب (ترتيب C)"
+
+msgid "Compute"
+msgstr "الحوسبة"
+
+msgid "CPU"
+msgstr "المعالج المركزي (CPU)"
+
+msgid "GPU (NVIDIA)"
+msgstr "معالج الرسوميات (NVIDIA)"
+
+msgid "Choose CPU or GPU. The choice is saved for a future GPU step."
+msgstr ""
+"اختر المعالج المركزي أو معالج الرسوميات. يُحفظ الخيار لخطوة GPU مستقبلية."
+
+msgid "NVIDIA GPU detected: %(name)s."
+msgstr "تم اكتشاف معالج رسوميات NVIDIA: %(name)s."
+
+msgid "No NVIDIA GPU detected on this server."
+msgstr "لم يتم اكتشاف معالج رسوميات NVIDIA على هذا الخادم."
+
+msgid ""
+"No import or search step runs on the GPU yet. Imports and searches always "
+"run on the CPU, whichever compute choice is saved."
+msgstr ""
+"لا تعمل أي خطوة استيراد أو بحث على معالج الرسوميات حتى الآن. تعمل عمليات "
+"الاستيراد والبحث دائماً على المعالج المركزي، أياً كان خيار الحوسبة المحفوظ."

@@ -17,6 +17,7 @@ from django.urls import reverse
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy as _lazy, ngettext
 
+from .accel import detect_gpu
 from .db import (
     capped_count, index_names, is_postgresql, table_count, text_collation_is_c,
 )
@@ -769,6 +770,7 @@ def settings_view(request):
         'index_status': _search_index_status() if postgres else [],
         'total_records': total_records,
         'total_records_approximate': total_approximate,
+        'gpu': detect_gpu(),
     })
 
 

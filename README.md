@@ -112,6 +112,33 @@ combine the per-column indexes. Record lists are read through indexes ordered
 newest-first, so a page costs the same whatever the total size. Totals for the
 whole table come from the planner's estimate and are shown with `≈`.
 
+## Compute (CPU or GPU)
+
+The Settings page has a Compute choice: CPU or GPU (NVIDIA). The workspace
+reports whether an NVIDIA GPU is present, using `nvidia-smi`, and shows the GPU
+name when one is found. Imports and searches run on the CPU whichever choice is
+saved, because no import or search step uses the GPU yet. The choice is stored
+for a future GPU step.
+
+Why no step uses the GPU yet:
+
+- On PostgreSQL, most of an import is database writes. In the 1,000,000-record
+  run, parsing took about 14 seconds of roughly 127 to 146 seconds. A GPU cannot
+  speed up PostgreSQL's writes or index updates.
+- The record fingerprint is computed inside PostgreSQL, in the same statement
+  that inserts the accounts. Moving it to a GPU would mean sending the ids out
+  and the hashes back for every batch, which costs more than the hash itself.
+- Searches are index lookups inside PostgreSQL, which do not run on a GPU.
+- The measurements were made on a machine with no GPU, so no GPU code path
+  could be run or measured.
+
+What helps more: more CPU cores (Maximum speed parses in parallel), faster
+disks, and PostgreSQL settings such as `shared_buffers` and `max_wal_size`. The
+Fast modes also commit each transaction asynchronously (`SET LOCAL
+synchronous_commit = off`). That is faster, but a crash can lose the last few
+transactions that were reported as committed. Balanced keeps every commit
+durable.
+
 ## Benchmarking on your hardware
 
 Run the benchmark on an empty scratch database, because it refuses to run on a

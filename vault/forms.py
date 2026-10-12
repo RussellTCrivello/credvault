@@ -455,12 +455,22 @@ class PerformanceSettingsForm(forms.ModelForm):
 
     class Meta:
         model = PerformanceSettings
-        fields = ['import_mode', 'query_mode']
+        fields = ['import_mode', 'query_mode', 'compute_mode']
         labels = {
             'import_mode': _('Import speed'),
             'query_mode': _('Query speed'),
+            'compute_mode': _('Compute'),
         }
         widgets = {
             'import_mode': forms.RadioSelect(),
             'query_mode': forms.RadioSelect(),
+            'compute_mode': forms.RadioSelect(),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Older forms post no compute choice; keep the saved one in that case.
+        self.fields['compute_mode'].required = False
+
+    def clean_compute_mode(self):
+        return self.cleaned_data.get('compute_mode') or self.instance.compute_mode

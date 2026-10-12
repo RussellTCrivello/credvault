@@ -39,6 +39,24 @@
       {% for error in form.query_mode.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
     </section>
 
+    <section class="vault-panel form-panel">
+      <div class="table-toolbar">
+        <div><h2>{% trans "Compute" %}</h2><p class="vault-muted">{% trans "Choose CPU or GPU. The choice is saved for a future GPU step." %}</p></div>
+      </div>
+      <fieldset class="settings-options">
+        <legend class="sr-only">{% trans "Compute" %}</legend>
+        {% for value, label in form.fields.compute_mode.choices %}
+          <label class="settings-option">
+            <input type="radio" name="compute_mode" value="{{ value }}" {% if form.compute_mode.value == value %}checked{% endif %} />
+            <span><strong>{{ label }}</strong></span>
+          </label>
+        {% endfor %}
+      </fieldset>
+      {% for error in form.compute_mode.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+      <p class="field-help">{% if gpu.available %}{% blocktrans with name=gpu.name %}NVIDIA GPU detected: {{ name }}.{% endblocktrans %}{% else %}{% trans "No NVIDIA GPU detected on this server." %}{% endif %}</p>
+      <p class="field-help">{% trans "No import or search step runs on the GPU yet. Imports and searches always run on the CPU, whichever compute choice is saved." %}</p>
+    </section>
+
     <div class="form-actions"><button class="button primary" type="submit">{% trans "Save settings" %}</button></div>
   </form>
 

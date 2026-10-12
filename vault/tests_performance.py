@@ -18,6 +18,7 @@ from django.db import connection
 from django.test import TestCase
 from django.urls import reverse
 
+from .accel import GpuStatus, detect_gpu
 from .benchmarking import write_synthetic_file
 from .db import (
     analyze_tables, capped_count, index_names, is_postgresql, table_count,
@@ -256,6 +257,75 @@ class CappedCountTests(TestCase):
             self.assertNotIn('vault_url_name_prefix_idx', names)
         else:
             self.assertIn('vault_url_name_prefix_idx', names)
+
+
+class GpuDetectionTests(TestCase):
+
+    def setUp(self):
+        detect_gpu.cache_clear()
+        self.addCleanup(detect_gpu.cache_clear)
+
+    def test_no_driver_means_no_gpu(self):
+        with mock.patch('vault.accel.shutil.which', return_value=None):
+            self.assertEqual(detect_gpu(), GpuStatus(False))
+
+    def test_reports_the_first_gpu_name(self):
+        fake = mock.Mock(returncode=0, stdout='NVIDIA A100-SXM4-40GB\nNVIDIA A100\n')
+        with mock.patch('vault.accel.shutil.which', return_value='/usr/bin/nvidia-smi'), \
+                mock.patch('vault.accel.subprocess.run', return_value=fake):
+            self.assertEqual(detect_gpu(), GpuStatus(True, 'NVIDIA A100-SXM4-40GB'))
+
+    def test_driver_error_means_no_gpu(self):
+        fake = mock.Mock(returncode=9, stdout='')
+        with mock.patch('vault.accel.shutil.which', return_value='/usr/bin/nvidia-smi'), \
+                mock.patch('vault.accel.subprocess.run', return_value=fake):
+            self.assertFalse(detect_gpu().available)
+
+    def test_timeout_means_no_gpu(self):
+        import subprocess
+        with mock.patch('vault.accel.shutil.which', return_value='/usr/bin/nvidia-smi'), \
+                mock.patch('vault.accel.subprocess.run',
+                           side_effect=subprocess.TimeoutExpired('nvidia-smi', 5)):
+            self.assertFalse(detect_gpu().available)
+
+    def test_settings_page_states_that_gpu_is_not_used_yet(self):
+        client = _admin_client(self)
+        with mock.patch('vault.views.detect_gpu', return_value=GpuStatus(True, 'NVIDIA T4')):
+            response = client.get(reverse('vault:settings'))
+        self.assertContains(response, 'NVIDIA GPU detected: NVIDIA T4.')
+        self.assertContains(response, 'No import or search step runs on the GPU yet.')
+
+    def test_settings_page_without_a_gpu(self):
+        client = _admin_client(self)
+        with mock.patch('vault.views.detect_gpu', return_value=GpuStatus(False)):
+            response = client.get(reverse('vault:settings'))
+        self.assertContains(response, 'No NVIDIA GPU detected on this server.')
+
+
+class ComputeChoiceTests(TestCase):
+
+    def setUp(self):
+        self.client = _admin_client(self)
+
+    def test_saves_the_gpu_choice(self):
+        self.client.post(reverse('vault:settings'), {
+            'import_mode': 'fast', 'query_mode': 'balanced', 'compute_mode': 'gpu',
+        })
+        self.assertEqual(PerformanceSettings.load().compute_mode, 'gpu')
+
+    def test_keeps_the_saved_choice_when_none_is_posted(self):
+        PerformanceSettings.objects.update_or_create(pk=1, defaults={'compute_mode': 'gpu'})
+        self.client.post(reverse('vault:settings'), {
+            'import_mode': 'fast', 'query_mode': 'balanced',
+        })
+        self.assertEqual(PerformanceSettings.load().compute_mode, 'gpu')
+
+    def test_rejects_an_unknown_compute_choice(self):
+        response = self.client.post(reverse('vault:settings'), {
+            'import_mode': 'fast', 'query_mode': 'balanced', 'compute_mode': 'tpu',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(PerformanceSettings.load().compute_mode, 'cpu')
 
 
 class SearchApiTests(TestCase):
