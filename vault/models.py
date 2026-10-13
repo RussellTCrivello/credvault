@@ -398,6 +398,9 @@ class ImportJob(models.Model):
     total_discovered = models.BigIntegerField(
         _('Total discovered'), default=0,
     )
+    total_attempted = models.BigIntegerField(
+        _('Total attempted'), default=0,
+    )
     total_committed = models.BigIntegerField(
         _('Total committed'), default=0,
     )
@@ -452,97 +455,400 @@ class ImportJob(models.Model):
 
     # -- Lifecycle helpers ------------------------------------------------
 
+    def _refresh_lifecycle_state(self):
+        """Refresh fields which may have changed in a competing worker."""
+        self.refresh_from_db(fields=[
+            'status', 'stage', 'started_at', 'last_activity_at',
+            'completed_at', 'last_error', 'worker_id', 'lease_expires_at',
+        ])
+
     def mark_started(self, worker_id=None):
-        """Transition from pending/interrupted to processing."""
+        """Atomically transition an unowned/reserved job to processing."""
+        now = timezone.now()
+        expires = now + timezone.timedelta(seconds=IMPORT_LEASE_SECONDS)
+        startable = (
+            'pending', 'processing', 'paused', 'interrupted', 'failed',
+            'completed_with_errors',
+        )
+        unowned = (
+            models.Q(worker_id='')
+            | models.Q(worker_id__isnull=True)
+            | models.Q(lease_expires_at__isnull=True)
+            | models.Q(lease_expires_at__lte=now)
+        )
+        query = ImportJob.objects.filter(pk=self.pk)
+        if worker_id:
+            # The same worker may mark a lease it just acquired as started;
+            # an unowned row is also claimable here for legacy callers.
+            query = query.filter(
+                (
+                    models.Q(status__in=startable)
+                    & models.Q(
+                        worker_id=worker_id,
+                        lease_expires_at__gt=now,
+                    )
+                )
+                | (models.Q(status__in=startable) & unowned)
+            )
+        else:
+            query = query.filter(status__in=startable).filter(unowned)
+        updates = {
+            'status': 'processing',
+            'stage': 'importing',
+            'started_at': self.started_at or now,
+            'last_activity_at': now,
+            'completed_at': None,
+        }
+        if worker_id:
+            updates.update({
+                'worker_id': worker_id,
+                'lease_expires_at': expires,
+            })
+        else:
+            updates.update({
+                'worker_id': '',
+                'lease_expires_at': None,
+            })
+        if not query.update(**updates):
+            self._refresh_lifecycle_state()
+            return False
         self.status = 'processing'
         self.stage = 'importing'
-        self.started_at = self.started_at or timezone.now()
-        self.last_activity_at = timezone.now()
+        self.started_at = self.started_at or now
+        self.last_activity_at = now
+        self.completed_at = None
         if worker_id:
             self.worker_id = worker_id
-            self.lease_expires_at = timezone.now() + timezone.timedelta(
-                seconds=IMPORT_LEASE_SECONDS,
-            )
-        self.save(update_fields=[
-            'status', 'stage', 'started_at', 'last_activity_at',
-            'worker_id', 'lease_expires_at',
-        ])
+            self.lease_expires_at = expires
+        else:
+            self.worker_id = ''
+            self.lease_expires_at = None
+        return True
 
-    def mark_paused(self):
-        """User-requested pause; safe to resume."""
+    def mark_paused(self, worker_id=None):
+        """Persist a pause request for a worker with a live lease."""
+        now = timezone.now()
+        query = ImportJob.objects.filter(pk=self.pk, status='processing')
+        query = query.filter(lease_expires_at__gt=now).exclude(worker_id='')
+        if worker_id:
+            query = query.filter(worker_id=worker_id)
+        if not query.update(status='paused', last_activity_at=now):
+            self._refresh_lifecycle_state()
+            return False
         self.status = 'paused'
-        self.last_activity_at = timezone.now()
-        self.save(update_fields=['status', 'last_activity_at'])
+        self.last_activity_at = now
+        return True
 
-    def mark_cancelled(self):
-        """User-requested cancellation; does not auto-resume."""
+    def mark_resumed(self):
+        """Resume a paused worker in place when its lease is still live."""
+        now = timezone.now()
+        query = ImportJob.objects.filter(
+            pk=self.pk,
+            status='paused',
+            worker_id__gt='',
+            lease_expires_at__gt=now,
+        )
+        if not query.update(status='processing', last_activity_at=now):
+            self._refresh_lifecycle_state()
+            return False
+        self.status = 'processing'
+        self.last_activity_at = now
+        return True
+
+    def mark_cancelled(self, worker_id=None):
+        """Cancel an active job; let a live worker flush its current batch."""
+        now = timezone.now()
+        active = ('pending', 'processing', 'paused')
+        if worker_id:
+            # The worker observes the durable cancellation on its next poll,
+            # commits any already-parsed batch under this still-live lease,
+            # then releases it. It can never finalize the job as completed.
+            updated = ImportJob.objects.filter(
+                pk=self.pk,
+                status__in=(*active, 'cancelled'),
+                worker_id=worker_id,
+                lease_expires_at__gt=now,
+            ).update(
+                status='cancelled',
+                completed_at=now,
+                last_activity_at=now,
+            )
+            if not updated:
+                self._refresh_lifecycle_state()
+                return False
+            self.status = 'cancelled'
+            self.completed_at = now
+            self.last_activity_at = now
+            return True
+
+        # Keep the fencing lease for an active worker so its current complete
+        # batch can commit. Jobs with no live owner are cancelled and cleared
+        # atomically; stale workers cannot reclaim them.
+        updated = ImportJob.objects.filter(
+            pk=self.pk,
+            status__in=active,
+            worker_id__gt='',
+            lease_expires_at__gt=now,
+        ).update(
+            status='cancelled',
+            completed_at=now,
+            last_activity_at=now,
+        )
+        if updated:
+            self.status = 'cancelled'
+            self.completed_at = now
+            self.last_activity_at = now
+            return True
+
+        unowned = (
+            models.Q(worker_id='')
+            | models.Q(worker_id__isnull=True)
+            | models.Q(lease_expires_at__isnull=True)
+            | models.Q(lease_expires_at__lte=now)
+        )
+        updated = ImportJob.objects.filter(
+            pk=self.pk, status__in=active,
+        ).filter(unowned).update(
+            status='cancelled',
+            completed_at=now,
+            last_activity_at=now,
+            worker_id='',
+            lease_expires_at=None,
+        )
+        if not updated:
+            self._refresh_lifecycle_state()
+            return False
         self.status = 'cancelled'
-        self.completed_at = timezone.now()
-        self.last_activity_at = timezone.now()
-        self.save(update_fields=[
-            'status', 'completed_at', 'last_activity_at',
-        ])
+        self.completed_at = now
+        self.last_activity_at = now
+        self.worker_id = ''
+        self.lease_expires_at = None
+        return True
 
-    def mark_completed(self, has_errors=False):
-        """Import finished."""
-        self.status = 'completed_with_errors' if has_errors else 'completed'
+    def mark_completed(self, has_errors=False, worker_id=None):
+        """Complete only a live worker lease or an otherwise unowned job."""
+        now = timezone.now()
+        query = ImportJob.objects.filter(pk=self.pk)
+        if worker_id:
+            # A pause may race the worker's final source read. Completion is
+            # still correct once every source position has a durable outcome;
+            # cancellation remains terminal and is deliberately not accepted.
+            query = query.filter(
+                status__in=('processing', 'paused'),
+                worker_id=worker_id,
+                lease_expires_at__gt=now,
+            )
+        else:
+            unowned = (
+                models.Q(worker_id='')
+                | models.Q(worker_id__isnull=True)
+                | models.Q(lease_expires_at__isnull=True)
+                | models.Q(lease_expires_at__lte=now)
+            )
+            query = query.filter(
+                status__in=(
+                    'pending', 'processing', 'paused', 'interrupted',
+                    'failed', 'completed_with_errors',
+                ),
+            ).filter(unowned)
+        status = 'completed_with_errors' if has_errors else 'completed'
+        if not query.update(
+            status=status,
+            stage='complete',
+            completed_at=now,
+            last_activity_at=now,
+            worker_id='',
+            lease_expires_at=None,
+        ):
+            self._refresh_lifecycle_state()
+            return False
+        self.status = status
         self.stage = 'complete'
-        self.completed_at = timezone.now()
-        self.last_activity_at = timezone.now()
-        self.save(update_fields=[
-            'status', 'stage', 'completed_at', 'last_activity_at',
-        ])
+        self.completed_at = now
+        self.last_activity_at = now
+        self.worker_id = ''
+        self.lease_expires_at = None
+        return True
 
-    def mark_failed(self, error_message=''):
-        """Import failed unrecoverably."""
+    def mark_failed(self, error_message='', worker_id=None):
+        """Fail only an unowned job or the current live worker's job."""
+        now = timezone.now()
+        query = ImportJob.objects.filter(pk=self.pk)
+        if worker_id:
+            # If a pause request races an unrecoverable source/runtime error,
+            # record the failure while still fencing to this live worker.
+            # A cancellation is never overwritten by this transition.
+            query = query.filter(
+                status__in=('processing', 'paused'),
+                worker_id=worker_id,
+                lease_expires_at__gt=now,
+            )
+        else:
+            unowned = (
+                models.Q(worker_id='')
+                | models.Q(worker_id__isnull=True)
+                | models.Q(lease_expires_at__isnull=True)
+                | models.Q(lease_expires_at__lte=now)
+            )
+            query = query.filter(
+                status__in=(
+                    'pending', 'processing', 'paused', 'interrupted',
+                    'completed', 'completed_with_errors', 'failed',
+                ),
+            ).filter(unowned)
+        message = error_message[:4000]
+        if not query.update(
+            status='failed',
+            completed_at=now,
+            last_activity_at=now,
+            last_error=message,
+            worker_id='',
+            lease_expires_at=None,
+        ):
+            self._refresh_lifecycle_state()
+            return False
         self.status = 'failed'
-        self.completed_at = timezone.now()
-        self.last_activity_at = timezone.now()
-        self.last_error = error_message[:4000]
-        self.save(update_fields=[
-            'status', 'completed_at', 'last_activity_at', 'last_error',
-        ])
+        self.completed_at = now
+        self.last_activity_at = now
+        self.last_error = message
+        self.worker_id = ''
+        self.lease_expires_at = None
+        return True
 
-    def mark_interrupted(self):
-        """Crash or forced termination detected."""
+    def mark_interrupted(self, worker_id=None):
+        """Mark an interruption only while the caller still owns the job."""
+        now = timezone.now()
+        query = ImportJob.objects.filter(
+            pk=self.pk, status__in=('processing', 'paused'),
+        )
+        if worker_id:
+            query = query.filter(
+                worker_id=worker_id, lease_expires_at__gt=now,
+            )
+        else:
+            query = query.filter(
+                models.Q(worker_id='')
+                | models.Q(worker_id__isnull=True)
+                | models.Q(lease_expires_at__isnull=True)
+                | models.Q(lease_expires_at__lte=now)
+            )
+        if not query.update(status='interrupted', last_activity_at=now):
+            self._refresh_lifecycle_state()
+            return False
         self.status = 'interrupted'
-        self.last_activity_at = timezone.now()
-        self.save(update_fields=['status', 'last_activity_at'])
+        self.last_activity_at = now
+        return True
 
     def refresh_counters(self):
-        """Recalculate counters from the authoritative ImportRecord rows."""
-        records = self.records.all()
-        self.total_discovered = records.count()
-        self.total_committed = records.filter(status='committed').count()
-        self.total_skipped = records.filter(status='skipped').count()
-        self.total_failed = records.filter(status='failed').count()
+        """Recalculate outcome counters from the authoritative ledger."""
+        summary = self.records.aggregate(
+            ledger_total=models.Count('id'),
+            committed=models.Count('id', filter=models.Q(status='committed')),
+            skipped=models.Count('id', filter=models.Q(status='skipped')),
+            failed=models.Count('id', filter=models.Q(status='failed')),
+            terminal=models.Count(
+                'id', filter=models.Q(status__in=('committed', 'skipped', 'failed')),
+            ),
+        )
+        # `total_discovered` comes from the immutable source manifest. Older
+        # jobs (and callers feeding an iterable directly) may not have one,
+        # so the durable ledger is the conservative fallback, never a reason
+        # to reduce a known source total.
+        if not self.source_hash:
+            self.total_discovered = max(
+                self.total_discovered, summary['ledger_total'] or 0,
+            )
+        self.total_attempted = summary['terminal'] or 0
+        self.total_committed = summary['committed'] or 0
+        self.total_skipped = summary['skipped'] or 0
+        self.total_failed = summary['failed'] or 0
         self.last_activity_at = timezone.now()
         self.save(update_fields=[
-            'total_discovered', 'total_committed', 'total_skipped',
-            'total_failed', 'last_activity_at',
+            'total_discovered', 'total_attempted', 'total_committed',
+            'total_skipped', 'total_failed', 'last_activity_at',
         ])
 
+    @property
+    def remaining_count(self):
+        """Source lines not yet durably assigned a terminal outcome."""
+        return max(0, self.total_discovered - self.total_attempted)
+
+    def _has_replayable_source(self):
+        """Whether the source can be safely re-read after this worker exits."""
+        return bool(
+            self.source_path
+            or (self.options or {}).get('source_replayable', False)
+        )
+
+    def _has_live_lease(self, now=None):
+        now = now or timezone.now()
+        return bool(
+            self.worker_id
+            and self.lease_expires_at
+            and self.lease_expires_at > now
+        )
+
     def can_resume(self):
-        """True if the job can be resumed or recovered."""
-        return self.status in (
-            'paused', 'interrupted', 'failed',
+        """True for a live paused worker or an abandoned replayable source."""
+        now = timezone.now()
+        live_lease = self._has_live_lease(now)
+        replayable = self._has_replayable_source()
+
+        if self.status == 'paused':
+            # A live streaming request is waiting at a durable batch boundary;
+            # it can continue even for an upload whose bytes are not retained.
+            return live_lease or (
+                replayable and not live_lease
+            )
+        if self.status == 'pending':
+            lease_expired = not live_lease
+            has_recoverable_work = bool(
+                self.source_path
+                or (self.options or {}).get('source_replayable', False)
+            )
+            return lease_expired and has_recoverable_work
+        if self.status in ('interrupted', 'failed'):
+            return not live_lease and replayable
+        if self.status == 'completed_with_errors':
+            return (
+                replayable
+                and not live_lease
+                and self.records.filter(status='failed', retryable=True).exists()
+            )
+        # A processing job whose lease has expired was abandoned by a
+        # crashed worker; recovery may take it over only with a durable source.
+        return (
+            self.status == 'processing'
+            and not live_lease
+            and replayable
         )
 
     def can_cancel(self):
-        """True if the job is still active and can be cancelled."""
-        return self.status in ('pending', 'processing')
+        """True if the job is still active, including while paused."""
+        return self.status in ('pending', 'processing', 'paused')
 
     def can_pause(self):
-        """True if the job is processing and can be paused."""
-        return self.status == 'processing'
+        """True only while a processing worker owns a live lease."""
+        return self.status == 'processing' and self._has_live_lease()
 
     @property
     def progress_percent(self):
-        """Progress as a percentage, based on committed records."""
+        """Percent of manifest lines with a durable terminal ledger outcome."""
         if not self.total_discovered:
-            return 0.0
-        accounted = self.total_committed + self.total_skipped + self.total_failed
-        return min(100.0, (accounted / self.total_discovered) * 100)
+            return 100.0 if self.status in (
+                'completed', 'completed_with_errors',
+            ) else 0.0
+        attempted = self.total_attempted
+        if not attempted:
+            # Older callers populated outcome counters directly before the
+            # attempted counter existed; retain their progress semantics.
+            attempted = (
+                self.total_committed + self.total_skipped + self.total_failed
+            )
+        return min(
+            100.0,
+            (attempted / self.total_discovered) * 100,
+        )
 
 
 class ImportRecord(models.Model):
@@ -584,7 +890,10 @@ class ImportRecord(models.Model):
     )
     source_line = models.TextField(
         _('Source line'), blank=True,
-        help_text=_('Original source line, for debugging (truncated if long).'),
+        help_text=_(
+            'Legacy source text; new durable imports leave this blank because '
+            'source lines can contain credentials.'
+        ),
     )
 
     status = models.CharField(
@@ -597,12 +906,20 @@ class ImportRecord(models.Model):
         Account, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='import_records', verbose_name=_('Account'),
     )
+    # Snapshot of the related row's identity. The SET_NULL FK preserves old
+    # ledger entries if an Account is deleted; this hash lets verification
+    # report that a formerly committed relationship has disappeared.
+    account_fingerprint = models.CharField(
+        _('Account fingerprint at commit'), max_length=64, blank=True,
+    )
 
-    # Error information (if failed)
+    # Error information (if failed). Failed rows are retryable only when the
+    # importer has a deterministic source and the failure is transient.
     error_message = models.TextField(_('Error message'), blank=True)
     error_category = models.CharField(
         _('Error category'), max_length=50, blank=True,
     )
+    retryable = models.BooleanField(_('Retryable'), default=False)
 
     processed_at = models.DateTimeField(
         _('Processed at'), null=True, blank=True,
@@ -657,6 +974,7 @@ class ImportRecoveryLog(models.Model):
     """
 
     OUTCOME_CHOICES = [
+        ('running', _('Running')),
         ('success', _('Success')),
         ('partial', _('Partial')),
         ('failed', _('Failed')),

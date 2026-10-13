@@ -41,6 +41,7 @@ urlpatterns = [
          views.reference_delete, name='reference_delete'),
     path('import/', views.import_from_file, name='import'),
     path('import/jobs/', views.import_job_list, name='import_jobs'),
+    path('import/jobs/<uuid:job_id>/status/', views.import_job_status, name='import_job_status'),
     path('import/jobs/<uuid:job_id>/', views.import_job_detail, name='import_job_detail'),
     path('import/jobs/<uuid:job_id>/resume/', views.import_job_resume, name='import_job_resume'),
     path('import/jobs/<uuid:job_id>/cancel/', views.import_job_cancel, name='import_job_cancel'),

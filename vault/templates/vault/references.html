@@ -25,7 +25,7 @@
 
   <section class="vault-panel">
     <div class="table-toolbar">
-      <div><h2>{{ registry.label_plural }}</h2><p class="vault-muted">{{ total_values }}{% if total_capped %}+{% endif %} {% blocktrans count record_count=total_values %}value{% plural %}values{% endblocktrans %}</p></div>
+      <div><h2>{{ registry.label_plural }}</h2><p class="vault-muted">{{ total_values_label }} {% blocktrans count record_count=total_values %}value{% plural %}values{% endblocktrans %}</p></div>
     </div>
     <div class="vault-table-wrap">
       <table class="vault-table reference-table">

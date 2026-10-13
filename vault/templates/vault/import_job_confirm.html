@@ -13,7 +13,7 @@
       <div class="form-actions">
         <a class="button" href="{% url 'vault:import_job_detail' job.job_id %}">{% trans "Cancel" %}</a>
         <button class="button primary" type="submit">
-          {% if action == 'resume' %}{% trans "Resume job" %}
+          {% if action == 'resume' %}{% if job.status == 'paused' %}{% trans "Continue import" %}{% else %}{% trans "Resume job" %}{% endif %}
           {% elif action == 'cancel' %}{% trans "Cancel job" %}
           {% elif action == 'pause' %}{% trans "Pause job" %}
           {% endif %}

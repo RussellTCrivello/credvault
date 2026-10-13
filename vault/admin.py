@@ -63,6 +63,8 @@ class ImportJobAdmin(admin.ModelAdmin):
         'job_id', 'created_at', 'started_at', 'last_activity_at',
         'completed_at', 'worker_id', 'lease_expires_at',
     ]
+    # Legacy error text may contain database parameters/source values.
+    exclude = ['last_error']
 
 
 @admin.register(ImportRecord)
@@ -72,8 +74,11 @@ class ImportRecordAdmin(admin.ModelAdmin):
         'account', 'processed_at',
     ]
     list_filter = ['status']
-    search_fields = ['source_line', 'error_message']
-    readonly_fields = ['idempotency_key']
+    # Legacy source lines and error messages may contain vault secrets.
+    # New imports store only hashes and redacted error categories.
+    exclude = ['source_line', 'error_message']
+    search_fields = ['error_category']
+    readonly_fields = ['idempotency_key', 'account_fingerprint']
 
 
 @admin.register(ImportRecoveryLog)

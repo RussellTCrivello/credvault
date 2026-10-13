@@ -156,6 +156,93 @@ the search page says so. The two tiers are locked in by the tests
 `test_quick_search_stays_exact_for_non_domain_values` in
 `vault/tests.py`).
 
+The "`domain` also matches paths under the domain" half of quick search is
+implemented as B-tree range scans (`lower(name) >= 'https://example.com/'`
+up to the highest code point). Those comparisons run under `COLLATE "C"`
+(byte order), backed by the `vault_url_name_lower_c_idx` index added by
+migration `0006`. Byte order is the only collation in which a
+prefix-plus-upper-bound range means exactly "starts with the prefix": in a
+locale collation -- the default on clusters initialized by the Windows
+installer, for example -- the upper bound does not reliably sort above
+ordinary text, and the same scan silently matches nothing. Comparing under
+`"C"` makes domain search behave identically in every database collation,
+and the index keeps it a fast, indexed tier alongside the exact matches.
+
+# Import jobs and recovery
+
+The web import page (including its streaming progress mode) and the
+`importfolder` management command use the durable `ImportJob` engine. Each
+source line receives a hash-only `ImportRecord` outcome; account rows, ledger
+outcomes, counters, and the gap-free checkpoint commit together in one
+PostgreSQL transaction per batch. The durable transaction explicitly sets
+`synchronous_commit = on`, and the job-row lease is fenced at each batch so a
+stale worker cannot commit or release a replacement worker's lease.
+
+The streaming import UI receives the durable job ID as soon as its manifest is
+recorded. The Import jobs list and job detail page show database-backed status,
+stage, progress, and counters; Pause, Continue, and Stop requests update the
+job row and take effect at a durable batch boundary. Pause keeps the live
+worker at that checkpoint until continued or cancelled. Path-backed jobs can
+also be resumed after a worker exits if their source manifest still matches.
+
+The path-backed engine records a source manifest (ordered relative filenames,
+byte sizes, and content digests) and validates it before and after import or
+recovery. The streaming progress view combines its exact line counts with that
+first manifest scan instead of reading every source once just to count lines;
+the engine still revalidates the manifest before importing. While streaming,
+it hashes every byte and checks file metadata at durable batch boundaries, so
+a changed batch is rejected before commit without a filesystem stat on every
+line. A changed source is refused rather than replayed under old line
+positions. Upload bytes are not retained on disk: upload jobs keep a manifest
+hash and ledger, hash the bytes as they are streamed, and compare that digest
+before completion. Duplicate account fingerprints are resolved in bounded
+bulk lookups rather than one database query per line, and ordinary contiguous
+batches advance their checkpoint without re-reading all new ledger positions;
+recovery still uses the gap scan for out-of-order positions. An interrupted
+upload with unaccounted lines cannot be replayed after its live request worker
+exits. While that worker is alive, Pause
+holds it at a committed checkpoint and Continue resumes the same in-memory
+upload stream; after a process/server restart, upload the source again to
+replay unaccounted lines. The lower-level `vault.importer` bulk functions
+remain for compatibility and performance tests; they do not create durable
+jobs or per-line ledgers and are not called by the production web/management
+entry points.
+
+Redirect behavior after an import (settled, and asserted by
+`vault/tests.py`):
+
+* **One job** -- a file/folder upload or a single path -- redirects to the
+  job detail page `/import/jobs/<job-id>/`, where the job's status, stage,
+  progress bar and committed/skipped/failed counters can be inspected.
+* **Several jobs** -- one per path listed in the text area -- redirects to
+  the job list `/import/jobs/`.
+* **The streaming progress flow** (the JavaScript uploader,
+  `X-Import-Progress: 1`) keeps its own contract: the final NDJSON `done`
+  event carries the redirect to `/records/` for the browser.
+
+Recovery: `recover_job()` reconciles the ledger against the database,
+persists the recalculated counters, and -- when the job's source can be
+re-read (path-based imports store `source_path` and the extension filter)
+-- resumes exactly the source positions the ledger has not accounted for,
+keeping each line's original position and idempotency key. Uploaded files
+are not kept on disk, so their jobs are reconciled and settled, but cannot
+be resumed automatically. The **Resume** button on the job page runs the
+same recovery. A `pending` job with no live owner, or a `processing` job with
+an expired/missing lease, counts as abandoned and may be taken over; a live
+lease blocks recovery. Recovery logs distinguish
+clean completion, partial recovery, and failure; an existing `failed` ledger
+row is not reported as a clean recovery.
+
+A real subprocess regression test exits with `os._exit` immediately after one
+batch commits, then verifies that recovery preserves that batch and imports
+the remaining path lines exactly once. This verifies that specific process
+crash/acknowledgement-loss window only. It does not simulate PostgreSQL
+process failure, host/power loss, storage-controller behavior, replica
+failover, or every possible termination point; durability still depends on
+PostgreSQL's WAL/fsync configuration and the storage stack honoring flushes.
+Do not interpret the test suite as a blanket proof of production crash
+safety.
+
 # Performance
 
 Two sets of numbers, both measured with the code in this repository:
@@ -216,6 +303,28 @@ has to do all of its planning and joining in one go. The default is therefore
 on a machine with more memory. Use `VAULT_IMPORT_BATCH_ROWS` and
 `vault/tests_performance.py` to find your own machine's number.
 
+### Durable streaming path
+
+The table above measures the compatibility bulk loader; it does not include a
+per-line durable ledger or source-integrity passes. An opt-in durable-path
+measurement now includes a source manifest scan, pre-import revalidation,
+stream parsing, account/reference writes, ledger entries, and checkpoints:
+
+```bash
+VAULT_RUN_PERFORMANCE=1 VAULT_PERF_LINES=20000 \
+POSTGRES_PASSWORD='choose-a-password' \
+.venv/bin/python manage.py test \
+  vault.tests_performance.ImportThroughputTests.test_durable_path_import_throughput
+```
+
+On the isolated sandbox PostgreSQL test cluster, 20,000 synthetic unique
+records took 4.5 seconds (4,431 records/s), and 100,000 took 26.5 seconds
+(3,774 records/s), both with 50,000-line durable batches. These are engine-path
+measurements, not HTTP benchmarks or a one-million-line run; they are
+machine-specific results and are not directly comparable to the bulk-loader
+table above. The durable benchmark can be scaled with `VAULT_PERF_LINES` on
+the PostgreSQL instance you intend to use.
+
 ## Tuning for a fast machine
 
 The settings below are written for a fast single machine -- for example 3
@@ -259,6 +368,14 @@ POSTGRES_PASSWORD='choose-a-password' .venv/bin/python manage.py importfolder \
 * The same options exist on the **Import records** page: the maximum-speed
   checkbox, one folder or file path per line in the text area, and a file
   picker that accepts any number of files in one selection.
+* Parse workers start with `fork` where POSIX provides it and with `spawn`
+  where it does not. On Windows an explicit `VAULT_IMPORT_WORKERS` greater
+  than 1 is honored through a spawn pool (each worker pays a one-off Python
+  startup; parsing results are identical -- locked in by
+  `test_spawn_workers_store_the_same_records_as_inline_parsing`); without
+  the setting, Windows parses inline in one process. Frozen Windows
+  executables must call `multiprocessing.freeze_support()` at startup
+  before workers can be used.
 
 ### `postgresql.conf`
 
@@ -362,9 +479,11 @@ history; the PostgreSQL numbers above replaced them.
   paths on the `importfolder` command.
 * Records loaded in bulk and records saved through the ORM produce the same
   fingerprint (`vault/tests_performance.py` checks it).
-* Counts: list, search and overview totals stop at `VAULT_COUNT_CAP` (default
-  10,000) and show "10,000+", so a page never runs a full `COUNT(*)`. Exports
-  still stream every matching record.
+* Counts and pagination: list, search, overview, import-job, and import-ledger
+  pages use exact queryset totals and have no 10,000-row ceiling; page links can
+  reach every matching row, and displayed counts do not use a `+` estimate.
+  Exact PostgreSQL counts may take time for broad queries on very large tables;
+  result rows remain paginated and exports stream every matching record.
 * Reference pages: "usage" is counted only for the values on the current page,
   not for the whole reference table.
 * Search: exact (B-tree) on the search page, substring through the `pg_trgm`

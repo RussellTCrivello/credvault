@@ -25,16 +25,23 @@
   {% if request.GET %}
     <section class="vault-panel results-panel">
       <div class="table-toolbar">
-        <div><h2>{% trans "Search results" %}</h2><p class="vault-muted">{{ total }}{% if total_capped %}+{% endif %} {% blocktrans count record_count=total %}matching record{% plural %}matching records{% endblocktrans %}</p></div>
+        <div><h2>{% trans "Search results" %}</h2><p class="vault-muted">{{ total_label }} {% blocktrans count record_count=total %}matching record{% plural %}matching records{% endblocktrans %}</p></div>
         <div class="vault-actions">
           <a class="button" href="{% url 'vault:export_csv' %}?{% if query_string %}{{ query_string }}&{% endif %}adv=1">{% trans "Export CSV" %}</a>
           <a class="button" href="{% url 'vault:export_json' %}?{% if query_string %}{{ query_string }}&{% endif %}adv=1">{% trans "Export JSON" %}</a>
         </div>
       </div>
       <div class="vault-table-wrap">
-        <table class="vault-table record-table">
+        <table class="vault-table record-table sortable-table" data-sort-base="?{% if query_string %}{{ query_string }}&{% endif %}adv=1">
           <caption class="sr-only">{% trans "Matching records" %}</caption>
-          <thead><tr><th scope="col">{% trans "ID" %}</th><th scope="col">{% trans "URL" %}</th><th scope="col">{% trans "Account type" %}</th><th scope="col">{% trans "Identifier" %}</th><th scope="col">{% trans "IP address" %}</th><th scope="col">{% trans "Actions" %}</th></tr></thead>
+          <thead><tr>
+            <th scope="col" data-sort-col="id" class="sortable"><button type="button" class="sort-control">{% trans "ID" %} <span class="sort-indicator" aria-hidden="true"></span></button></th>
+            <th scope="col" data-sort-col="url" class="sortable"><button type="button" class="sort-control">{% trans "URL" %} <span class="sort-indicator" aria-hidden="true"></span></button></th>
+            <th scope="col" data-sort-col="account_type" class="sortable"><button type="button" class="sort-control">{% trans "Account type" %} <span class="sort-indicator" aria-hidden="true"></span></button></th>
+            <th scope="col" data-sort-col="identifier" class="sortable"><button type="button" class="sort-control">{% trans "Identifier" %} <span class="sort-indicator" aria-hidden="true"></span></button></th>
+            <th scope="col" data-sort-col="ip" class="sortable"><button type="button" class="sort-control">{% trans "IP address" %} <span class="sort-indicator" aria-hidden="true"></span></button></th>
+            <th scope="col">{% trans "Actions" %}</th>
+          </tr></thead>
           <tbody>
             {% for record in records %}
               <tr><td class="mono">#{{ record.id }}</td><td><strong dir="ltr">{{ record.url.name }}</strong></td><td><span class="badge outline">{{ record.get_account_type_display }}</span></td><td dir="auto">{{ record.identifier }}</td><td class="mono" dir="ltr">{{ record.ip.name|default:"—" }}</td><td><a class="button small-button" href="{% url 'vault:detail' record.id %}">{% trans "View" %}</a></td></tr>

@@ -3,20 +3,22 @@
 {% block heading %}{% trans "Import job details" %}{% endblock %}
 {% block intro %}<p class="page-intro">{% trans "Source:" %} {{ job.source_name }}</p>{% endblock %}
 {% block header_actions %}
-  {% if job.can_resume %}
-    <a class="button" href="{% url 'vault:import_job_resume' job.job_id %}">{% trans "Resume" %}</a>
-  {% endif %}
-  {% if job.can_pause %}
-    <a class="button" href="{% url 'vault:import_job_pause' job.job_id %}">{% trans "Pause" %}</a>
-  {% endif %}
-  {% if job.can_cancel %}
-    <a class="button" href="{% url 'vault:import_job_cancel' job.job_id %}">{% trans "Cancel" %}</a>
-  {% endif %}
+  <a class="button" href="{% url 'vault:import_jobs' %}">{% trans "All imports" %}</a>
+  <a class="button" data-import-job-action-link="resume" data-job-id="{{ job.job_id }}" data-post-url="{% url 'vault:import_job_resume' job.job_id %}" href="{% url 'vault:import_job_resume' job.job_id %}"{% if not job.can_resume %} hidden{% endif %}>{% trans "Continue / resume" %}</a>
+  <a class="button" data-import-job-action-link="pause" data-job-id="{{ job.job_id }}" data-post-url="{% url 'vault:import_job_pause' job.job_id %}" href="{% url 'vault:import_job_pause' job.job_id %}"{% if not job.can_pause %} hidden{% endif %}>{% trans "Pause" %}</a>
+  <a class="button danger" data-import-job-action-link="cancel" data-job-id="{{ job.job_id }}" data-post-url="{% url 'vault:import_job_cancel' job.job_id %}" href="{% url 'vault:import_job_cancel' job.job_id %}"{% if not job.can_cancel %} hidden{% endif %}>{% trans "Stop import" %}</a>
   <a class="button" href="{% url 'vault:import_job_verify' job.job_id %}">{% trans "Verify" %}</a>
   <a class="button primary" href="{% url 'vault:import_job_records' job.job_id %}">{% trans "View records" %}</a>
 {% endblock %}
 {% block content %}
-  <section class="vault-panel">
+  <section class="vault-panel import-job-monitor" data-import-job-monitor
+       data-status-url="{% url 'vault:import_job_status' job.job_id %}"
+       data-poll-interval="2000"
+       data-cancel-pending-label="{% trans 'Stopping at the next durable batch…' %}"
+       data-cancel-confirm-label="{% trans 'Stop this import? The committed records will remain in the vault.' %}"
+       data-action-pending-label="{% trans 'Saving your request…' %}"
+       data-action-error-label="{% trans 'The request could not be saved. Refresh the job status and try again.' %}">
+    <form class="import-job-csrf" data-import-job-csrf hidden>{% csrf_token %}</form>
     <div class="detail-grid">
       <div class="detail-item">
         <label>{% trans "Job ID" %}</label>
@@ -25,39 +27,47 @@
       <div class="detail-item">
         <label>{% trans "Status" %}</label>
         <div>
-          <span class="badge {% if job.status == 'completed' %}success{% elif job.status == 'failed' %}error{% elif job.status == 'processing' %}info{% elif job.status == 'interrupted' %}warning{% else %}outline{% endif %}">
+          <span class="badge {% if job.status == 'completed' %}success{% elif job.status == 'failed' or job.status == 'completed_with_errors' %}error{% elif job.status == 'processing' %}info{% elif job.status == 'interrupted' %}warning{% else %}outline{% endif %}" data-job-status data-status="{{ job.status }}" data-cancel-pending-label="{% trans 'Stopping at the next durable batch…' %}">
             {{ job.get_status_display }}
           </span>
         </div>
       </div>
       <div class="detail-item">
         <label>{% trans "Stage" %}</label>
-        <div>{{ job.get_stage_display }}</div>
+        <div data-job-stage>{{ job.get_stage_display }}</div>
       </div>
       <div class="detail-item">
         <label>{% trans "Progress" %}</label>
         <div>
-          <div class="progress-bar" style="width: 200px; display: inline-block; vertical-align: middle;">
-            <div style="width: {{ job.progress_percent }}%; background: currentColor; height: 12px; border-radius: 6px;"></div>
+          <div class="progress-bar import-job-progress-track">
+            <div data-job-progress style="width: {{ job.progress_percent }}%; background: currentColor; height: 12px; border-radius: 6px;"></div>
           </div>
-          <span>{{ job.progress_percent|floatformat:1 }}%</span>
+          <span data-job-progress-label>{{ job.progress_percent|floatformat:1 }}%</span>
         </div>
       </div>
       <div class="detail-item">
         <label>{% trans "Total discovered" %}</label>
-        <div>{{ job.total_discovered }}</div>
+        <div data-job-counter="discovered">{{ job.total_discovered }}</div>
+      </div>
+      <div class="detail-item">
+        <label>{% trans "Attempted" %}</label>
+        <div data-job-counter="attempted">{{ job.total_attempted }}</div>
       </div>
       <div class="detail-item">
         <label>{% trans "Committed" %}</label>
-        <div class="success-text">{{ job.total_committed }}</div>
+        <div class="success-text" data-job-counter="committed">{{ job.total_committed }}</div>
       </div>
       <div class="detail-item">
         <label>{% trans "Skipped" %}</label>
-        <div>{{ job.total_skipped }}</div>
+        <div data-job-counter="skipped">{{ job.total_skipped }}</div>
       </div>
       <div class="detail-item">
         <label>{% trans "Failed" %}</label>
-        <div class="{% if job.total_failed %}error-text{% endif %}">{{ job.total_failed }}</div>
+        <div class="{% if job.total_failed %}error-text{% endif %}" data-job-counter="failed">{{ job.total_failed }}</div>
+      </div>
+      <div class="detail-item">
+        <label>{% trans "Lines remaining" %}</label>
+        <div data-job-counter="remaining">{{ job.remaining_count }}</div>
       </div>
       <div class="detail-item">
         <label>{% trans "Created at" %}</label>
@@ -69,11 +79,11 @@
       </div>
       <div class="detail-item">
         <label>{% trans "Last activity" %}</label>
-        <div>{{ job.last_activity_at|date:"Y-m-d H:i:s"|default:"—" }}</div>
+        <div data-job-last-activity>{{ job.last_activity_at|date:"Y-m-d H:i:s"|default:"—" }}</div>
       </div>
       <div class="detail-item">
         <label>{% trans "Completed at" %}</label>
-        <div>{{ job.completed_at|date:"Y-m-d H:i:s"|default:"—" }}</div>
+        <div data-job-completed-at>{{ job.completed_at|date:"Y-m-d H:i:s"|default:"—" }}</div>
       </div>
       <div class="detail-item">
         <label>{% trans "Recovery attempts" %}</label>
@@ -82,10 +92,14 @@
       {% if job.last_error %}
         <div class="detail-item full-width">
           <label>{% trans "Last error" %}</label>
-          <div class="error-text">{{ job.last_error }}</div>
+          <div class="error-text">{% trans "The importer recorded a failure. Sensitive error details are redacted." %}</div>
         </div>
       {% endif %}
     </div>
+    <p class="field-help import-job-poll-feedback" data-job-feedback role="status" aria-live="polite"></p>
+    {% if job.options.source_kind == 'upload' and job.status == 'paused' %}
+      <p class="vault-note">{% trans "Uploaded bytes are held only by the live request worker. Continue is available while that worker is connected; if it stops or the server restarts, upload the source again to replay unaccounted lines." %}</p>
+    {% endif %}
   </section>
 
   {% if recent_failures %}
@@ -106,7 +120,7 @@
             {% for record in recent_failures %}
               <tr>
                 <td>{{ record.source_position }}</td>
-                <td>{{ record.error_message|truncatechars:100 }}</td>
+                <td>{% trans "Sensitive details redacted" %}</td>
                 <td>{{ record.error_category }}</td>
               </tr>
             {% endfor %}

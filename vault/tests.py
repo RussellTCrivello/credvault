@@ -14,9 +14,15 @@ from django.urls import reverse
 
 from .importer import (
     DEFAULT_STAGE_ROWS, BulkImportSession, bulk_import_lines, stage_rows,
+    worker_count,
 )
-from .models import Account, Email, Ip, Pass, Url, User
+from .models import Account, Email, ImportJob, Ip, Pass, Url, User
 from .utils import parse_line
+
+
+def latest_import_job():
+    """The most recently created ImportJob (highest pk)."""
+    return ImportJob.objects.order_by('pk').last()
 
 
 class WorkspaceInterfaceTests(TestCase):
@@ -346,7 +352,21 @@ class WorkspaceInterfaceTests(TestCase):
             {'file': uploaded_file},
         )
 
-        self.assertRedirects(response, reverse('vault:browse'))
+        # The import lands on the durable job's detail page, where its
+        # state and progress can be inspected (README, "Import jobs").
+        job = latest_import_job()
+        detail_url = reverse('vault:import_job_detail', args=[job.job_id])
+        self.assertRedirects(response, detail_url)
+
+        page = self.client.get(detail_url)
+        self.assertContains(page, 'Import job details')
+        self.assertContains(page, job.source_name)
+        self.assertContains(page, 'Completed')
+        self.assertContains(page, '100.0%')
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, 'completed')
+        self.assertEqual(job.total_committed, 1)
         self.assertTrue(
             Url.objects.filter(name='https://import.example/login').exists()
         )
@@ -384,6 +404,11 @@ class WorkspaceInterfaceTests(TestCase):
         count_events = [
             event for event in events if event['type'] == 'count_progress'
         ]
+        job_events = [event for event in events if event['type'] == 'job']
+        self.assertEqual(len(job_events), 1)
+        self.assertTrue(job_events[0]['job_id'])
+        self.assertIn('/status/', job_events[0]['status_url'])
+        self.assertIn('/pause/', job_events[0]['pause_url'])
         self.assertEqual(progress_events[0]['total'], 4)
         self.assertEqual(progress_events[-1]['processed'], 4)
         self.assertEqual(count_events[-1]['files_scanned'], 2)
@@ -397,6 +422,17 @@ class WorkspaceInterfaceTests(TestCase):
             .count(),
             2,
         )
+        job = latest_import_job()
+        job.refresh_from_db()
+        self.assertEqual(job.status, 'completed')
+        self.assertEqual(job.total_discovered, 4)
+        self.assertEqual(job.total_attempted, 4)
+        self.assertEqual(job.records.count(), 4)
+        self.assertTrue(job.source_hash)
+        self.assertTrue(all(
+            source_line == ''
+            for source_line in job.records.values_list('source_line', flat=True)
+        ))
 
     def test_import_progress_counts_lines_from_folder_paths(self):
         tmp_dir = tempfile.mkdtemp()
@@ -429,6 +465,12 @@ class WorkspaceInterfaceTests(TestCase):
             self.assertEqual(events[-1]['created'], 2)
             self.assertEqual(events[-1]['skipped'], 1)
             self.assertEqual(events[-1]['files'], 2)
+            job = latest_import_job()
+            job.refresh_from_db()
+            self.assertEqual(job.status, 'completed')
+            self.assertEqual(job.total_discovered, 3)
+            self.assertEqual(job.records.count(), 3)
+            self.assertTrue(job.source_hash)
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -448,11 +490,20 @@ class WorkspaceInterfaceTests(TestCase):
             reverse('vault:import'),
             {'folder': [f1, f2]},
         )
-        self.assertRedirects(response, reverse('vault:browse'))
+        # One job for the whole upload; it lands on that job's detail page.
+        job = latest_import_job()
+        self.assertRedirects(
+            response, reverse('vault:import_job_detail', args=[job.job_id])
+        )
         self.assertEqual(
             Account.objects.filter(url__name='https://folder.example/login').count(),
             2,
         )
+        # Both files are accounted for in one ledger: 2 committed records
+        # and 2 skipped lines (the comment and the invalid line).
+        self.assertEqual(job.total_committed, 2)
+        self.assertEqual(job.total_skipped, 2)
+        self.assertEqual(job.records.count(), 4)
 
         # 2. Local/server directory path with nested subdirectories
         tmp_dir = tempfile.mkdtemp()
@@ -469,7 +520,10 @@ class WorkspaceInterfaceTests(TestCase):
                 reverse('vault:import'),
                 {'folder_path': tmp_dir},
             )
-            self.assertRedirects(response, reverse('vault:browse'))
+            job = latest_import_job()
+            self.assertRedirects(
+                response, reverse('vault:import_job_detail', args=[job.job_id])
+            )
             self.assertEqual(
                 Account.objects.filter(url__name='https://path.example/login').count(),
                 2,
@@ -514,7 +568,21 @@ class WorkspaceInterfaceTests(TestCase):
                 reverse('vault:import'),
                 {'folder_path': f'{dir_one}\n{dir_two}'},
             )
-            self.assertRedirects(response, reverse('vault:browse'))
+            # Two paths -> two durable jobs -> the job list, where both
+            # jobs are visible with their state and progress.
+            self.assertRedirects(response, reverse('vault:import_jobs'))
+            page = self.client.get(reverse('vault:import_jobs'))
+            self.assertContains(page, 'Import jobs')
+            jobs = list(ImportJob.objects.order_by('pk'))
+            self.assertEqual(len(jobs), 2)
+            for job in jobs:
+                # The list shows each job's (truncated) id and source.
+                self.assertContains(page, str(job.job_id)[:8])
+                self.assertContains(page, job.source_name)
+                self.assertContains(
+                    page,
+                    reverse('vault:import_job_detail', args=[job.job_id]),
+                )
             self.assertEqual(
                 Account.objects.filter(
                     url__name='https://multi1.example/login'
@@ -549,7 +617,18 @@ class WorkspaceInterfaceTests(TestCase):
             for index in (1, 2, 3)
         ]
         response = self.client.post(reverse('vault:import'), {'file': uploads})
-        self.assertRedirects(response, reverse('vault:browse'))
+        job = latest_import_job()
+        self.assertRedirects(
+            response, reverse('vault:import_job_detail', args=[job.job_id])
+        )
+        # All three files share one job and one ledger: positions (and
+        # therefore idempotency keys) must not collide across files.
+        self.assertEqual(job.records.count(), 3)
+        self.assertEqual(
+            sorted(job.records.values_list('source_position', flat=True)),
+            [1, 2, 3],
+        )
+        self.assertEqual(job.total_committed, 3)
         for index in (1, 2, 3):
             self.assertEqual(
                 Account.objects.filter(
@@ -596,7 +675,10 @@ class WorkspaceInterfaceTests(TestCase):
             reverse('vault:import'),
             {'file': uploaded_file, 'fast': 'on'},
         )
-        self.assertRedirects(response, reverse('vault:browse'))
+        job = latest_import_job()
+        self.assertRedirects(
+            response, reverse('vault:import_job_detail', args=[job.job_id])
+        )
         self.assertEqual(
             Account.objects.filter(
                 url__name='https://fast.example/login'
@@ -664,6 +746,87 @@ class WorkspaceInterfaceTests(TestCase):
         self.assertEqual(Account.objects.count(), 250)
         for account in Account.objects.all():
             self.assertEqual(account.compute_fingerprint(), account.fingerprint)
+
+    def test_parse_pool_prefers_fork_and_falls_back_to_spawn(self):
+        # Prefer fork where the context factory really supports it; on Windows
+        # the only supported method is spawn.
+        import multiprocessing
+        from .importer import _parse_context
+
+        real_methods = multiprocessing.get_all_start_methods()
+        with mock.patch(
+            'multiprocessing.get_all_start_methods',
+            return_value=['spawn'],
+        ):
+            self.assertEqual(_parse_context().get_start_method(), 'spawn')
+        with mock.patch(
+            'multiprocessing.get_all_start_methods',
+            return_value=['fork', 'spawn'],
+        ):
+            expected = 'fork' if 'fork' in real_methods else 'spawn'
+            self.assertEqual(_parse_context().get_start_method(), expected)
+
+    def test_parse_context_falls_back_when_fork_context_is_rejected(self):
+        import multiprocessing
+        from .importer import _parse_context
+
+        real_get_context = multiprocessing.get_context
+
+        def reject_fork(method=None):
+            if method == 'fork':
+                raise ValueError("cannot find context for 'fork'")
+            return real_get_context(method)
+
+        with mock.patch(
+            'multiprocessing.get_all_start_methods',
+            return_value=['fork', 'spawn'],
+        ), mock.patch(
+            'multiprocessing.get_context', side_effect=reject_fork,
+        ):
+            self.assertEqual(_parse_context().get_start_method(), 'spawn')
+
+    def test_spawn_workers_store_the_same_records_as_inline_parsing(self):
+        # The exact code path Windows takes (spawn pool), forced on any
+        # platform: parsing equivalence, batching and cleanup must hold.
+        lines = [
+            f'https://spawn{i % 3}.example.com/x|suser{i}@spawn.example'
+            f'|spw{i % 2}|10.4.5.{i % 7}'
+            for i in range(60)
+        ]
+
+        with mock.patch(
+            'multiprocessing.get_all_start_methods',
+            return_value=['spawn'],
+        ):
+            session = BulkImportSession(workers=2, batch_rows=15)
+            session.add_lines(line + '\n' for line in lines)
+            created, skipped = session.finish()
+        # The pool was really closed by finish(); no stragglers remain.
+        self.assertIsNone(session._pool)
+        self.assertEqual((created, skipped), (60, 0))
+        self.assertEqual(
+            Account.objects.filter(
+                url__name__contains='spawn'
+            ).count(),
+            60,
+        )
+        for account in Account.objects.filter(url__name__contains='spawn'):
+            self.assertEqual(account.compute_fingerprint(), account.fingerprint)
+
+    def test_worker_count_honors_explicit_configuration_everywhere(self):
+        # An explicit VAULT_IMPORT_WORKERS setting is respected even where
+        # fork is unavailable; without it, non-POSIX platforms stay on the
+        # safe inline default.
+        with mock.patch('os.name', 'nt'), mock.patch.dict(
+            os.environ, {'VAULT_IMPORT_WORKERS': '3'}
+        ):
+            self.assertEqual(worker_count(), 3)
+        with mock.patch('os.name', 'nt'), mock.patch.dict(
+            os.environ, {'VAULT_IMPORT_WORKERS': '0'}
+        ):
+            self.assertEqual(worker_count(), 1)
+        with mock.patch.dict(os.environ, {'VAULT_IMPORT_WORKERS': 'lots'}):
+            self.assertGreaterEqual(worker_count(), 1)
 
     def test_delete_requires_post_confirmation(self):
         response = self.client.post(

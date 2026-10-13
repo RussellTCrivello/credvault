@@ -2,27 +2,31 @@ import csv
 import io
 import json
 import os
+import queue
+import threading
 from contextlib import nullcontext
 from urllib.parse import urlparse
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
-from django.db.models import Count, ProtectedError, Q
-from django.db.models.functions import Lower
+from django.core.paginator import Paginator
+from django.db import close_old_connections, connection, connections
+from django.db.models import CharField, Count, F, ProtectedError, Q
+from django.db.models.functions import Coalesce, Collate, Lower
 from django.http import JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.dateparse import parse_date
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy as _lazy, ngettext
 
-from .counts import CappedPaginator, capped_count, count_label
+from .counts import count_label, exact_count
 from .forms import (
     AccountForm, AdvancedSearchForm, ImportFileForm, QuickSearchForm,
     ReferenceForm,
 )
 from .importer import (
-    STREAM_BATCH_SIZE, BulkImportSession, collect_files_from_path, import_path,
-    search_indexes_suspended,
+    STREAM_BATCH_SIZE, collect_files_from_path, search_indexes_suspended,
 )
 from .models import Account, Email, Ip, Pass, Url, User
 from .utils import extract_domain
@@ -113,21 +117,36 @@ def _is_domain_like_query(q_lower):
     return '.' in q_lower and '/' not in q_lower and '@' not in q_lower
 
 
+#: Upper bound for byte-order prefix range scans: the highest Unicode code
+#: point, so ``prefix <= value < prefix || _CODE_POINT_MAX`` covers every
+#: string that starts with ``prefix``.
+_CODE_POINT_MAX = '\U0010ffff'
+
+
 def _match_url_ids(raw_value, force_domain=False):
     """
-    Look up matching Url IDs using the B-tree index on LOWER(name).
+    Look up matching Url IDs using B-tree indexes on LOWER(name).
 
     - Always matches the exact URL (case-insensitive).
     - When the query is a domain (e.g. 'example.com') or force_domain=True,
       also performs indexed range scans for URLs hosted on that domain
       (https://domain/..., http://domain/..., https://www.domain/..., etc.).
+
+    The range scans compare under COLLATE "C" (byte order), backed by the
+    ``vault_url_name_lower_c_idx`` index from migration 0006. Byte order is
+    the only ordering in which ``prefix <= value < prefix || max-code-point``
+    means exactly "value starts with prefix": in a locale collation (the
+    Windows installer's default, for example) the U+FFFF bound does not
+    reliably sort above ordinary text, and the very same scan silently
+    matches nothing. Comparing under "C" makes domain search behave
+    identically in every database collation.
     """
     q_lower = (raw_value or '').strip().lower()
     if not q_lower:
         return []
 
     exact_set = {q_lower, q_lower.rstrip('/')}
-    clauses = Q(_n__in=exact_set)
+    range_clauses = Q()
 
     if force_domain or _is_domain_like_query(q_lower):
         dom = extract_domain(q_lower)
@@ -141,11 +160,20 @@ def _match_url_ids(raw_value, force_domain=False):
                     exact_set.add(base)
                     for sep in ('/', ':', '?', '#'):
                         prefix = base + sep
-                        clauses |= Q(_n__gte=prefix, _n__lt=prefix + '\uffff')
-            clauses |= Q(_n__in=exact_set)
+                        range_clauses |= Q(
+                            _nc__gte=prefix,
+                            _nc__lt=prefix + _CODE_POINT_MAX,
+                        )
+
+    clauses = Q(_n__in=exact_set)
+    if range_clauses.children:
+        clauses |= range_clauses
 
     ids = (
-        Url.objects.annotate(_n=Lower('name'))
+        Url.objects.annotate(
+            _n=Lower('name'),
+            _nc=Collate(Lower('name'), 'C'),
+        )
         .filter(clauses)
         .values('id')
     )
@@ -204,6 +232,30 @@ def _id_filter_values(source):
 def _has_any(ids):
     """True when a list or a subquery from _id_filter_values matches anything."""
     return bool(ids) if isinstance(ids, list) else ids.exists()
+
+
+def _sort_accounts(queryset, requested_sort):
+    """Apply an allow-listed, typed, deterministic ordering before paging."""
+    identifier = Coalesce(
+        'email__name', 'user__name', output_field=CharField(),
+    )
+    sort_map = {
+        'newest': ('-created_at', 'id'),
+        'oldest': ('created_at', 'id'),
+        'id': ('id',),
+        '-id': ('-id',),
+        'url': ('url__name', 'id'),
+        '-url': ('-url__name', 'id'),
+        'account_type': ('account_type', 'id'),
+        '-account_type': ('-account_type', 'id'),
+        'identifier': (identifier.asc(nulls_last=True), 'id'),
+        '-identifier': (identifier.desc(nulls_last=True), 'id'),
+        'ip': (F('ip__name').asc(nulls_last=True), 'id'),
+        '-ip': (F('ip__name').desc(nulls_last=True), 'id'),
+        'created_at': ('created_at', 'id'),
+        '-created_at': ('-created_at', 'id'),
+    }
+    return queryset.order_by(*sort_map.get(requested_sort, sort_map['newest']))
 
 
 def filter_accounts(params):
@@ -289,21 +341,18 @@ def filter_accounts(params):
 
         created_from = params.get('created_from')
         if created_from:
+            created_from = parse_date(str(created_from))
+            if created_from is None:
+                return _sort_accounts(qs.none(), params.get('sort'))
             qs = qs.filter(created_at__date__gte=created_from)
         created_to = params.get('created_to')
         if created_to:
+            created_to = parse_date(str(created_to))
+            if created_to is None:
+                return _sort_accounts(qs.none(), params.get('sort'))
             qs = qs.filter(created_at__date__lte=created_to)
 
-        sort = params.get('sort') or 'newest'
-        if sort == 'oldest':
-            qs = qs.order_by('created_at', 'id')
-        elif sort == 'url':
-            qs = qs.order_by('url__name', 'id')
-        elif sort == 'identifier':
-            qs = qs.order_by('email__name', 'user__name', 'id')
-        else:
-            qs = qs.order_by('-created_at', 'id')
-        return qs
+        return _sort_accounts(qs, params.get('sort') or 'newest')
 
     search_term = q or keyword
     if not search_term:
@@ -311,16 +360,18 @@ def filter_accounts(params):
 
     if field == 'domain':
         ids = _match_url_ids(search_term, force_domain=True)
-        return qs.filter(url_id__in=ids)
+        return _sort_accounts(qs.filter(url_id__in=ids), params.get('sort'))
 
     if field == 'url':
         ids = _match_url_ids(search_term, force_domain=False)
-        return qs.filter(url_id__in=ids)
+        return _sort_accounts(qs.filter(url_id__in=ids), params.get('sort'))
 
     if field in _QUICK_SEARCH_MAP:
         model, fk = _QUICK_SEARCH_MAP[field]
         ids = _match_exact_ids(model, search_term)
-        return qs.filter(**{f"{fk}__in": ids})
+        return _sort_accounts(
+            qs.filter(**{f"{fk}__in": ids}), params.get('sort'),
+        )
 
     # Default ('all' or unspecified field or 'keyword'): check all 5 indexed
     # reference tables (Domain/URL, Email, Username, Password, IP) in < 1 ms.
@@ -346,7 +397,7 @@ def filter_accounts(params):
     if any(_has_any(ids) for ids in (
         url_ids, email_ids, user_ids, pass_ids, ip_ids,
     )):
-        return qs.filter(clauses)
+        return _sort_accounts(qs.filter(clauses), params.get('sort'))
 
     # If invoked via free-text keyword and no exact/domain match was found,
     # fall back to reference-table substring lookup.
@@ -366,15 +417,15 @@ def filter_accounts(params):
         ip_ids = _id_filter_values(
             Ip.objects.filter(name__icontains=keyword)
         )
-        return qs.filter(
+        return _sort_accounts(qs.filter(
             Q(url_id__in=url_ids)
             | Q(email_id__in=email_ids)
             | Q(user_id__in=user_ids)
             | Q(password_id__in=pass_ids)
             | Q(ip_id__in=ip_ids)
-        )
+        ), params.get('sort'))
 
-    return qs.none()
+    return _sort_accounts(qs.none(), params.get('sort'))
 
 
 def _paginate_accounts(request, queryset, per_page=100):
@@ -384,11 +435,10 @@ def _paginate_accounts(request, queryset, per_page=100):
     Sorting the matches and joining the five reference tables for every match
     is what makes broad searches slow, so only the ids are paged and sorted.
     Full rows (with their URL, identifier, password and IP) are loaded for the
-    records on the page alone, in the same order.
+    records on the page alone, in the same order. Django's paginator uses the
+    exact queryset count and has no row-count ceiling.
     """
-    paginator = CappedPaginator(
-        queryset.values_list('pk', flat=True), per_page
-    )
+    paginator = Paginator(queryset.values_list('pk', flat=True), per_page)
     page_obj = paginator.get_page(request.GET.get('page', '1'))
     ids = list(page_obj.object_list)
     loaded = Account.objects.select_related(
@@ -399,7 +449,7 @@ def _paginate_accounts(request, queryset, per_page=100):
 
 
 def _paginate(request, queryset, per_page=100):
-    paginator = CappedPaginator(queryset, per_page)
+    paginator = Paginator(queryset, per_page)
     page_number = request.GET.get('page', '1')
     return paginator.get_page(page_number)
 
@@ -433,9 +483,12 @@ def _attach_usage(kind, entities):
 
 
 def _records_total_context():
-    """Capped number of all records, for the Records and Overview pages."""
-    number, capped = capped_count(Account.objects.all())
-    return {'total_records': number, 'total_records_capped': capped}
+    """Exact number and readable label for the Records page."""
+    total_records = exact_count(Account.objects.all())
+    return {
+        'total_records': total_records,
+        'total_records_label': count_label(total_records),
+    }
 
 
 def _reference_choices(kind):
@@ -446,21 +499,21 @@ def _reference_choices(kind):
 
 def dashboard(request):
     """Replaces: main_menu() -- the landing page with workspace stats."""
-    total_accounts, total_capped = capped_count(Account.objects.all())
+    total_accounts = exact_count(Account.objects.all())
     reference_counts = {
-        kind: capped_count(REFERENCE_REGISTRY[kind]['model'].objects.all())
+        kind: exact_count(REFERENCE_REGISTRY[kind]['model'].objects.all())
         for kind in REFERENCE_REGISTRY
     }
     reference_rows = [
         {
             'kind': kind,
             'label_plural': REFERENCE_REGISTRY[kind]['label_plural'],
-            'count': count_label(*reference_counts[kind]),
+            'count': count_label(reference_counts[kind]),
         }
         for kind in REFERENCE_REGISTRY
     ]
     return render(request, 'vault/dashboard.html', {
-        'total_records': count_label(total_accounts, total_capped),
+        'total_records': count_label(total_accounts),
         'reference_rows': reference_rows,
         'reference_registry': REFERENCE_REGISTRY,
     })
@@ -476,12 +529,11 @@ def browse_all(request):
     records = []
     page_obj = None
     total = 0
-    total_capped = False
 
     if has_query:
         queryset = filter_accounts(request.GET)
-        total, total_capped = capped_count(queryset)
         page_obj = _paginate_accounts(request, queryset)
+        total = page_obj.paginator.count
         records = page_obj.object_list
 
     return render(request, 'vault/browse.html', {
@@ -490,7 +542,7 @@ def browse_all(request):
         'records': records,
         'page_obj': page_obj,
         'total': total,
-        'total_capped': total_capped,
+        'total_label': count_label(total),
         **_records_total_context(),
         'query_string': _clean_query_string(request.GET),
     })
@@ -507,12 +559,11 @@ def search_records(request):
     records = []
     page_obj = None
     total = 0
-    total_capped = False
 
     if has_query:
         queryset = filter_accounts(request.GET)
-        total, total_capped = capped_count(queryset)
         page_obj = _paginate_accounts(request, queryset)
+        total = page_obj.paginator.count
         records = page_obj.object_list
 
     return render(request, 'vault/search.html', {
@@ -521,7 +572,7 @@ def search_records(request):
         'records': records,
         'page_obj': page_obj,
         'total': total,
-        'total_capped': total_capped,
+        'total_label': count_label(total),
         'query_string': _clean_query_string(request.GET),
     })
 
@@ -536,14 +587,13 @@ def advanced_search(request):
     records = []
     page_obj = None
     total = 0
-    total_capped = False
 
     if request.GET:
         params = request.GET.copy()
         params['adv'] = '1'
         queryset = filter_accounts(params)
-        total, total_capped = capped_count(queryset)
         page_obj = _paginate_accounts(request, queryset)
+        total = page_obj.paginator.count
         records = page_obj.object_list
 
     return render(request, 'vault/advanced_search.html', {
@@ -551,7 +601,7 @@ def advanced_search(request):
         'records': records,
         'page_obj': page_obj,
         'total': total,
-        'total_capped': total_capped,
+        'total_label': count_label(total),
         'query_string': _clean_query_string(request.GET),
     })
 
@@ -689,7 +739,7 @@ def delete_account(request, pk):
 def references_index(request):
     """Overview of the five reference tables and how many values each holds."""
     reference_counts = {
-        kind: capped_count(REFERENCE_REGISTRY[kind]['model'].objects.all())
+        kind: exact_count(REFERENCE_REGISTRY[kind]['model'].objects.all())
         for kind in REFERENCE_REGISTRY
     }
     reference_rows = [
@@ -697,15 +747,15 @@ def references_index(request):
             'kind': kind,
             'label': REFERENCE_REGISTRY[kind]['label'],
             'label_plural': REFERENCE_REGISTRY[kind]['label_plural'],
-            'count': count_label(*reference_counts[kind]),
+            'count': count_label(reference_counts[kind]),
         }
         for kind in REFERENCE_REGISTRY
     ]
-    total_records, total_capped = capped_count(Account.objects.all())
+    total_records = exact_count(Account.objects.all())
     return render(request, 'vault/references_index.html', {
         'reference_rows': reference_rows,
         'total_records': total_records,
-        'total_capped': total_capped,
+        'total_records_label': count_label(total_records),
     })
 
 
@@ -739,9 +789,9 @@ def reference_list(request, kind):
     else:
         form = ReferenceForm(kind=kind)
 
-    total_values, total_capped = capped_count(model.objects.all())
     qs = model.objects.order_by('name')
     page_obj = _paginate(request, qs, per_page=100)
+    total_values = page_obj.paginator.count
     entities = list(page_obj.object_list)
     _attach_usage(kind, entities)
 
@@ -753,7 +803,7 @@ def reference_list(request, kind):
         'entities': entities,
         'page_obj': page_obj,
         'total_values': total_values,
-        'total_capped': total_capped,
+        'total_values_label': count_label(total_values),
         'query_string': _clean_query_string(request.GET),
     })
 
@@ -828,11 +878,16 @@ def import_from_file(request):
     
     The optional maximum-speed mode suspends the trigram search indexes
     for the duration and rebuilds them afterwards.
+
+    Redirect after a successful import (documented behavior, see README
+    "Import jobs"): a single job lands on its detail page
+    (/import/jobs/<job-id>/), where the job's status, stage, progress and
+    counters can be inspected; several jobs (one per listed path) land on
+    the job list.  The streaming progress flow (X-Import-Progress) keeps
+    its own contract: the final NDJSON 'done' event carries the redirect
+    to /records/ for the browser.
     """
-    from .import_engine import (
-        durable_import_file, durable_import_path, create_import_job,
-        DurableImportSession, _hash_file,
-    )
+    from .import_engine import durable_import_path, durable_import_uploads
     
     if request.method == 'POST':
         progress_request = request.headers.get('X-Import-Progress') == '1'
@@ -893,17 +948,13 @@ def import_from_file(request):
                     )
                     return render(request, 'vault/import.html', {'form': form})
 
-                # Import from uploaded files
+                # Import from uploaded files: one job, ONE session over all
+                # files.  Running a session per file would restart the line
+                # numbering for every file, so the per-(job, position)
+                # idempotency keys would collide and the ledger rows of
+                # every file after the first would be silently dropped.
                 if files:
-                    # Create one job for all uploaded files
-                    job = create_import_job(
-                        source_name=f'{len(files)} uploaded file(s)',
-                        source_path='',
-                    )
-                    session = DurableImportSession(job)
-                    for uploaded_file in files:
-                        uploaded_file.seek(0)
-                        session.run(uploaded_file)
+                    job = durable_import_uploads(files)
                     jobs.append(job)
 
             # Aggregate results from all jobs
@@ -911,8 +962,17 @@ def import_from_file(request):
             skipped_total = sum(j.total_skipped for j in jobs)
             failed_total = sum(j.total_failed for j in jobs)
 
-            # Build success message
-            if created_total == 0 and skipped_total > 0:
+            incomplete_jobs = [
+                job for job in jobs
+                if job.status not in ('completed', 'completed_with_errors')
+            ]
+            if incomplete_jobs:
+                messages.error(
+                    request,
+                    _('One or more import jobs did not complete. Review the job details before retrying.'),
+                )
+            # Build success message only after checking every job's final state.
+            elif created_total == 0 and skipped_total > 0:
                 messages.warning(
                     request,
                     _('No new records were created. Existing values were '\
@@ -951,153 +1011,277 @@ def import_from_file(request):
 
 
 def _stream_import_progress(uploaded_files, paths, fast_mode=False):
-    """Import inputs while streaming exact line-count progress to the browser."""
+    """Stream manifest scanning and durable import progress as NDJSON."""
     def events():
         yield json.dumps({'type': 'phase', 'phase': 'counting'}) + '\n'
 
-        sources = []
-        for path in paths:
-            sources.extend(
-                ('path', filepath)
-                for filepath in collect_files_from_path(path, ext='*')
-            )
-        sources.extend(('upload', uploaded_file) for uploaded_file in uploaded_files)
-
-        counted_sources = []
-        total_lines = 0
-        total_files = len(sources)
-        for file_number, (source_type, source) in enumerate(sources, start=1):
-            try:
-                if source_type == 'upload':
-                    source.seek(0)
-                    line_count = sum(1 for _line in source)
-                    source.seek(0)
-                else:
-                    # Binary counting matches the binary import below, so the
-                    # two always agree on what a line is.
-                    with open(source, 'rb') as handle:
-                        line_count = sum(1 for _line in handle)
-            except OSError:
-                yield json.dumps({
-                    'type': 'error',
-                    'message': _('A selected file could not be read.'),
-                }) + '\n'
-                return
-            counted_sources.append((source_type, source, line_count))
-            total_lines += line_count
-            yield json.dumps({
-                'type': 'count_progress',
-                'files_scanned': file_number,
-                'total_files': total_files,
-            }) + '\n'
-
-        if not counted_sources and not uploaded_files:
+        path_groups = [
+            (path, collect_files_from_path(path, ext='*'))
+            for path in paths
+        ]
+        source_items = [
+            ('path', group_index, filepath)
+            for group_index, (_path, group_files) in enumerate(path_groups)
+            for filepath in group_files
+        ]
+        source_items.extend(
+            ('upload', None, uploaded_file)
+            for uploaded_file in uploaded_files
+        )
+        total_files = len(source_items)
+        if not source_items:
             yield json.dumps({
                 'type': 'error',
-                'message': _('No readable files were found in the specified path.'),
+                'message': str(_(
+                    'No readable files were found in the specified path.'
+                )),
             }) + '\n'
             return
 
-        yield json.dumps({
-            'type': 'progress',
-            'phase': 'processing',
-            'processed': 0,
-            'total': total_lines,
-        }) + '\n'
+        updates = queue.Queue()
+        result = {
+            'created': 0,
+            'skipped': 0,
+            'failed': 0,
+            'job_ids': [],
+        }
+        worker_error = []
 
-        processed_lines = 0
-        created_total = 0
-        skipped_total = 0
+        def announce_job(job):
+            job_id = str(job.job_id)
+            result['job_ids'].append(job_id)
+            updates.put({
+                'type': 'job',
+                'job_id': job_id,
+                'source_name': job.source_name,
+                'detail_url': reverse(
+                    'vault:import_job_detail', args=[job.job_id],
+                ),
+                'status_url': reverse(
+                    'vault:import_job_status', args=[job.job_id],
+                ),
+                'pause_url': reverse(
+                    'vault:import_job_pause', args=[job.job_id],
+                ),
+                'resume_url': reverse(
+                    'vault:import_job_resume', args=[job.job_id],
+                ),
+                'cancel_url': reverse(
+                    'vault:import_job_cancel', args=[job.job_id],
+                ),
+            })
 
-        files_completed = 0
-        # One session for the whole job: batches stay large across files and
-        # parsing overlaps the database work.
-        session = BulkImportSession()
-        try:
-            with (search_indexes_suspended() if fast_mode else nullcontext()):
-                for file_number, (source_type, source, line_count) in enumerate(
-                    counted_sources, start=1
-                ):
-                    if source_type == 'upload':
-                        handle = source
-                        close_handle = False
-                        handle.seek(0)
-                    else:
-                        try:
-                            handle = open(source, 'rb')
-                        except OSError:
-                            yield json.dumps({
-                                'type': 'error',
-                                'message': _(
-                                    'A file changed or became unreadable during import.'
-                                ),
-                            }) + '\n'
-                            return
-                        close_handle = True
+        def import_worker(background=True):
+            if background:
+                close_old_connections()
+            try:
+                from .import_engine import (
+                    _source_manifest, _uploaded_manifest,
+                    durable_import_path, durable_import_uploads,
+                )
 
-                    try:
-                        batch = []
-                        file_processed_lines = 0
-                        for line in handle:
-                            batch.append(line)
-                            file_processed_lines += 1
-                            if len(batch) >= STREAM_BATCH_SIZE:
-                                session.add_lines(batch)
-                                processed_lines += len(batch)
-                                batch.clear()
-                                yield json.dumps({
-                                    'type': 'progress',
-                                    'phase': 'processing',
-                                    'processed': processed_lines,
-                                    'total': total_lines,
-                                    'file_number': file_number,
-                                    'total_files': len(counted_sources),
-                                    'files_completed': files_completed,
-                                }) + '\n'
-                        if batch:
-                            session.add_lines(batch)
-                            processed_lines += len(batch)
-                            yield json.dumps({
+                scanned = 0
+
+                def report_file_scanned(_source, _byte_size, _line_count):
+                    nonlocal scanned
+                    scanned += 1
+                    updates.put({
+                        'type': 'count_progress',
+                        'files_scanned': scanned,
+                        'total_files': total_files,
+                    })
+
+                # The view needs exact totals and the durable engine needs the
+                # integrity manifest. Build both in the same read pass; the
+                # engine independently revalidates path sources immediately
+                # before streaming their records.
+                prepared_paths = []
+                group_line_counts = []
+                for source_path, group_files in path_groups:
+                    prepared = _source_manifest(
+                        source_path,
+                        ext='*',
+                        files=group_files,
+                        on_file_scanned=report_file_scanned,
+                    )
+                    prepared_paths.append(prepared)
+                    group_line_counts.append(prepared[2])
+
+                upload_manifest = (
+                    _uploaded_manifest(
+                        uploaded_files,
+                        on_file_scanned=report_file_scanned,
+                    )
+                    if uploaded_files else None
+                )
+                upload_line_count = (
+                    upload_manifest[2] if upload_manifest is not None else 0
+                )
+                total_lines = sum(group_line_counts) + upload_line_count
+                updates.put({
+                    'type': 'progress',
+                    'phase': 'processing',
+                    'processed': 0,
+                    'total': total_lines,
+                })
+
+                context = (
+                    search_indexes_suspended()
+                    if fast_mode else nullcontext()
+                )
+                processed_before = 0
+                completed_files = 0
+                with context:
+                    for group_number, (path, group_files) in enumerate(
+                        path_groups, start=1,
+                    ):
+                        group_total = group_line_counts[group_number - 1]
+                        prepared_manifest = prepared_paths[group_number - 1]
+
+                        job_ref = {}
+
+                        def path_created(job, active=job_ref):
+                            active['job_id'] = str(job.job_id)
+                            announce_job(job)
+
+                        def path_progress(position, base=processed_before,
+                                          number=group_number,
+                                          active=job_ref):
+                            updates.put({
                                 'type': 'progress',
                                 'phase': 'processing',
-                                'processed': processed_lines,
+                                'job_id': active.get('job_id'),
+                                'processed': min(total_lines, base + position),
                                 'total': total_lines,
-                                'file_number': file_number,
-                                'total_files': len(counted_sources),
-                                'files_completed': files_completed,
-                            }) + '\n'
-                    finally:
-                        if close_handle:
-                            handle.close()
-                    if file_processed_lines != line_count:
-                        yield json.dumps({
-                            'type': 'error',
-                            'message': _(
-                                'A selected file changed while it was being imported. '
-                                'The progress total is no longer accurate.'
-                            ),
-                        }) + '\n'
-                        return
-                    files_completed += 1
-                    yield json.dumps({
-                        'type': 'progress',
-                        'phase': 'processing',
-                        'processed': processed_lines,
-                        'total': total_lines,
-                        'file_number': file_number,
-                        'total_files': len(counted_sources),
-                        'files_completed': files_completed,
-                    }) + '\n'
+                                'file_number': number,
+                                'total_files': max(1, len(path_groups)
+                                                   + bool(uploaded_files)),
+                                'files_completed': completed_files,
+                            })
 
-                created_total, skipped_total = session.finish()
-        finally:
-            session.close()
+                        job = durable_import_path(
+                            path,
+                            ext='*',
+                            on_progress=path_progress,
+                            on_job_created=path_created,
+                            batch_rows=STREAM_BATCH_SIZE,
+                            expected_line_count=group_total,
+                            prepared_manifest=prepared_manifest,
+                        )
+                        result['created'] += job.total_committed
+                        result['skipped'] += job.total_skipped
+                        result['failed'] += job.total_failed
+                        if job.status not in (
+                            'completed', 'completed_with_errors',
+                        ):
+                            worker_error.append('ImportIncomplete')
+                        processed_before += group_total
+                        completed_files += len(group_files)
+                        updates.put({
+                            'type': 'progress',
+                            'phase': 'processing',
+                            'processed': min(total_lines, processed_before),
+                            'total': total_lines,
+                            'file_number': group_number,
+                            'total_files': max(1, len(path_groups)
+                                               + bool(uploaded_files)),
+                            'files_completed': completed_files,
+                        })
 
+                    if uploaded_files:
+                        upload_group = len(path_groups) + 1
+
+                        job_ref = {}
+
+                        def upload_created(job, active=job_ref):
+                            active['job_id'] = str(job.job_id)
+                            announce_job(job)
+
+                        def upload_progress(position, base=processed_before,
+                                            active=job_ref):
+                            updates.put({
+                                'type': 'progress',
+                                'phase': 'processing',
+                                'job_id': active.get('job_id'),
+                                'processed': min(total_lines, base + position),
+                                'total': total_lines,
+                                'file_number': upload_group,
+                                'total_files': upload_group,
+                                'files_completed': completed_files,
+                            })
+
+                        job = durable_import_uploads(
+                            uploaded_files,
+                            on_progress=upload_progress,
+                            on_job_created=upload_created,
+                            batch_rows=STREAM_BATCH_SIZE,
+                            expected_line_count=upload_line_count,
+                            prepared_manifest=upload_manifest,
+                        )
+                        result['created'] += job.total_committed
+                        result['skipped'] += job.total_skipped
+                        result['failed'] += job.total_failed
+                        if job.status not in (
+                            'completed', 'completed_with_errors',
+                        ):
+                            worker_error.append('ImportIncomplete')
+                        processed_before += upload_line_count
+                        completed_files += len(uploaded_files)
+                        updates.put({
+                            'type': 'progress',
+                            'phase': 'processing',
+                            'processed': min(total_lines, processed_before),
+                            'total': total_lines,
+                            'file_number': upload_group,
+                            'total_files': upload_group,
+                            'files_completed': completed_files,
+                        })
+            except Exception as exc:
+                # Do not include exception text: a parser/driver may include
+                # the raw credential line or SQL parameters in that message.
+                worker_error.append(type(exc).__name__)
+            finally:
+                if background:
+                    connections.close_all()
+                updates.put(None)
+
+        # Django TestCase and explicit outer transactions cannot share a
+        # database transaction with a worker thread. Run inline in that case
+        # so test/transaction isolation is preserved; normal production
+        # requests still process in the background and stream each batch.
+        background = not connection.in_atomic_block
+        worker = None
+        if background:
+            worker = threading.Thread(
+                target=import_worker,
+                kwargs={'background': True},
+                name='credvault-durable-import',
+                daemon=True,
+            )
+            worker.start()
+        else:
+            import_worker(background=False)
+        while True:
+            update = updates.get()
+            if update is None:
+                break
+            yield json.dumps(update) + '\n'
+        if worker is not None:
+            worker.join()
+
+        if worker_error:
+            yield json.dumps({
+                'type': 'error',
+                'message': str(_('Import failed; the durable job remains available for review.')),
+                'error_type': worker_error[0],
+            }) + '\n'
         yield json.dumps({
             'type': 'done',
-            'created': created_total,
-            'skipped': skipped_total,
-            'files': len(counted_sources),
+            'created': result['created'],
+            'skipped': result['skipped'],
+            'failed': result['failed'],
+            'files': total_files,
+            'jobs': result['job_ids'],
             'redirect': reverse('vault:browse'),
         }) + '\n'
 
@@ -1235,13 +1419,80 @@ def export_json(request):
 # Import job management views
 # ---------------------------------------------------------------------------
 
-def import_job_list(request):
-    """List all import jobs with their status and progress."""
+def _import_job_status_payload(job):
+    """JSON-safe, credential-free progress and lifecycle information."""
+    return {
+        'job_id': str(job.job_id),
+        'status': job.status,
+        'status_display': str(job.get_status_display()),
+        'stage': job.stage,
+        'stage_display': str(job.get_stage_display()),
+        'progress_percent': float(job.progress_percent),
+        'total_discovered': int(job.total_discovered),
+        'total_attempted': int(job.total_attempted),
+        'total_committed': int(job.total_committed),
+        'total_skipped': int(job.total_skipped),
+        'total_failed': int(job.total_failed),
+        'remaining_count': int(job.remaining_count),
+        'can_pause': bool(job.can_pause()),
+        'can_resume': bool(job.can_resume()),
+        'can_cancel': bool(job.can_cancel()),
+        'cancellation_pending': bool(
+            job.status == 'cancelled' and job._has_live_lease()
+        ),
+    }
+
+
+def import_job_status(request, job_id):
+    """Return durable import progress for the live progress and detail UIs."""
+    if request.method != 'GET':
+        return JsonResponse({'error': 'GET required.'}, status=405)
     from .models import ImportJob
 
-    jobs = ImportJob.objects.order_by('-created_at')[:100]
+    job = get_object_or_404(ImportJob, job_id=job_id)
+    response = JsonResponse(_import_job_status_payload(job))
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
+def _import_job_json_requested(request):
+    return (
+        request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+        or 'application/json' in request.headers.get('Accept', '')
+    )
+
+
+def _respond_import_job_action(
+    request, job, *, ok, message, level='success', status=200,
+):
+    if _import_job_json_requested(request):
+        job.refresh_from_db()
+        return JsonResponse({
+            'ok': bool(ok),
+            'message': str(message),
+            'job': _import_job_status_payload(job),
+        }, status=status)
+
+    if level == 'success':
+        messages.success(request, message)
+    elif level == 'error':
+        messages.error(request, message)
+    else:
+        messages.warning(request, message)
+    return redirect('vault:import_job_detail', job_id=job.job_id)
+
+
+def import_job_list(request):
+    """List every import job with its status and progress."""
+    from .models import ImportJob
+
+    page_obj = _paginate(
+        request, ImportJob.objects.order_by('-created_at'), per_page=100,
+    )
     return render(request, 'vault/import_jobs.html', {
-        'jobs': jobs,
+        'jobs': page_obj.object_list,
+        'page_obj': page_obj,
+        'query_string': _clean_query_string(request.GET),
     })
 
 
@@ -1261,20 +1512,59 @@ def import_job_detail(request, job_id):
 
 
 def import_job_resume(request, job_id):
-    """Resume an interrupted or paused import job."""
+    """Continue a live pause or recover an abandoned replayable source."""
     from .models import ImportJob
-    from .import_engine import recover_job
+    from .import_engine import lines_factory_for_job, recover_job
 
     job = get_object_or_404(ImportJob, job_id=job_id)
+    if request.method not in ('GET', 'POST'):
+        return JsonResponse({'error': 'GET or POST required.'}, status=405)
     if not job.can_resume():
-        messages.error(request, _('This job cannot be resumed.'))
+        message = _('This job cannot be resumed from its available source.')
+        if request.method == 'POST':
+            return _respond_import_job_action(
+                request, job, ok=False, message=message,
+                level='warning', status=409,
+            )
+        messages.error(request, message)
         return redirect('vault:import_job_detail', job_id=job.job_id)
 
     if request.method == 'POST':
-        # Attempt recovery
-        recover_job(job)
-        messages.success(request, _('Job recovery initiated.'))
-        return redirect('vault:import_job_detail', job_id=job.job_id)
+        if job.status == 'paused' and job.mark_resumed():
+            return _respond_import_job_action(
+                request, job, ok=True,
+                message=_('Import continued.'),
+            )
+        if job.status == 'paused':
+            job.refresh_from_db()
+            if job.status != 'paused':
+                return _respond_import_job_action(
+                    request, job, ok=False,
+                    message=_('The job changed state before it could continue.'),
+                    level='warning', status=409,
+                )
+
+        # An expired/unowned path-backed job has no live request worker to
+        # continue, so reconcile and replay only its validated source gaps.
+        recovery_log = recover_job(
+            job, lines_iterable_factory=lines_factory_for_job(job),
+        )
+        if recovery_log.outcome == 'success':
+            return _respond_import_job_action(
+                request, job, ok=True,
+                message=_('Job recovery completed successfully.'),
+            )
+        if recovery_log.outcome == 'partial':
+            return _respond_import_job_action(
+                request, job, ok=True,
+                message=recovery_log.notes,
+                level='warning',
+            )
+        return _respond_import_job_action(
+            request, job, ok=False,
+            message=recovery_log.notes,
+            level='error', status=409,
+        )
 
     return render(request, 'vault/import_job_confirm.html', {
         'job': job,
@@ -1283,18 +1573,33 @@ def import_job_resume(request, job_id):
 
 
 def import_job_cancel(request, job_id):
-    """Cancel an active import job."""
+    """Persist cancellation and let a live worker stop at its next batch."""
     from .models import ImportJob
 
     job = get_object_or_404(ImportJob, job_id=job_id)
+    if request.method not in ('GET', 'POST'):
+        return JsonResponse({'error': 'GET or POST required.'}, status=405)
     if not job.can_cancel():
-        messages.error(request, _('This job cannot be cancelled.'))
+        message = _('This job cannot be cancelled.')
+        if request.method == 'POST':
+            return _respond_import_job_action(
+                request, job, ok=False, message=message,
+                level='warning', status=409,
+            )
+        messages.error(request, message)
         return redirect('vault:import_job_detail', job_id=job.job_id)
 
     if request.method == 'POST':
-        job.mark_cancelled()
-        messages.success(request, _('Job cancelled.'))
-        return redirect('vault:import_job_detail', job_id=job.job_id)
+        if job.mark_cancelled():
+            return _respond_import_job_action(
+                request, job, ok=True,
+                message=_('Cancellation requested; the current durable batch will finish.'),
+            )
+        return _respond_import_job_action(
+            request, job, ok=False,
+            message=_('The job changed state before it could be cancelled.'),
+            level='warning', status=409,
+        )
 
     return render(request, 'vault/import_job_confirm.html', {
         'job': job,
@@ -1303,18 +1608,33 @@ def import_job_cancel(request, job_id):
 
 
 def import_job_pause(request, job_id):
-    """Pause an active import job."""
+    """Persist a cooperative pause request for the current live worker."""
     from .models import ImportJob
 
     job = get_object_or_404(ImportJob, job_id=job_id)
+    if request.method not in ('GET', 'POST'):
+        return JsonResponse({'error': 'GET or POST required.'}, status=405)
     if not job.can_pause():
-        messages.error(request, _('This job cannot be paused.'))
+        message = _('This job cannot be paused.')
+        if request.method == 'POST':
+            return _respond_import_job_action(
+                request, job, ok=False, message=message,
+                level='warning', status=409,
+            )
+        messages.error(request, message)
         return redirect('vault:import_job_detail', job_id=job.job_id)
 
     if request.method == 'POST':
-        job.mark_paused()
-        messages.success(request, _('Job paused.'))
-        return redirect('vault:import_job_detail', job_id=job.job_id)
+        if job.mark_paused():
+            return _respond_import_job_action(
+                request, job, ok=True,
+                message=_('Import paused at a durable batch boundary.'),
+            )
+        return _respond_import_job_action(
+            request, job, ok=False,
+            message=_('The job changed state before it could be paused.'),
+            level='warning', status=409,
+        )
 
     return render(request, 'vault/import_job_confirm.html', {
         'job': job,
@@ -1342,19 +1662,15 @@ def import_job_records(request, job_id):
 
     job = get_object_or_404(ImportJob, job_id=job_id)
 
-    # Filtering
     status_filter = request.GET.get('status', '')
     records = job.records.all()
     if status_filter:
         records = records.filter(status=status_filter)
 
-    # Pagination
-    paginator = CappedPaginator(records, 100)
-    page_number = request.GET.get('page', '1')
-    page_obj = paginator.get_page(page_number)
-
+    page_obj = _paginate(request, records, per_page=100)
     return render(request, 'vault/import_job_records.html', {
         'job': job,
         'page_obj': page_obj,
         'status_filter': status_filter,
+        'query_string': _clean_query_string(request.GET),
     })
