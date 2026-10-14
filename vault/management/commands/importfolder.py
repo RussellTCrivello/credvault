@@ -7,9 +7,9 @@ survives interruptions and can be resumed.
 
 import os
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
-from vault.import_engine import durable_import_path
+from vault.import_engine import SourceChangedError, durable_import_path
 from vault.importer import search_indexes_suspended, stage_rows, worker_count
 
 
@@ -67,15 +67,23 @@ class Command(BaseCommand):
 
         total_created = 0
         total_skipped = 0
+        total_failed = 0
         total_jobs = 0
+        incomplete_jobs = 0
 
         # Use the durable engine with optional fast mode
         context = search_indexes_suspended() if fast else _null_context()
         with context:
             for base in paths:
-                job = durable_import_path(base, ext=ext)
+                try:
+                    job = durable_import_path(base, ext=ext)
+                except SourceChangedError as exc:
+                    raise CommandError(
+                        f'{base}: {exc} Keep the source unchanged and '
+                        're-run the command.'
+                    ) from exc
                 total_jobs += 1
-                
+
                 if not quiet:
                     self.stdout.write(
                         f"{base}: job {job.job_id} — "
@@ -83,22 +91,47 @@ class Command(BaseCommand):
                         f"{job.total_skipped} skipped, "
                         f"{job.total_failed} failed"
                     )
-                
+
                 total_created += job.total_committed
                 total_skipped += job.total_skipped
+                total_failed += job.total_failed
+                if job.status not in ('completed', 'completed_with_errors'):
+                    incomplete_jobs += 1
+                    self.stderr.write(
+                        self.style.ERROR(
+                            f"{base}: import job {job.job_id} ended "
+                            f"'{job.status}'; inspect it on the import jobs "
+                            'page before retrying.'
+                        )
+                    )
 
         if total_jobs == 0:
             self.stdout.write(
                 self.style.WARNING("No paths were processed.")
             )
-        else:
-            self.stdout.write(
-                self.style.SUCCESS(
-                    f"Done. {total_jobs} import job(s) completed. "
+        elif incomplete_jobs:
+            self.stderr.write(
+                self.style.ERROR(
+                    f"Done with errors. {incomplete_jobs} of "
+                    f"{total_jobs} import job(s) did not complete. "
                     f"Imported {total_created} record(s); "
-                    f"skipped {total_skipped} non-record line(s)."
+                    f"skipped {total_skipped} non-record line(s); "
+                    f"failed {total_failed}."
                 )
             )
+            raise CommandError(
+                f'{incomplete_jobs} of {total_jobs} import job(s) did not '
+                'complete.'
+            )
+        else:
+            summary = (
+                f"Done. {total_jobs} import job(s) completed. "
+                f"Imported {total_created} record(s); "
+                f"skipped {total_skipped} non-record line(s)."
+            )
+            if total_failed:
+                summary += f" Failed {total_failed}."
+            self.stdout.write(self.style.SUCCESS(summary))
 
 
 class _null_context:

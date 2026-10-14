@@ -40,9 +40,6 @@ from .models import (
     Ip, Pass, Url, User, IMPORT_LEASE_SECONDS, record_fingerprint,
 )
 from .utils import parse_line, NO_IP
-from .validators import (
-    classify_identifier, normalize_ip, normalize_password, normalize_url,
-)
 
 logger = logging.getLogger(__name__)
 _lease_context = threading.local()
@@ -647,35 +644,6 @@ def _row_from_parsed(record_data):
 
 
 # ---------------------------------------------------------------------------
-# Canonical record validation (same logic as importer.canonical_record
-# but self-contained so we don't depend on importer internals).
-# ---------------------------------------------------------------------------
-
-def _canonical_record(parsed):
-    """
-    Validate one parsed-line dict and return it with canonical values.
-    Returns None when any field doesn't match its format.
-    """
-    if not parsed:
-        return None
-    url = normalize_url(parsed.get('url'))
-    password = normalize_password(parsed.get('secret_data'))
-    account_type, identifier = classify_identifier(
-        parsed.get('account_identifier')
-    )
-    ip_value = normalize_ip(parsed.get('ip_address'))
-    if not (url and password and identifier and account_type):
-        return None
-    return {
-        'url': url,
-        'account_type': account_type,
-        'account_identifier': identifier,
-        'secret_data': password,
-        'ip_address': ip_value,
-    }
-
-
-# ---------------------------------------------------------------------------
 # Durable batch flush
 # ---------------------------------------------------------------------------
 
@@ -685,6 +653,32 @@ class SourceChangedError(ValueError):
 
 class LeaseLostError(RuntimeError):
     """This process no longer owns the import job's live lease."""
+
+
+_LEDGER_STAGE_DDL = (
+    "CREATE TEMP TABLE IF NOT EXISTS vault_import_ledger_stage ("
+    " idempotency_key text NOT NULL, source_position bigint NOT NULL,"
+    " source_hash text NOT NULL, source_line text NOT NULL,"
+    " status text NOT NULL, account_id bigint,"
+    " account_fingerprint text NOT NULL, error_message text NOT NULL,"
+    " error_category text NOT NULL, retryable boolean NOT NULL,"
+    " processed_at timestamptz NOT NULL)"
+)
+
+# Ledger rows are loaded through a temp table instead of one ORM bulk
+# INSERT: parameterizing tens of thousands of model instances dominates
+# the batch wall time, while COPY + INSERT ... SELECT reuses the same
+# server-side load pattern as the reference and account tables.
+_LEDGER_INSERT = (
+    "INSERT INTO vault_importrecord (import_job_id, idempotency_key,"
+    " source_position, source_hash, source_line, status, account_id,"
+    " account_fingerprint, error_message, error_category, retryable,"
+    " processed_at)"
+    " SELECT %s, idempotency_key, source_position, source_hash,"
+    " source_line, status, account_id, account_fingerprint,"
+    " error_message, error_category, retryable, processed_at"
+    " FROM vault_import_ledger_stage"
+)
 
 
 def _durable_flush_batch(
@@ -801,8 +795,25 @@ def _durable_flush_batch(
                     fp: acc_id for fp, acc_id in cursor.fetchall()
                 }
 
+            with connection.cursor() as cursor:
+                reference_ids = {
+                    'url': _stage_name_ids(cursor, 'vault_url', 'url'),
+                    'pass': _stage_name_ids(cursor, 'vault_pass', 'secret'),
+                    'email': _stage_name_ids(
+                        cursor, 'vault_email', 'ident',
+                        where=" WHERE account_type = 'email'",
+                    ),
+                    'user': _stage_name_ids(
+                        cursor, 'vault_user', 'ident',
+                        where=" WHERE account_type <> 'email'",
+                    ),
+                    'ip': _stage_name_ids(
+                        cursor, 'vault_ip', 'ip', where=' WHERE ip IS NOT NULL',
+                    ),
+                }
             valid_records = _write_ledger_entries(
                 candidate_rows, candidate_metas, job_pk, newly_created, now,
+                reference_ids=reference_ids,
             )
             record_specs.extend(zip(valid_records, candidate_existing))
 
@@ -848,7 +859,30 @@ def _durable_flush_batch(
                 update_records.append(existing)
 
         if new_records:
-            ImportRecord.objects.bulk_create(new_records)
+            with connection.cursor() as cursor:
+                cursor.execute(_LEDGER_STAGE_DDL)
+                cursor.execute('TRUNCATE vault_import_ledger_stage')
+                with cursor.copy(
+                    'COPY vault_import_ledger_stage (idempotency_key,'
+                    ' source_position, source_hash, source_line, status,'
+                    ' account_id, account_fingerprint, error_message,'
+                    ' error_category, retryable, processed_at) FROM STDIN'
+                ) as copy_ctx:
+                    for record in new_records:
+                        copy_ctx.write_row((
+                            record.idempotency_key,
+                            record.source_position,
+                            record.source_hash,
+                            record.source_line,
+                            record.status,
+                            record.account_id,
+                            record.account_fingerprint,
+                            record.error_message,
+                            record.error_category,
+                            record.retryable,
+                            record.processed_at,
+                        ))
+                cursor.execute(_LEDGER_INSERT, (job_pk,))
         if update_records:
             ImportRecord.objects.bulk_update(
                 update_records,
@@ -938,29 +972,72 @@ def _durable_flush_batch(
     return committed_delta
 
 
-def _write_ledger_entries(rows, record_metas, job_pk, newly_created, now):
-    """Return a privacy-preserving ledger outcome for each valid source row."""
+def _stage_name_ids(cursor, target_table, source_column, where=''):
+    """Map every reference name in the staged batch to its row id.
+
+    The batch's staged rows already sit in ``vault_import_stage`` (loaded
+    in the same transaction), so a set-join resolves the ids server-side
+    instead of binding up to the whole batch as an IN (...) parameter
+    list per reference table.
+    """
+    cursor.execute(
+        f'SELECT {target_table}.name, {target_table}.id'
+        f' FROM {target_table}'
+        f' JOIN (SELECT DISTINCT {source_column}'
+        f' FROM vault_import_stage{where}) AS s'
+        f' ON {target_table}.name = s.{source_column}'
+    )
+    return dict(cursor.fetchall())
+
+
+def _resolve_reference_ids(rows):
+    """Resolve name->id maps for a batch without a staged temp table."""
     unique_urls = {row[0] for row in rows}
     unique_passwords = {row[3] for row in rows}
     unique_emails = {row[2] for row in rows if row[1] == 'email' and row[2]}
     unique_users = {row[2] for row in rows if row[1] != 'email' and row[2]}
     unique_ips = {row[4] for row in rows if row[4]}
+    return {
+        'url': dict(
+            Url.objects.filter(name__in=unique_urls).values_list('name', 'id')
+        ) if unique_urls else {},
+        'pass': dict(
+            Pass.objects.filter(
+                name__in=unique_passwords,
+            ).values_list('name', 'id')
+        ) if unique_passwords else {},
+        'email': dict(
+            Email.objects.filter(name__in=unique_emails).values_list(
+                'name', 'id',
+            )
+        ) if unique_emails else {},
+        'user': dict(
+            User.objects.filter(name__in=unique_users).values_list(
+                'name', 'id',
+            )
+        ) if unique_users else {},
+        'ip': dict(
+            Ip.objects.filter(name__in=unique_ips).values_list('name', 'id')
+        ) if unique_ips else {},
+    }
 
-    url_ids = dict(
-        Url.objects.filter(name__in=unique_urls).values_list('name', 'id')
-    ) if unique_urls else {}
-    pass_ids = dict(
-        Pass.objects.filter(name__in=unique_passwords).values_list('name', 'id')
-    ) if unique_passwords else {}
-    email_ids = dict(
-        Email.objects.filter(name__in=unique_emails).values_list('name', 'id')
-    ) if unique_emails else {}
-    user_ids = dict(
-        User.objects.filter(name__in=unique_users).values_list('name', 'id')
-    ) if unique_users else {}
-    ip_ids = dict(
-        Ip.objects.filter(name__in=unique_ips).values_list('name', 'id')
-    ) if unique_ips else {}
+
+def _write_ledger_entries(rows, record_metas, job_pk, newly_created, now,
+                          reference_ids=None):
+    """Return a privacy-preserving ledger outcome for each valid source row.
+
+    ``reference_ids`` is the ``name -> id`` map for each reference table in
+    this batch. The flush builds it with set-joins against the staged rows;
+    callers without a staged batch (tests) may omit it to fall back to
+    per-table lookups.
+    """
+    if reference_ids is None:
+        reference_ids = _resolve_reference_ids(rows)
+    url_ids = reference_ids['url']
+    pass_ids = reference_ids['pass']
+    email_ids = reference_ids['email']
+    user_ids = reference_ids['user']
+    ip_ids = reference_ids['ip']
 
     fingerprints = []
     for row in rows:
@@ -1248,7 +1325,11 @@ class DurableImportSession:
                     'idempotency_key': idem_key,
                 }
                 try:
-                    record_data = _canonical_record(parse_line(line))
+                    # parse_line returns either None or a fully canonical
+                    # record (every field already normalized by its
+                    # format check), so no second normalization pass is
+                    # needed on the hot path.
+                    record_data = parse_line(line)
                 except Exception as parse_exc:
                     # Exception text may embed the raw credential line.
                     # Record only the exception class, never its message.
@@ -1490,12 +1571,9 @@ def recover_job(job, lines_iterable_factory=None):
         orphaned_account_ids = []
         source_can_retry = lines_iterable_factory is not None
 
-        for rec in committed_recs.iterator(chunk_size=1000):
-            current_fingerprint = None
-            if rec.account_id:
-                current_fingerprint = Account.objects.filter(
-                    pk=rec.account_id,
-                ).values_list('fingerprint', flat=True).first()
+        for rec, current_fingerprint in _committed_account_fingerprints(
+            committed_recs,
+        ):
             missing = (
                 (rec.account_id is not None and current_fingerprint is None)
                 or (
@@ -1739,6 +1817,45 @@ def lines_factory_for_job(job):
     return factory
 
 
+def _committed_account_fingerprints(committed_records, chunk_size=5000):
+    """
+    Yield ``(record, current_account_fingerprint)`` pairs.
+
+    ``current_account_fingerprint`` is the fingerprint of the Account the
+    ledger row points at, or None when the row has no account or the account
+    no longer exists. The Account lookup is one bounded query per
+    ``chunk_size`` rows instead of one query per row: reconciliation and
+    verification of a million-line job must not issue a million queries.
+    """
+    pending = []
+    for record in committed_records.iterator(chunk_size=chunk_size):
+        pending.append(record)
+        if len(pending) >= chunk_size:
+            yield from _pair_with_account_fingerprints(pending)
+            pending = []
+    if pending:
+        yield from _pair_with_account_fingerprints(pending)
+
+
+def _pair_with_account_fingerprints(records):
+    """Pair a bounded set of ledger rows with their accounts' fingerprints."""
+    account_ids = [
+        record.account_id for record in records
+        if record.account_id is not None
+    ]
+    fingerprints = {}
+    for start in range(0, len(account_ids), 5000):
+        fingerprints.update(
+            Account.objects.filter(id__in=account_ids[start:start + 5000])
+            .values_list('id', 'fingerprint')
+        )
+    for record in records:
+        fingerprint = None
+        if record.account_id is not None:
+            fingerprint = fingerprints.get(record.account_id)
+        yield record, fingerprint
+
+
 def verify_import_job(job):
     """Verify ledger/counter/source integrity without exposing source values."""
     job.refresh_from_db()
@@ -1865,12 +1982,9 @@ def verify_import_job(job):
     # also carry a fingerprint snapshot to detect a mismatched relationship.
     missing_accounts = 0
     fingerprint_mismatches = 0
-    for rec in job.records.filter(status='committed').iterator(chunk_size=1000):
-        account_fingerprint = None
-        if rec.account_id is not None:
-            account_fingerprint = Account.objects.filter(
-                pk=rec.account_id,
-            ).values_list('fingerprint', flat=True).first()
+    for rec, account_fingerprint in _committed_account_fingerprints(
+        job.records.filter(status='committed'),
+    ):
         if account_fingerprint is None:
             if (
                 rec.account_id is not None

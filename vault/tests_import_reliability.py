@@ -45,7 +45,7 @@ from .import_engine import (
 )
 from .models import (
     Account, Email, ImportJob, ImportRecord, ImportRecoveryLog, Ip, Pass,
-    Url, User,
+    Url, User, record_fingerprint,
 )
 from .utils import parse_line
 
@@ -893,6 +893,76 @@ class VerificationTests(TestCase):
             if d['type'] == 'stale_lease'
         )
         self.assertEqual(stale['worker_id'], 'worker-1')
+
+    def test_verify_uses_bounded_account_lookups(self):
+        """
+        Verification of a large job must resolve committed accounts with a
+        small number of bulk queries, not one query per ledger row: a
+        million-line job's Verify page used to issue a million queries
+        (~15 minutes) and was unusable at the documented scale.
+        """
+        rows = 2000
+        url = Url.objects.create(name='https://bounded.example/login')
+        password = Pass.objects.create(name='bounded-secret')
+        users = User.objects.bulk_create([
+            User(name=f'bounded-user-{i}') for i in range(rows)
+        ])
+        now = timezone.now()
+        accounts = Account.objects.bulk_create([
+            Account(
+                url=url,
+                account_type='user',
+                user=user,
+                password=password,
+                fingerprint=record_fingerprint(
+                    url.id, 'user', None, user.id, password.id, None,
+                ),
+                created_at=now,
+                updated_at=now,
+            )
+            for user in users
+        ])
+
+        job = create_import_job(source_name='bounded.txt')
+        ImportRecord.objects.bulk_create([
+            ImportRecord(
+                import_job=job,
+                source_position=position,
+                source_hash=_hash_source_line(f'line-{position}'),
+                status='committed',
+                account_id=account.id,
+                account_fingerprint=account.fingerprint,
+                idempotency_key=ImportRecord.compute_idempotency_key(
+                    job.job_id, position,
+                ),
+                processed_at=now,
+            )
+            for position, account in enumerate(accounts, start=1)
+        ])
+        job.total_discovered = rows
+        job.total_attempted = rows
+        job.total_committed = rows
+        job.save(update_fields=[
+            'total_discovered', 'total_attempted', 'total_committed',
+        ])
+
+        connection.force_debug_cursor = True
+        try:
+            results = verify_import_job(job)
+            queries = connection.queries
+        finally:
+            connection.force_debug_cursor = False
+
+        account_selects = [
+            query for query in queries
+            if 'vault_account' in query['sql']
+            and query['sql'].strip().upper().startswith('SELECT')
+        ]
+        # One bulk IN query covers the whole chunk set; the point is that
+        # the count stays flat as the job grows, never one per ledger row.
+        self.assertLessEqual(len(account_selects), 2)
+        self.assertTrue(results['verified'])
+        self.assertEqual(results['counters']['committed'], rows)
 
 
 class IdempotencyTests(TestCase):

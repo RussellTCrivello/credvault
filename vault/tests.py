@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import shutil
@@ -6,12 +7,14 @@ import time
 from unittest import mock
 
 from django.contrib.auth import get_user_model
+from django.core.management.base import CommandError
 from django.db import connection
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.test import Client, TestCase
 from django.urls import reverse
 
+from .import_engine import SourceChangedError
 from .importer import (
     DEFAULT_STAGE_ROWS, BulkImportSession, bulk_import_lines, stage_rows,
     worker_count,
@@ -115,6 +118,16 @@ class WorkspaceInterfaceTests(TestCase):
                 )
                 self.assertEqual(response.status_code, 200)
                 self.assertContains(response, expected_text)
+
+    def test_record_detail_intro_shows_the_url_and_identifier(self):
+        response = self.client.get(
+            reverse('vault:detail', args=[self.record.id])
+        )
+        self.assertContains(response, 'page-intro')
+        self.assertContains(
+            response,
+            'https://example.com/login · person@example.com',
+        )
 
     def test_no_records_displayed_until_queried(self):
         # Neither /records/ nor /search/ should dump records without a query.
@@ -1009,5 +1022,59 @@ class WorkspaceInterfaceTests(TestCase):
             )
             self.assertEqual(Pass.objects.filter(name='cmdpass').count(), 1)
             self.assertEqual(Ip.objects.filter(name='10.0.0.9').count(), 1)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_importfolder_reports_incomplete_jobs(self):
+        """A job that ends failed must be reported and exit non-zero."""
+        tmp = tempfile.mkdtemp()
+        try:
+            with open(os.path.join(tmp, 'one.txt'), 'w') as handle:
+                handle.write(
+                    'https://cmd.example/login|u1@cmd.example|cmdpass|10.0.0.9\\n'
+                )
+            failed_job = mock.Mock(
+                job_id='11111111-2222-3333-4444-555555555555',
+                status='failed',
+                total_committed=0,
+                total_skipped=1,
+                total_failed=3,
+            )
+            out = io.StringIO()
+            err = io.StringIO()
+            with mock.patch(
+                'vault.management.commands.importfolder.'
+                'durable_import_path',
+                return_value=failed_job,
+            ):
+                with self.assertRaises(CommandError):
+                    call_command(
+                        'importfolder', tmp, stdout=out, stderr=err,
+                    )
+            error_text = err.getvalue()
+            self.assertIn('did not complete', error_text)
+            self.assertIn('failed', error_text)
+            self.assertNotIn('job(s) completed', out.getvalue())
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_importfolder_rejects_an_unreadable_source(self):
+        """A missing/unreadable source must fail with a clean error."""
+        tmp = tempfile.mkdtemp()
+        try:
+            with open(os.path.join(tmp, 'one.txt'), 'w') as handle:
+                handle.write(
+                    'https://cmd.example/login|u1@cmd.example|cmdpass\n'
+                )
+            with mock.patch(
+                'vault.management.commands.importfolder.'
+                'durable_import_path',
+                side_effect=SourceChangedError(
+                    'An import source file is missing or unreadable.'
+                ),
+            ):
+                with self.assertRaises(CommandError) as ctx:
+                    call_command('importfolder', tmp)
+            self.assertIn('missing or unreadable', str(ctx.exception))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)

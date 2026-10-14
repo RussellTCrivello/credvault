@@ -162,12 +162,21 @@ def _split_secret_and_ip(rest, delimiter):
     return password, ip_value
 
 
-def _parse_with_delimiter(cleaned, delimiter):
-    """Parse `cleaned` as a record using `delimiter`; None when it is not one."""
-    parts = _split(cleaned, delimiter)
-    if not parts or len(parts) < 3:
-        return None
+#: A field of one to five digits may be a URL port (1-65535).
+_PORT_TEXT_RE = re.compile(r'^[0-9]{1,5}$')
 
+
+def _is_explicit_port(text):
+    """True when `text` could be a URL port rather than just a number."""
+    return bool(_PORT_TEXT_RE.match(text)) and 0 < int(text) < 65536
+
+
+def _record_from_parts(parts, delimiter):
+    """
+    Build the canonical record from fields already split on `delimiter`.
+
+    Returns None when any field fails its format check.
+    """
     url = normalize_url(parts[0])
     if url is None:
         return None
@@ -188,6 +197,27 @@ def _parse_with_delimiter(cleaned, delimiter):
         'secret_data': password,
         'ip_address': ip_value or NO_IP,
     })
+
+
+def _parse_with_delimiter(cleaned, delimiter):
+    """Parse `cleaned` as a record using `delimiter`; None when it is not one."""
+    parts = _split(cleaned, delimiter)
+    if not parts or len(parts) < 3:
+        return None
+
+    record = _record_from_parts(parts, delimiter)
+    if delimiter == ':' and len(parts) >= 4 and _is_explicit_port(parts[1]):
+        # A colon also ends the URL's own `host:port`. When the field after
+        # the URL looks like a port, the port belongs to the URL: re-parse
+        # with it merged back in so a ported URL without a path is not
+        # mistaken for a numeric identifier. If that reading fails, the
+        # plain reading still stands, so a numeric username keeps parsing.
+        merged = _record_from_parts(
+            [parts[0] + ':' + parts[1]] + parts[2:], delimiter,
+        )
+        if merged is not None:
+            return merged
+    return record
 
 
 def parse_line(line):
