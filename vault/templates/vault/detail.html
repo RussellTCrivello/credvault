@@ -1,7 +1,7 @@
 {% extends "vault/base.html" %}{% load i18n %}
 {% block title %}{% blocktrans with record_id=record.id %}Record #{{ record_id }}{% endblocktrans %}{% endblock %}
 {% block heading %}{% trans "Record details" %}{% endblock %}
-{% block intro %}<p class="page-intro">{{ record.domain }} · {{ record.account_identifier }}</p>{% endblock %}
+{% block intro %}<p class="page-intro">{{ record.url.name }} · {{ record.identifier }}</p>{% endblock %}
 {% block header_actions %}
   <a class="button" href="{% url 'vault:browse' %}">{% trans "Back to records" %}</a>
   <a class="button primary" href="{% url 'vault:update' record.id %}">{% trans "Edit record" %}</a>

@@ -184,6 +184,22 @@ class Command(BaseCommand):
         )
         return dict(cursor.fetchall())
 
+    def _required_columns(self, cursor, table):
+        """Target columns that are NOT NULL with no default.
+
+        A source row cannot be copied into one of these when the SQLite
+        file has no column of the same name, so they must be present in
+        the source; everything else (nullable columns, columns with a
+        default such as the id sequences) may be absent.
+        """
+        cursor.execute(
+            'SELECT column_name FROM information_schema.columns'
+            ' WHERE table_schema = current_schema() AND table_name = %s'
+            " AND is_nullable = 'NO' AND column_default IS NULL",
+            [table],
+        )
+        return {row[0] for row in cursor.fetchall()}
+
     def _copy_table(self, source, cursor, table, progress_every):
         source_cols = [
             row[1] for row in source.execute(
@@ -191,6 +207,19 @@ class Command(BaseCommand):
             )
         ]
         target = self._target_columns(cursor, table)
+        missing_required = sorted(
+            c for c in self._required_columns(cursor, table)
+            if c not in source_cols
+        )
+        if missing_required:
+            raise CommandError(
+                f'{table}: the SQLite file has no '
+                f'{", ".join(missing_required)} column(s), which the '
+                'current schema requires. This command supports the '
+                "workspace's SQLite schema from the revision that added "
+                'record fingerprints; the file appears to predate it. '
+                'Nothing was saved.'
+            )
         columns = [c for c in source_cols if c in target]
         ignored = [c for c in source_cols if c not in target]
         if ignored:

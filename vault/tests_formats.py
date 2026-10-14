@@ -383,6 +383,38 @@ class ParseLineFormatTests(TestCase):
         self.assertEqual(record['account_identifier'], 'bob')
         self.assertEqual(record['ip_address'], '1.2.3.4')
 
+    def test_ported_url_without_a_path_in_a_colon_separated_line(self):
+        # The port colon is not the record separator: a URL that ends in
+        # `host:port` (no path) keeps the port instead of being split into a
+        # numeric identifier.
+        record = parse_line('https://mail.example.org:8443:bob:secret')
+        self.assertEqual(record['url'], 'https://mail.example.org:8443')
+        self.assertEqual(record['account_identifier'], 'bob')
+        self.assertEqual(record['secret_data'], 'secret')
+        self.assertEqual(record['ip_address'], 'N/A')
+
+        record = parse_line(
+            'http://site.com:8080:bob:secret:1.2.3.4'
+        )
+        self.assertEqual(record['url'], 'http://site.com:8080')
+        self.assertEqual(record['account_identifier'], 'bob')
+        self.assertEqual(record['secret_data'], 'secret')
+        self.assertEqual(record['ip_address'], '1.2.3.4')
+
+        # The default port is still dropped during canonicalization.
+        record = parse_line('https://example.com:443:bob:secret')
+        self.assertEqual(record['url'], 'https://example.com')
+        self.assertEqual(record['account_identifier'], 'bob')
+
+    def test_numeric_username_still_parses_when_the_merge_is_not_a_url(self):
+        # A port-looking field whose merge is not a valid URL leaves the
+        # plain reading in place (numeric identifier, password keeps ':').
+        record = parse_line('not a url:443:bob:secret')
+        self.assertIsNone(record)
+        record = parse_line('https://example.com:99999:bob:secret')
+        # 99999 is not a port, so no merge is attempted at all.
+        self.assertIsNone(record)
+
     def test_lines_that_break_the_format_are_rejected(self):
         lines = (
             'not a url|bob|secret|1.2.3.4',       # the URL is not a URL

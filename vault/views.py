@@ -1145,7 +1145,6 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                             announce_job(job)
 
                         def path_progress(position, base=processed_before,
-                                          number=group_number,
                                           active=job_ref):
                             updates.put({
                                 'type': 'progress',
@@ -1153,10 +1152,8 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                                 'job_id': active.get('job_id'),
                                 'processed': min(total_lines, base + position),
                                 'total': total_lines,
-                                'file_number': number,
-                                'total_files': max(1, len(path_groups)
-                                                   + bool(uploaded_files)),
                                 'files_completed': completed_files,
+                                'total_files': total_files,
                             })
 
                         job = durable_import_path(
@@ -1182,15 +1179,11 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                             'phase': 'processing',
                             'processed': min(total_lines, processed_before),
                             'total': total_lines,
-                            'file_number': group_number,
-                            'total_files': max(1, len(path_groups)
-                                               + bool(uploaded_files)),
                             'files_completed': completed_files,
+                            'total_files': total_files,
                         })
 
                     if uploaded_files:
-                        upload_group = len(path_groups) + 1
-
                         job_ref = {}
 
                         def upload_created(job, active=job_ref):
@@ -1205,9 +1198,8 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                                 'job_id': active.get('job_id'),
                                 'processed': min(total_lines, base + position),
                                 'total': total_lines,
-                                'file_number': upload_group,
-                                'total_files': upload_group,
                                 'files_completed': completed_files,
+                                'total_files': total_files,
                             })
 
                         job = durable_import_uploads(
@@ -1232,9 +1224,8 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                             'phase': 'processing',
                             'processed': min(total_lines, processed_before),
                             'total': total_lines,
-                            'file_number': upload_group,
-                            'total_files': upload_group,
                             'files_completed': completed_files,
+                            'total_files': total_files,
                         })
             except Exception as exc:
                 # Do not include exception text: a parser/driver may include
@@ -1501,12 +1492,10 @@ def import_job_detail(request, job_id):
     from .models import ImportJob
 
     job = get_object_or_404(ImportJob, job_id=job_id)
-    recent_records = job.records.order_by('-processed_at')[:50]
     recent_failures = job.records.filter(status='failed').order_by('-processed_at')[:20]
 
     return render(request, 'vault/import_job_detail.html', {
         'job': job,
-        'recent_records': recent_records,
         'recent_failures': recent_failures,
     })
 

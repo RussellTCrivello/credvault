@@ -77,7 +77,7 @@
         setIndeterminate();
       }
       const fileProgress = event.total_files
-        ? ` · ${label("fileLabel")} ${number(event.file_number)} / ${number(event.total_files)}`
+        ? ` · ${number(event.files_completed)} / ${number(event.total_files)} ${label("filesCompleteLabel")}`
         : "";
       detail.textContent = `${number(event.processed)} / ${number(event.total)} ${label("linesLabel")}${fileProgress}`;
       return;

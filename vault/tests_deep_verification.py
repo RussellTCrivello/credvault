@@ -93,9 +93,17 @@ class DurableOutcomeAuditTests(TestCase):
             for position in range(1, len(rows) + 1)
         ]
 
-        with self.assertNumQueries(4):
+        reference_ids = {
+            'url': {url.name: url.pk},
+            'pass': {password.name: password.pk},
+            'email': {email.name: email.pk},
+            'user': {},
+            'ip': {},
+        }
+        with self.assertNumQueries(1):
             records = _write_ledger_entries(
                 rows, metas, job.pk, {}, timezone.now(),
+                reference_ids=reference_ids,
             )
 
         self.assertEqual(len(records), len(rows))

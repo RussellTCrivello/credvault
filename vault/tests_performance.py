@@ -212,6 +212,42 @@ class CopyConversionTests(TestCase):
         )
         self.assertEqual(converter_for('bigint')(42), 42)
 
+    def test_copy_refuses_a_source_missing_required_columns(self):
+        """
+        A SQLite file that predates the current schema must fail with a
+        clean CommandError naming the missing column(s), not a raw
+        NotNullViolation from the COPY, and nothing may be saved.
+        """
+        import sqlite3
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+
+        tmp = tempfile.mkdtemp()
+        path = os.path.join(tmp, 'old-schema.db')
+        try:
+            source = sqlite3.connect(path)
+            source.executescript(
+                'CREATE TABLE vault_url ('
+                'id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE,'
+                ' created_at TEXT);'
+            )
+            source.execute(
+                "INSERT INTO vault_url VALUES "
+                "(1, 'https://old.example/login', '2025-05-01 12:00:00')"
+            )
+            source.commit()
+            source.close()
+
+            with self.assertRaises(CommandError) as raised:
+                call_command('copy_from_sqlite', path)
+            self.assertIn('updated_at', str(raised.exception))
+
+            # The failed copy saved nothing.
+            self.assertEqual(Url.objects.count(), 0)
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
 
 def synthetic_line(index):
     """One valid record, mostly unique so the insert work is real."""
