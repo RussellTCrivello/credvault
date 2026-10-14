@@ -50,81 +50,93 @@ _lease_context = threading.local()
 _DURABLE_PARSE_CHUNK = 2000
 _MAX_PENDING_CHUNKS_PER_WORKER = 3
 
+# Import worker-safe parse functions from vault.workers (no Django top-level imports)
+# This is critical for Windows spawn: Pool workers re-import the module containing
+# the target function, and if that module imports Django models at top level,
+# AppRegistryNotReady is raised. vault.workers is pure Python (only hashlib,
+# vault.utils, vault.validators).
+try:
+    from .workers import _parse_durable_chunk  # noqa: F401
+    from .workers import _parse_chunk as _durable_parse_chunk_unused  # ensure workers importable
+except ImportError:
+    # Fallback — should not happen, but keep module importable without workers.py
+    def _parse_durable_chunk(payload):  # type: ignore
+        chunk, job_id_str = payload
+        import hashlib as _hashlib
+        from vault.utils import parse_line as _parse_line
+        from vault.utils import NO_IP as _NO_IP
 
-def _parse_durable_chunk(payload):
-    """Parse a chunk of (position, line) pairs in a worker process.
+        def _hash_line(line):
+            if isinstance(line, str):
+                line = line.encode('utf-8', errors='replace')
+            elif not isinstance(line, (bytes, bytearray)):
+                line = str(line).encode('utf-8', errors='replace')
+            return _hashlib.sha256(line).hexdigest()
 
-    Runs without touching the database. Returns a list of
-    (row_or_None, meta_or_outcome) in the same order as the input chunk.
-    """
-    chunk, job_id_str = payload
-    # Local imports to keep the worker self-contained (spawn context).
-    import hashlib as _hashlib
-    from vault.utils import parse_line as _parse_line
-    from vault.utils import NO_IP as _NO_IP
+        def _row_from_parsed_local(record_data):
+            ip_value = record_data['ip_address']
+            if not ip_value or ip_value == _NO_IP:
+                ip_value = None
+            return (
+                record_data['url'],
+                record_data['account_type'],
+                record_data['account_identifier'],
+                record_data['secret_data'],
+                ip_value,
+            )
 
-    def _hash_line(line):
-        if isinstance(line, str):
-            line = line.encode('utf-8', errors='replace')
-        elif not isinstance(line, (bytes, bytearray)):
-            line = str(line).encode('utf-8', errors='replace')
-        return _hashlib.sha256(line).hexdigest()
+        def _idem_key(job_id_s, pos):
+            return _hashlib.sha256(f"{job_id_s}:{pos}".encode('utf-8')).hexdigest()[:64]
 
-    def _row_from_parsed_local(record_data):
-        ip_value = record_data['ip_address']
-        if not ip_value or ip_value == _NO_IP:
-            ip_value = None
-        return (
-            record_data['url'],
-            record_data['account_type'],
-            record_data['account_identifier'],
-            record_data['secret_data'],
-            ip_value,
-        )
-
-    def _idem_key(job_id_s, pos):
-        return _hashlib.sha256(f"{job_id_s}:{pos}".encode('utf-8')).hexdigest()[:64]
-
-    out = []
-    for pos, line in chunk:
-        h = _hash_line(line)
-        k = _idem_key(job_id_str, pos)
-        meta = {
-            'source_position': pos,
-            'source_hash': h,
-            'idempotency_key': k,
-        }
-        try:
-            rec = _parse_line(line)
-        except Exception as exc:
-            out.append((None, {
-                **meta,
-                'status': 'failed',
-                'error_category': 'parse_error',
-                'error_message': f'Line parser raised {type(exc).__name__}.',
-                'retryable': True,
-            }))
-        else:
-            if rec is None:
-                out.append((None, {
-                    **meta,
-                    'status': 'skipped',
-                    'error_category': 'invalid_format',
-                    'retryable': False,
-                }))
-            else:
-                try:
-                    row = _row_from_parsed_local(rec)
-                except Exception:
-                    out.append((None, {
+        out = []
+        for pos, line in chunk:
+            h = _hash_line(line)
+            k = _idem_key(job_id_str, pos)
+            meta = {
+                'source_position': pos,
+                'source_hash': h,
+                'idempotency_key': k,
+            }
+            try:
+                rec = _parse_line(line)
+            except Exception as exc:
+                out.append((
+                    None,
+                    {
                         **meta,
-                        'status': 'skipped',
-                        'error_category': 'invalid_format',
-                        'retryable': False,
-                    }))
+                        'status': 'failed',
+                        'error_category': 'parse_error',
+                        'error_message': f'Line parser raised {type(exc).__name__}.',
+                        'retryable': True,
+                    },
+                ))
+            else:
+                if rec is None:
+                    out.append((
+                        None,
+                        {
+                            **meta,
+                            'status': 'skipped',
+                            'error_category': 'invalid_format',
+                            'retryable': False,
+                        },
+                    ))
                 else:
-                    out.append((row, meta))
-    return out
+                    try:
+                        row = _row_from_parsed_local(rec)
+                    except Exception:
+                        out.append((
+                            None,
+                            {
+                                **meta,
+                                'status': 'skipped',
+                                'error_category': 'invalid_format',
+                                'retryable': False,
+                            },
+                        ))
+                    else:
+                        out.append((row, meta))
+        return out
 
 #: The SQL to insert Account rows from the staging table.
 #: Identical to importer._ACCOUNT_INSERT but with RETURNING so we can

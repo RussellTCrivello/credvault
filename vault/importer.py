@@ -64,6 +64,12 @@ from .validators import (
     classify_identifier, normalize_ip, normalize_password, normalize_url,
 )
 
+# Worker-safe parse function (no Django top-level imports) for Windows spawn
+try:
+    from .workers import _parse_chunk as _safe_parse_chunk
+except ImportError:
+    _safe_parse_chunk = None  # type: ignore
+
 STREAM_BATCH_SIZE = 100000
 
 _BINARY_EXTS = {
@@ -398,15 +404,12 @@ def _parse_chunk(lines):
 
     Runs inside a worker process when the session uses parse workers, and in
     the main process otherwise. Returns (rows, skipped).
+
+    Delegates to vault.workers._parse_chunk which is safe for Windows spawn
+    (does not import Django at top level).
     """
-    rows = []
-    skipped = 0
-    for line in lines:
-        record = canonical_record(parse_line(line))
-        if record is None:
-            skipped += 1
-            continue
-        rows.append(_row_from(record))
+    from .workers import _parse_chunk as _workers_parse_chunk
+    return _workers_parse_chunk(lines)
     return rows, skipped
 
 
@@ -481,15 +484,17 @@ class BulkImportSession:
         chunk = []
         pending = []
         max_pending = self._workers * _MAX_PENDING_CHUNKS_PER_WORKER
+        # Use worker-safe function for Windows spawn (vault.workers, no Django)
+        parse_fn = _safe_parse_chunk if _safe_parse_chunk is not None else _parse_chunk
         for line in lines:
             chunk.append(line)
             if len(chunk) >= _PARSE_CHUNK_LINES:
-                pending.append(pool.apply_async(_parse_chunk, (chunk,)))
+                pending.append(pool.apply_async(parse_fn, (chunk,)))
                 chunk = []
                 while len(pending) >= max_pending:
                     self._absorb(*pending.pop(0).get())
         if chunk:
-            pending.append(pool.apply_async(_parse_chunk, (chunk,)))
+            pending.append(pool.apply_async(parse_fn, (chunk,)))
         while pending:
             self._absorb(*pending.pop(0).get())
 
