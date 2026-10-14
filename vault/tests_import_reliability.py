@@ -689,8 +689,8 @@ class CrashRecoveryTests(TestCase):
         real_flush = import_engine._durable_flush_batch
         state = {'flushed': 0}
 
-        def crashing_flush(rows, record_metas, job_pk):
-            committed = real_flush(rows, record_metas, job_pk)
+        def crashing_flush(rows, record_metas, job_pk, **kw):
+            committed = real_flush(rows, record_metas, job_pk, **kw)
             state['flushed'] += 1
             if state['flushed'] >= committed_batches:
                 raise _SimulatedWorkerKill()

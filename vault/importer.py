@@ -64,7 +64,7 @@ from .validators import (
     classify_identifier, normalize_ip, normalize_password, normalize_url,
 )
 
-STREAM_BATCH_SIZE = 50000
+STREAM_BATCH_SIZE = 100000
 
 _BINARY_EXTS = {
     ".sqlite3", ".db", ".pyc", ".pyo", ".mo", ".png", ".jpg", ".jpeg",
