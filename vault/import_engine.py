@@ -790,11 +790,25 @@ def _durable_flush_batch(
     record_specs = []
     update_records = []
     new_records = []
+    _debug_timing = os.environ.get('VAULT_DEBUG_TIMING') == '1'
+    _t_all = time.time() if _debug_timing else 0
+    _t_section = _t_all
+
+    def _log_section(name):
+        nonlocal _t_section
+        if not _debug_timing:
+            return
+        now_t = time.time()
+        elapsed = now_t - _t_section
+        total = now_t - _t_all
+        print(f"[TIMING] {name}: {elapsed:.2f}s (total {total:.2f}s)")
+        _t_section = now_t
 
     with transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute('SET LOCAL synchronous_commit = off')
-            cursor.execute('SET LOCAL work_mem = %s', ('256MB',))
+            cursor.execute('SET LOCAL work_mem = %s', ('512MB',))
+        _log_section("job SELECT FOR UPDATE setup")
         job = ImportJob.objects.select_for_update().get(pk=job_pk)
         if worker_id:
             lease_is_live = (
@@ -820,6 +834,7 @@ def _durable_flush_batch(
                 idempotency_key__in=keys,
             )
         } if keys else {}
+        _log_section(f"existing_by_key {len(keys)} keys")
         seen_in_batch = {}
         candidate_rows = []
         candidate_metas = []
@@ -858,6 +873,7 @@ def _durable_flush_batch(
                 candidate_metas.append(meta)
                 candidate_existing.append(existing)
 
+        _log_section(f"candidate filter {len(candidate_rows)} rows, {len(candidate_outcomes)} outcomes")
         newly_created = {}
         if candidate_rows:
             # All DB work for this batch stays in one transaction, but we
@@ -867,7 +883,7 @@ def _durable_flush_batch(
             # ~2.3s per 100k rows.
             with connection.cursor() as cursor:
                 cursor.execute('SET LOCAL synchronous_commit = off')
-                cursor.execute('SET LOCAL work_mem = %s', ('256MB',))
+                cursor.execute('SET LOCAL work_mem = %s', ('512MB',))
                 cursor.execute(_STAGE_DDL)
                 cursor.execute('TRUNCATE vault_import_stage')
                 with cursor.copy(
@@ -877,12 +893,16 @@ def _durable_flush_batch(
                     for row in candidate_rows:
                         copy_ctx.write_row(row)
                 cursor.execute('ANALYZE vault_import_stage')
+                _log_section(f"COPY stage + ANALYZE {len(candidate_rows)} rows")
 
                 if seen is None:
                     for _table, sql in _REFERENCE_INSERTS:
                         cursor.execute(sql, (now, now))
                 else:
-                    def _insert_new_ref(temp_table, temp_ddl, copy_sql, insert_sql, new_values):
+                    def _insert_new_ref_direct(direct_sql):
+                        cursor.execute(direct_sql, (now, now))
+
+                    def _insert_new_ref_temp(temp_table, temp_ddl, copy_sql, insert_sql, new_values):
                         if not new_values:
                             return
                         cursor.execute(temp_ddl)
@@ -892,70 +912,99 @@ def _durable_flush_batch(
                                 cp.write_row((v,))
                         cursor.execute(insert_sql, (now, now))
 
+                    # URL: 100% new -> direct is 3x faster than temp (0.5s vs 2.0s per 100k)
                     distinct_urls = {r[0] for r in candidate_rows}
                     new_urls = distinct_urls - seen.get('url', set())
-                    _insert_new_ref(
-                        'vault_import_url_stage',
-                        'CREATE TEMP TABLE IF NOT EXISTS vault_import_url_stage (name text)',
-                        'COPY vault_import_url_stage (name) FROM STDIN',
-                        'INSERT INTO vault_url (name, created_at, updated_at) SELECT name, %s, %s FROM vault_import_url_stage ON CONFLICT (name) DO NOTHING',
-                        new_urls,
-                    )
                     if new_urls:
+                        if len(new_urls) == len(distinct_urls):
+                            _insert_new_ref_direct(
+                                "INSERT INTO vault_url (name, created_at, updated_at) SELECT DISTINCT url, %s, %s FROM vault_import_stage ON CONFLICT (name) DO NOTHING"
+                            )
+                        else:
+                            _insert_new_ref_temp(
+                                'vault_import_url_stage',
+                                'CREATE TEMP TABLE IF NOT EXISTS vault_import_url_stage (name text)',
+                                'COPY vault_import_url_stage (name) FROM STDIN',
+                                'INSERT INTO vault_url (name, created_at, updated_at) SELECT name, %s, %s FROM vault_import_url_stage ON CONFLICT (name) DO NOTHING',
+                                new_urls,
+                            )
                         seen.setdefault('url', set()).update(new_urls)
 
                     distinct_pass = {r[3] for r in candidate_rows}
                     new_pass = distinct_pass - seen.get('pass', set())
-                    _insert_new_ref(
-                        'vault_import_pass_stage',
-                        'CREATE TEMP TABLE IF NOT EXISTS vault_import_pass_stage (name text)',
-                        'COPY vault_import_pass_stage (name) FROM STDIN',
-                        'INSERT INTO vault_pass (name, created_at, updated_at) SELECT name, %s, %s FROM vault_import_pass_stage ON CONFLICT (name) DO NOTHING',
-                        new_pass,
-                    )
                     if new_pass:
+                        if len(new_pass) == len(distinct_pass):
+                            _insert_new_ref_direct(
+                                "INSERT INTO vault_pass (name, created_at, updated_at) SELECT DISTINCT secret, %s, %s FROM vault_import_stage ON CONFLICT (name) DO NOTHING"
+                            )
+                        else:
+                            _insert_new_ref_temp(
+                                'vault_import_pass_stage',
+                                'CREATE TEMP TABLE IF NOT EXISTS vault_import_pass_stage (name text)',
+                                'COPY vault_import_pass_stage (name) FROM STDIN',
+                                'INSERT INTO vault_pass (name, created_at, updated_at) SELECT name, %s, %s FROM vault_import_pass_stage ON CONFLICT (name) DO NOTHING',
+                                new_pass,
+                            )
                         seen.setdefault('pass', set()).update(new_pass)
 
                     distinct_email = {r[2] for r in candidate_rows if r[1] == 'email' and r[2]}
                     new_email = distinct_email - seen.get('email', set())
-                    _insert_new_ref(
-                        'vault_import_email_stage',
-                        'CREATE TEMP TABLE IF NOT EXISTS vault_import_email_stage (name text)',
-                        'COPY vault_import_email_stage (name) FROM STDIN',
-                        'INSERT INTO vault_email (name, created_at, updated_at) SELECT name, %s, %s FROM vault_import_email_stage ON CONFLICT (name) DO NOTHING',
-                        new_email,
-                    )
                     if new_email:
+                        if len(new_email) == len(distinct_email):
+                            _insert_new_ref_direct(
+                                "INSERT INTO vault_email (name, created_at, updated_at) SELECT DISTINCT ident, %s, %s FROM vault_import_stage WHERE account_type='email' ON CONFLICT (name) DO NOTHING"
+                            )
+                        else:
+                            _insert_new_ref_temp(
+                                'vault_import_email_stage',
+                                'CREATE TEMP TABLE IF NOT EXISTS vault_import_email_stage (name text)',
+                                'COPY vault_import_email_stage (name) FROM STDIN',
+                                'INSERT INTO vault_email (name, created_at, updated_at) SELECT name, %s, %s FROM vault_import_email_stage ON CONFLICT (name) DO NOTHING',
+                                new_email,
+                            )
                         seen.setdefault('email', set()).update(new_email)
 
                     distinct_user = {r[2] for r in candidate_rows if r[1] != 'email' and r[2]}
                     new_user = distinct_user - seen.get('user', set())
-                    _insert_new_ref(
-                        'vault_import_user_stage',
-                        'CREATE TEMP TABLE IF NOT EXISTS vault_import_user_stage (name text)',
-                        'COPY vault_import_user_stage (name) FROM STDIN',
-                        'INSERT INTO vault_user (name, created_at, updated_at) SELECT name, %s, %s FROM vault_import_user_stage ON CONFLICT (name) DO NOTHING',
-                        new_user,
-                    )
                     if new_user:
+                        if len(new_user) == len(distinct_user):
+                            _insert_new_ref_direct(
+                                "INSERT INTO vault_user (name, created_at, updated_at) SELECT DISTINCT ident, %s, %s FROM vault_import_stage WHERE account_type<>'email' ON CONFLICT (name) DO NOTHING"
+                            )
+                        else:
+                            _insert_new_ref_temp(
+                                'vault_import_user_stage',
+                                'CREATE TEMP TABLE IF NOT EXISTS vault_import_user_stage (name text)',
+                                'COPY vault_import_user_stage (name) FROM STDIN',
+                                'INSERT INTO vault_user (name, created_at, updated_at) SELECT name, %s, %s FROM vault_import_user_stage ON CONFLICT (name) DO NOTHING',
+                                new_user,
+                            )
                         seen.setdefault('user', set()).update(new_user)
 
                     distinct_ip = {r[4] for r in candidate_rows if r[4]}
                     new_ip = distinct_ip - seen.get('ip', set())
-                    _insert_new_ref(
-                        'vault_import_ip_stage',
-                        'CREATE TEMP TABLE IF NOT EXISTS vault_import_ip_stage (name text)',
-                        'COPY vault_import_ip_stage (name) FROM STDIN',
-                        'INSERT INTO vault_ip (name, created_at, updated_at) SELECT name, %s, %s FROM vault_import_ip_stage ON CONFLICT (name) DO NOTHING',
-                        new_ip,
-                    )
                     if new_ip:
+                        if len(new_ip) == len(distinct_ip):
+                            _insert_new_ref_direct(
+                                "INSERT INTO vault_ip (name, created_at, updated_at) SELECT DISTINCT ip, %s, %s FROM vault_import_stage WHERE ip IS NOT NULL ON CONFLICT (name) DO NOTHING"
+                            )
+                        else:
+                            _insert_new_ref_temp(
+                                'vault_import_ip_stage',
+                                'CREATE TEMP TABLE IF NOT EXISTS vault_import_ip_stage (name text)',
+                                'COPY vault_import_ip_stage (name) FROM STDIN',
+                                'INSERT INTO vault_ip (name, created_at, updated_at) SELECT name, %s, %s FROM vault_import_ip_stage ON CONFLICT (name) DO NOTHING',
+                                new_ip,
+                            )
                         seen.setdefault('ip', set()).update(new_ip)
+
+                _log_section("reference INSERTs")
 
                 cursor.execute(_ACCOUNT_INSERT_RETURNING, (now, now))
                 newly_created = {
                     fp: acc_id for fp, acc_id in cursor.fetchall()
                 }
+                _log_section(f"account INSERT RETURNING {len(newly_created)} new")
 
             with connection.cursor() as cursor:
                 reference_ids = {
@@ -973,10 +1022,12 @@ def _durable_flush_batch(
                         cursor, 'vault_ip', 'ip', where=' WHERE ip IS NOT NULL',
                     ),
                 }
+                _log_section("stage_name_ids")
             valid_records = _write_ledger_entries(
                 candidate_rows, candidate_metas, job_pk, newly_created, now,
                 reference_ids=reference_ids,
             )
+            _log_section(f"_write_ledger_entries {len(valid_records)}")
             record_specs.extend(zip(valid_records, candidate_existing))
 
         for meta, existing in candidate_outcomes:
@@ -1020,18 +1071,21 @@ def _durable_flush_batch(
                     setattr(existing, field, getattr(record, field))
                 update_records.append(existing)
 
+        _log_section(f"build record_specs new={len(new_records)} upd={len(update_records)}")
         if new_records:
+            # Fast path: COPY directly into the final table, avoiding the
+            # temp-stage + INSERT SELECT round-trip. This cuts ~1.7s per
+            # 100k rows in benchmarks.
             with connection.cursor() as cursor:
-                cursor.execute(_LEDGER_STAGE_DDL)
-                cursor.execute('TRUNCATE vault_import_ledger_stage')
                 with cursor.copy(
-                    'COPY vault_import_ledger_stage (idempotency_key,'
+                    'COPY vault_importrecord (import_job_id, idempotency_key,'
                     ' source_position, source_hash, source_line, status,'
                     ' account_id, account_fingerprint, error_message,'
                     ' error_category, retryable, processed_at) FROM STDIN'
                 ) as copy_ctx:
                     for record in new_records:
                         copy_ctx.write_row((
+                            job_pk,
                             record.idempotency_key,
                             record.source_position,
                             record.source_hash,
@@ -1044,7 +1098,7 @@ def _durable_flush_batch(
                             record.retryable,
                             record.processed_at,
                         ))
-                cursor.execute(_LEDGER_INSERT, (job_pk,))
+                _log_section(f"ledger COPY {len(new_records)}")
         if update_records:
             ImportRecord.objects.bulk_update(
                 update_records,
@@ -1054,6 +1108,7 @@ def _durable_flush_batch(
                     'processed_at',
                 ],
             )
+            _log_section(f"ledger bulk_update {len(update_records)}")
 
         max_position = max(
             (meta['source_position'] for _row, meta in incoming),
@@ -1130,7 +1185,9 @@ def _durable_flush_batch(
             )
             update_fields.append('lease_expires_at')
         job.save(update_fields=update_fields)
+        _log_section("checkpoint + job save")
 
+    _log_section(f"COMMIT total {time.time()-_t_all:.2f}s")
     return committed_delta
 
 
