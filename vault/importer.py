@@ -171,7 +171,7 @@ _MAX_PENDING_CHUNKS_PER_WORKER = 3
 
 #: ``maintenance_work_mem`` used while the trigram indexes are rebuilt
 #: (``VAULT_MAINTENANCE_WORK_MEM`` override, e.g. ``2GB`` on a big server).
-DEFAULT_MAINTENANCE_WORK_MEM = "512MB"
+DEFAULT_MAINTENANCE_WORK_MEM = "1024MB"
 
 _MEMORY_SETTING_RE = re.compile(r"^[0-9]+(?:kB|MB|GB|TB)?$", re.IGNORECASE)
 
@@ -326,6 +326,7 @@ def _flush_batch(rows):
         # Bulk loads do not need to wait for the WAL flush of every batch; a
         # power loss can at worst lose the last batches, not corrupt data.
         cursor.execute("SET LOCAL synchronous_commit = off")
+        cursor.execute("SET LOCAL work_mem = %s", ("1024MB",))
         cursor.execute(_STAGE_DDL)
         cursor.execute('TRUNCATE vault_import_stage')
         with cursor.copy(

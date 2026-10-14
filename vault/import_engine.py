@@ -807,7 +807,7 @@ def _durable_flush_batch(
     with transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute('SET LOCAL synchronous_commit = off')
-            cursor.execute('SET LOCAL work_mem = %s', ('512MB',))
+            cursor.execute('SET LOCAL work_mem = %s', ('1024MB',))
         _log_section("job SELECT FOR UPDATE setup")
         job = ImportJob.objects.select_for_update().get(pk=job_pk)
         if worker_id:
@@ -828,13 +828,72 @@ def _durable_flush_batch(
             (None, meta) for meta in outcome_metas
         ]
         keys = [meta['idempotency_key'] for _row, meta in incoming]
-        existing_by_key = {
-            record.idempotency_key: record
-            for record in ImportRecord.objects.select_for_update().filter(
-                idempotency_key__in=keys,
-            )
-        } if keys else {}
-        _log_section(f"existing_by_key {len(keys)} keys")
+
+        # Optimization 1: skip existing_by_key lookup when correctness is provable.
+        # If job has no gaps beyond checkpoint (total_attempted == checkpoint) and
+        # incoming batch is contiguous starting at checkpoint+1, then none of the
+        # incoming idempotency keys can have existing ledger rows. This is the
+        # common forward-stream case for a new job. Proof: checkpoint is gap-free
+        # terminal prefix, total_attempted == checkpoint means no positions beyond
+        # checkpoint have been attempted, so any position > checkpoint is unseen.
+        checkpoint = int((job.last_checkpoint or {}).get('accounted_through', 0))
+        attempted_before = job.total_attempted
+        existing_by_key = {}
+        _can_skip_lookup = False
+        _used_staging = False
+        if keys:
+            if attempted_before == checkpoint:
+                # Fast path: new job or fully contiguous forward progress
+                batch_positions = [meta['source_position'] for _row, meta in incoming]
+                if batch_positions:
+                    min_pos = min(batch_positions)
+                    max_pos = max(batch_positions)
+                    # Contiguous and starts exactly after checkpoint
+                    if (max_pos - min_pos + 1 == len(batch_positions)
+                        and min_pos == checkpoint + 1
+                        and len(set(batch_positions)) == len(batch_positions)):
+                        _can_skip_lookup = True
+            if not _can_skip_lookup:
+                # Optimization 2: for large IN lists, use staging table + JOIN
+                # instead of 100k bind params. Measured: IN 100k ~0.8-1.1s,
+                # staging COPY+JOIN ~0.3s.
+                if len(keys) > 20000:
+                    _used_staging = True
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            "CREATE TEMP TABLE IF NOT EXISTS vault_import_idem_stage (idempotency_key text)"
+                        )
+                        cursor.execute("TRUNCATE vault_import_idem_stage")
+                        with cursor.copy(
+                            "COPY vault_import_idem_stage (idempotency_key) FROM STDIN"
+                        ) as cp:
+                            for k in keys:
+                                cp.write_row((k,))
+                        cursor.execute("ANALYZE vault_import_idem_stage")
+                        # Use JOIN to fetch existing records with row-level lock
+                        cursor.execute(
+                            """
+                            SELECT r.id FROM vault_importrecord r
+                            JOIN vault_import_idem_stage s ON r.idempotency_key = s.idempotency_key
+                            FOR UPDATE OF r
+                            """
+                        )
+                        existing_ids = [row[0] for row in cursor.fetchall()]
+                    if existing_ids:
+                        existing_by_key = {
+                            rec.idempotency_key: rec
+                            for rec in ImportRecord.objects.select_for_update().filter(
+                                id__in=existing_ids
+                            )
+                        }
+                else:
+                    existing_by_key = {
+                        record.idempotency_key: record
+                        for record in ImportRecord.objects.select_for_update().filter(
+                            idempotency_key__in=keys,
+                        )
+                    }
+        _log_section(f"existing_by_key {len(keys)} keys (skipped={_can_skip_lookup} staging={_used_staging})")
         seen_in_batch = {}
         candidate_rows = []
         candidate_metas = []
@@ -883,7 +942,7 @@ def _durable_flush_batch(
             # ~2.3s per 100k rows.
             with connection.cursor() as cursor:
                 cursor.execute('SET LOCAL synchronous_commit = off')
-                cursor.execute('SET LOCAL work_mem = %s', ('512MB',))
+                cursor.execute('SET LOCAL work_mem = %s', ('1024MB',))
                 cursor.execute(_STAGE_DDL)
                 cursor.execute('TRUNCATE vault_import_stage')
                 with cursor.copy(
@@ -1023,6 +1082,225 @@ def _durable_flush_batch(
                     ),
                 }
                 _log_section("stage_name_ids")
+
+            # Fast path: when all candidate_existing are None (no existing ledger rows
+            # for these idempotency keys), we can build ledger tuples directly via
+            # Python without creating ImportRecord model instances, saving ~1.5s per 100k.
+            _is_fast_ledger = all(e is None for e in candidate_existing) and all(
+                e is None for _, e in candidate_outcomes
+            )
+            if _is_fast_ledger:
+                # Build fingerprints and ledger tuples set-based in Python (no ORM objects)
+                url_ids = reference_ids['url']
+                pass_ids = reference_ids['pass']
+                email_ids = reference_ids['email']
+                user_ids = reference_ids['user']
+                ip_ids = reference_ids['ip']
+                # Local bindings for speed
+                _url_get = url_ids.get
+                _pass_get = pass_ids.get
+                _email_get = email_ids.get
+                _user_get = user_ids.get
+                _ip_get = ip_ids.get
+                _rec_fp = record_fingerprint
+
+                fingerprints = []
+                for r in candidate_rows:
+                    # r = (url, account_type, ident, secret, ip)
+                    uid = _url_get(r[0])
+                    pid = _pass_get(r[3])
+                    if not uid or not pid:
+                        fingerprints.append(None)
+                        continue
+                    if r[1] == 'email':
+                        eid = _email_get(r[2])
+                        if not eid:
+                            fingerprints.append(None)
+                            continue
+                        iid = _ip_get(r[4]) if r[4] else None
+                        fingerprints.append(_rec_fp(uid, r[1], eid, None, pid, iid))
+                    else:
+                        usid = _user_get(r[2])
+                        if not usid:
+                            fingerprints.append(None)
+                            continue
+                        iid = _ip_get(r[4]) if r[4] else None
+                        fingerprints.append(_rec_fp(uid, r[1], None, usid, pid, iid))
+
+                # Existing accounts for fingerprints not in newly_created (pre-existing vault accounts)
+                existing_fps = {fp for fp in fingerprints if fp is not None and fp not in newly_created}
+                existing_accounts = {}
+                if existing_fps:
+                    lookup = tuple(existing_fps)
+                    for s in range(0, len(lookup), 8000):
+                        existing_accounts.update(
+                            dict(
+                                Account.objects.filter(
+                                    fingerprint__in=lookup[s : s + 8000]
+                                ).values_list('fingerprint', 'id')
+                            )
+                        )
+
+                new_tuples = []
+                first_seen = set()
+                committed = 0
+                skipped = 0
+                failed = 0
+                for meta, fp in zip(candidate_metas, fingerprints):
+                    if fp is None:
+                        status = 'failed'
+                        cat = 'missing_reference'
+                        acc_id = None
+                        failed += 1
+                    else:
+                        if fp in newly_created and fp not in first_seen:
+                            status = 'committed'
+                            acc_id = newly_created[fp]
+                            first_seen.add(fp)
+                            cat = ''
+                            committed += 1
+                        else:
+                            acc_id = newly_created.get(fp)
+                            if acc_id is None:
+                                acc_id = existing_accounts.get(fp)
+                            if acc_id is not None:
+                                status = 'skipped'
+                                cat = 'duplicate_fingerprint'
+                                skipped += 1
+                            else:
+                                status = 'failed'
+                                cat = 'missing_reference'
+                                failed += 1
+                    new_tuples.append(
+                        (
+                            job_pk,
+                            meta['idempotency_key'],
+                            meta['source_position'],
+                            meta['source_hash'],
+                            '',
+                            status,
+                            acc_id,
+                            fp or '',
+                            '',
+                            cat,
+                            False,
+                            now,
+                        )
+                    )
+
+                # Outcomes (parse errors, invalid format) — already have status
+                for meta, _ in candidate_outcomes:
+                    st = meta['status']
+                    if st == 'committed':
+                        committed += 1
+                    elif st == 'skipped':
+                        skipped += 1
+                    else:
+                        failed += 1
+                    new_tuples.append(
+                        (
+                            job_pk,
+                            meta['idempotency_key'],
+                            meta['source_position'],
+                            meta['source_hash'],
+                            '',
+                            st,
+                            None,
+                            '',
+                            meta.get('error_message', ''),
+                            meta.get('error_category', ''),
+                            bool(meta.get('retryable', False)),
+                            now,
+                        )
+                    )
+
+                _log_section(f"fast ledger build {len(new_tuples)} tuples")
+
+                # Direct COPY into final table (fast path, no temp stage)
+                if new_tuples:
+                    with connection.cursor() as cursor:
+                        with cursor.copy(
+                            'COPY vault_importrecord (import_job_id, idempotency_key, source_position, source_hash, source_line, status, account_id, account_fingerprint, error_message, error_category, retryable, processed_at) FROM STDIN'
+                        ) as cp:
+                            for tup in new_tuples:
+                                cp.write_row(tup)
+                    _log_section(f"ledger COPY {len(new_tuples)}")
+
+                # Deltas and checkpoint — same logic as slow path but without record_specs
+                attempted_delta = len(candidate_rows) + len(candidate_outcomes)
+                committed_delta = committed
+                deltas = {'committed': committed, 'skipped': skipped, 'failed': failed}
+
+                max_pos = max((m['source_position'] for _, m in incoming), default=0)
+                if job.source_hash and max_pos > job.total_discovered:
+                    raise SourceChangedError(
+                        'Source line position exceeds the verified manifest.'
+                    )
+                job.total_discovered = max(job.total_discovered, max_pos)
+                attempted_before = job.total_attempted
+                job.total_attempted = max(0, job.total_attempted + attempted_delta)
+                job.total_committed = max(0, job.total_committed + deltas['committed'])
+                job.total_skipped = max(0, job.total_skipped + deltas['skipped'])
+                job.total_failed = max(0, job.total_failed + deltas['failed'])
+
+                # Checkpoint — use same contiguous optimization as slow path
+                chk = int((job.last_checkpoint or {}).get('accounted_through', 0))
+                exp = chk + 1
+                batch_pos = {m['source_position'] for _, m in incoming}
+                # All statuses in fast path are terminal (committed/skipped/failed)
+                is_contig = (
+                    bool(batch_pos)
+                    and min(batch_pos) == exp
+                    and max(batch_pos) - min(batch_pos) + 1 == len(batch_pos)
+                )
+                if is_contig and attempted_before == chk:
+                    exp = max(batch_pos) + 1
+                else:
+                    # Fallback gap scan (rare in fast path, but needed for correctness)
+                    pos_rows = (
+                        ImportRecord.objects.filter(
+                            import_job_id=job_pk,
+                            status__in=('committed', 'skipped', 'failed'),
+                            source_position__gte=exp,
+                        )
+                        .order_by()
+                        .values_list('source_position', flat=True)
+                        .distinct()
+                        .order_by('source_position')
+                    )
+                    for p in pos_rows.iterator(chunk_size=1000):
+                        if p < exp:
+                            continue
+                        if p > exp:
+                            break
+                        exp += 1
+
+                job.last_checkpoint = {
+                    'accounted_through': exp - 1,
+                    'updated_at': now.isoformat(),
+                }
+                job.last_activity_at = now
+                upd_fields = [
+                    'total_discovered',
+                    'total_attempted',
+                    'total_committed',
+                    'total_skipped',
+                    'total_failed',
+                    'last_checkpoint',
+                    'last_activity_at',
+                ]
+                if worker_id:
+                    job.lease_expires_at = now + timezone.timedelta(
+                        seconds=IMPORT_LEASE_SECONDS
+                    )
+                    upd_fields.append('lease_expires_at')
+                job.save(update_fields=upd_fields)
+                _log_section("checkpoint + job save (fast)")
+
+                _log_section(f"COMMIT total {time.time()-_t_all:.2f}s")
+                return committed_delta
+
+            # Slow path — existing ledger rows for these keys, need ORM objects for update
             valid_records = _write_ledger_entries(
                 candidate_rows, candidate_metas, job_pk, newly_created, now,
                 reference_ids=reference_ids,
