@@ -1546,7 +1546,12 @@ def import_job_detail(request, job_id):
 
 
 def import_job_resume(request, job_id):
-    """Continue a live pause or recover an abandoned replayable source."""
+    """Continue a live pause or recover an abandoned replayable source.
+    
+    For paused jobs with a live worker, this simply signals the worker to continue.
+    For expired/unowned jobs, recovery runs in a background thread to avoid
+    blocking the HTTP request for hours on large imports.
+    """
     from .models import ImportJob
     from .import_engine import lines_factory_for_job, recover_job
 
@@ -1564,6 +1569,7 @@ def import_job_resume(request, job_id):
         return redirect('vault:import_job_detail', job_id=job.job_id)
 
     if request.method == 'POST':
+        # Fast path: paused job with a live worker - just signal it to continue
         if job.status == 'paused' and job.mark_resumed():
             return _respond_import_job_action(
                 request, job, ok=True,
@@ -1578,26 +1584,52 @@ def import_job_resume(request, job_id):
                     level='warning', status=409,
                 )
 
-        # An expired/unowned path-backed job has no live request worker to
-        # continue, so reconcile and replay only its validated source gaps.
-        recovery_log = recover_job(
-            job, lines_iterable_factory=lines_factory_for_job(job),
+        # Background recovery for expired/unowned path-backed jobs.
+        # The reconciliation phase is fast, but the import phase can take hours
+        # for large imports. Run it in a background thread to avoid blocking
+        # the HTTP request.
+        def background_recovery(job_pk, lines_factory):
+            """Run recovery in a background thread."""
+            from django.db import connections
+            try:
+                # Close any inherited DB connections from the parent thread
+                connections.close_all()
+                
+                # Re-fetch the job in this thread
+                from .models import ImportJob
+                job = ImportJob.objects.get(pk=job_pk)
+                
+                # Run the full recovery (reconciliation + import)
+                recovery_log = recover_job(
+                    job, lines_iterable_factory=lines_factory,
+                )
+                logger.info(
+                    'Background recovery completed for job %s: outcome=%s',
+                    job.job_id, recovery_log.outcome,
+                )
+            except Exception as exc:
+                logger.error(
+                    'Background recovery failed for job %s: %s',
+                    job_pk, type(exc).__name__,
+                )
+            finally:
+                connections.close_all()
+        
+        # Prepare the lines factory in the request thread (it captures job state)
+        lines_factory = lines_factory_for_job(job)
+        
+        # Start background thread for recovery
+        recovery_thread = threading.Thread(
+            target=background_recovery,
+            args=(job.pk, lines_factory),
+            name=f'credvault-recovery-{job.job_id}',
+            daemon=True,
         )
-        if recovery_log.outcome == 'success':
-            return _respond_import_job_action(
-                request, job, ok=True,
-                message=_('Job recovery completed successfully.'),
-            )
-        if recovery_log.outcome == 'partial':
-            return _respond_import_job_action(
-                request, job, ok=True,
-                message=recovery_log.notes,
-                level='warning',
-            )
+        recovery_thread.start()
+        
         return _respond_import_job_action(
-            request, job, ok=False,
-            message=recovery_log.notes,
-            level='error', status=409,
+            request, job, ok=True,
+            message=_('Job recovery started in background. Refresh the page to monitor progress.'),
         )
 
     return render(request, 'vault/import_job_confirm.html', {
