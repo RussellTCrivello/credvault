@@ -4,6 +4,7 @@ import json
 import os
 import queue
 import threading
+import time
 from contextlib import nullcontext
 from urllib.parse import urlparse
 
@@ -20,7 +21,7 @@ from django.utils.dateparse import parse_date
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy as _lazy, ngettext
 
-from .counts import count_label, exact_count
+from .counts import cached_model_count, count_label, exact_count, invalidate_count_cache
 from .forms import (
     AccountForm, AdvancedSearchForm, ImportFileForm, QuickSearchForm,
     ReferenceForm,
@@ -499,9 +500,9 @@ def _reference_choices(kind):
 
 def dashboard(request):
     """Replaces: main_menu() -- the landing page with workspace stats."""
-    total_accounts = exact_count(Account.objects.all())
+    total_accounts = cached_model_count(Account, key='vault_account')
     reference_counts = {
-        kind: exact_count(REFERENCE_REGISTRY[kind]['model'].objects.all())
+        kind: cached_model_count(REFERENCE_REGISTRY[kind]['model'])
         for kind in REFERENCE_REGISTRY
     }
     reference_rows = [
@@ -962,6 +963,14 @@ def import_from_file(request):
             skipped_total = sum(j.total_skipped for j in jobs)
             failed_total = sum(j.total_failed for j in jobs)
 
+            # Invalidate cached dashboard/browse counts after any import
+            # that committed new records, so the next page load reflects
+            # the new totals without waiting for the cache TTL to expire.
+            if created_total > 0:
+                invalidate_count_cache(Account)
+                for kind in REFERENCE_REGISTRY:
+                    invalidate_count_cache(REFERENCE_REGISTRY[kind]['model'])
+
             incomplete_jobs = [
                 job for job in jobs
                 if job.status not in ('completed', 'completed_with_errors')
@@ -1131,6 +1140,17 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                 )
                 processed_before = 0
                 completed_files = 0
+                # Throttle progress events to at most one per second so the
+                # NDJSON stream stays responsive without flooding the client.
+                _last_progress_ts = [0.0]
+                _PROGRESS_INTERVAL = 1.0
+
+                def _throttled_progress(event):
+                    now = time.monotonic()
+                    if now - _last_progress_ts[0] >= _PROGRESS_INTERVAL:
+                        _last_progress_ts[0] = now
+                        updates.put(event)
+
                 with context:
                     for group_number, (path, group_files) in enumerate(
                         path_groups, start=1,
@@ -1146,7 +1166,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
 
                         def path_progress(position, base=processed_before,
                                           active=job_ref):
-                            updates.put({
+                            _throttled_progress({
                                 'type': 'progress',
                                 'phase': 'processing',
                                 'job_id': active.get('job_id'),
@@ -1192,7 +1212,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
 
                         def upload_progress(position, base=processed_before,
                                             active=job_ref):
-                            updates.put({
+                            _throttled_progress({
                                 'type': 'progress',
                                 'phase': 'processing',
                                 'job_id': active.get('job_id'),
@@ -1232,6 +1252,11 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                 # the raw credential line or SQL parameters in that message.
                 worker_error.append(type(exc).__name__)
             finally:
+                # Invalidate cached counts when new records were committed
+                if result['created'] > 0:
+                    invalidate_count_cache(Account)
+                    for kind in REFERENCE_REGISTRY:
+                        invalidate_count_cache(REFERENCE_REGISTRY[kind]['model'])
                 if background:
                     connections.close_all()
                 updates.put(None)
@@ -1412,6 +1437,7 @@ def export_json(request):
 
 def _import_job_status_payload(job):
     """JSON-safe, credential-free progress and lifecycle information."""
+    eta = job.eta_seconds
     return {
         'job_id': str(job.job_id),
         'status': job.status,
@@ -1427,6 +1453,7 @@ def _import_job_status_payload(job):
         'remaining_count': int(job.remaining_count),
         'throughput_per_second': int(job.throughput_per_second),
         'elapsed_seconds': int(job.elapsed_seconds),
+        'eta_seconds': int(eta),
         'can_pause': bool(job.can_pause()),
         'can_resume': bool(job.can_resume()),
         'can_cancel': bool(job.can_cancel()),
@@ -1494,7 +1521,13 @@ def import_job_detail(request, job_id):
     from .models import ImportJob
 
     job = get_object_or_404(ImportJob, job_id=job_id)
-    recent_failures = job.records.filter(status='failed').order_by('-processed_at')[:20]
+    # Only fetch the display columns needed by the template; avoid loading
+    # source_hash blobs and error_message text for the full model.
+    recent_failures = list(
+        job.records.filter(status='failed')
+        .order_by('-processed_at')[:20]
+        .values('source_position', 'error_category', 'processed_at')
+    )
 
     return render(request, 'vault/import_job_detail.html', {
         'job': job,

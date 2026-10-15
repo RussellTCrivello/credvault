@@ -874,6 +874,20 @@ class ImportJob(models.Model):
         end = self.completed_at or self.last_activity_at or timezone.now()
         return max(0, round((end - self.started_at).total_seconds()))
 
+    @property
+    def eta_seconds(self):
+        """Estimated seconds remaining, or -1 when unknowable.
+
+        Uses the observed throughput (``throughput_per_second``) and the
+        remaining manifest lines.  Returns -1 when there is no usable rate
+        or no remaining work to estimate.
+        """
+        rate = self.throughput_per_second
+        remaining = self.remaining_count
+        if rate <= 0 or remaining <= 0:
+            return -1 if remaining > 0 else 0
+        return max(0, round(remaining / rate))
+
 
 class ImportRecord(models.Model):
     """

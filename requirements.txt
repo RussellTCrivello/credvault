@@ -1,2 +1,5 @@
 Django>=5.2,<5.3
 psycopg[binary]>=3.1.8
+# Optional: enables .zst (Zstandard) compressed file import support.
+# Without this, .gz (gzip) and .bz2 (bzip2) still work via the stdlib.
+# zstandard>=0.22.0

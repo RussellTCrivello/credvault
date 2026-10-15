@@ -52,6 +52,7 @@ Speed for very large jobs:
   fails.
 """
 
+import bz2
 import gzip
 import os
 import re
@@ -80,9 +81,18 @@ _BINARY_EXTS = {
 }
 
 #: Compressed extensions that are streamed through a decompressor rather
-#: than skipped.  Only gzip is supported (streaming, no seek, single
-#: thread); other formats remain in _BINARY_EXTS.
-_COMPRESSED_EXTS = {".gz"}
+#: than skipped.  gzip and bz2 are in the stdlib; zstandard is optional
+#: (pip install zstandard) and only activated when importable.
+_COMPRESSED_EXTS = {".gz", ".bz2"}
+
+try:
+    import zstandard as _zstd_mod  # type: ignore[import-untyped]
+    _HAS_ZSTD = True
+except ImportError:
+    _zstd_mod = None
+    _HAS_ZSTD = False
+else:
+    _COMPRESSED_EXTS.add(".zst")
 
 
 _STAGE_DDL = (
@@ -796,16 +806,32 @@ def search_indexes_suspended():
 
 
 def _open_source_file(filepath, mode='rb'):
-    """Open a file for reading, transparently decompressing gzip inputs.
+    """Open a file for reading, transparently decompressing gzip/bz2/zst.
 
-    Plain files use the built-in ``open()``; ``.gz`` files are wrapped in
-    ``gzip.GzipFile`` so the rest of the import pipeline reads decompressed
-    lines without loading the entire file into memory.  The returned handle
-    must be closed by the caller.
+    Plain files use the built-in ``open()``; compressed files are wrapped
+    in the matching stdlib/optional decompressor so the rest of the import
+    pipeline reads decompressed lines without loading the entire file into
+    memory.  The returned handle must be closed by the caller.
+
+    Supported extensions:
+    - ``.gz``  — gzip (stdlib)
+    - ``.bz2`` — bzip2 (stdlib)
+    - ``.zst`` — Zstandard (requires ``pip install zstandard``)
     """
     lower = filepath.lower()
     if lower.endswith('.gz'):
         return gzip.open(filepath, mode)
+    if lower.endswith('.bz2'):
+        return bz2.open(filepath, mode)
+    if lower.endswith('.zst'):
+        if not _HAS_ZSTD:
+            raise OSError(
+                f'Cannot decompress {filepath}: the "zstandard" package is '
+                f'not installed.  Run:  pip install zstandard'
+            )
+        fh = open(filepath, mode)
+        dctx = _zstd_mod.ZstdDecompressor()
+        return dctx.stream_reader(fh, closefd=True)
     return open(filepath, mode)
 
 

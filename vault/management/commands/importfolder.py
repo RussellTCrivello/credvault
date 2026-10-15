@@ -85,12 +85,19 @@ class Command(BaseCommand):
                 total_jobs += 1
 
                 if not quiet:
-                    self.stdout.write(
+                    throughput = job.throughput_per_second
+                    elapsed = job.elapsed_seconds
+                    line = (
                         f"{base}: job {job.job_id} — "
-                        f"{job.total_committed} records committed, "
-                        f"{job.total_skipped} skipped, "
-                        f"{job.total_failed} failed"
+                        f"{job.total_committed:,} committed, "
+                        f"{job.total_skipped:,} skipped, "
+                        f"{job.total_failed:,} failed"
                     )
+                    if elapsed > 0:
+                        line += f" | {elapsed}s elapsed"
+                        if throughput > 0:
+                            line += f" @ {throughput:,} lines/s"
+                    self.stdout.write(line)
 
                 total_created += job.total_committed
                 total_skipped += job.total_skipped

@@ -964,6 +964,29 @@ const importJobUI = (() => {
       const key = counterNames[element.dataset.jobCounter];
       if (key) element.textContent = importJobUI.number(data[key]);
     });
+    // Update throughput, elapsed, and ETA if their elements exist
+    const throughputEl = root.querySelector("[data-job-throughput]");
+    if (throughputEl) {
+      throughputEl.textContent = data.throughput_per_second > 0
+        ? `${importJobUI.number(data.throughput_per_second)} lines/s`
+        : "\u2014";
+    }
+    const elapsedEl = root.querySelector("[data-job-elapsed]");
+    if (elapsedEl) {
+      elapsedEl.textContent = data.elapsed_seconds > 0
+        ? `${data.elapsed_seconds}s`
+        : "\u2014";
+    }
+    const etaEl = root.querySelector("[data-job-eta]");
+    if (etaEl) {
+      if (data.eta_seconds > 0) {
+        etaEl.textContent = `${data.eta_seconds}s`;
+      } else if (data.eta_seconds === 0) {
+        etaEl.textContent = "Done";
+      } else {
+        etaEl.textContent = "\u2014";
+      }
+    }
     importJobUI.updateActionLinks(data.job_id, data);
     if (feedback && data.cancellation_pending) {
       feedback.textContent = root.dataset.cancelPendingLabel || "";

@@ -82,6 +82,12 @@
         </div>
       </div>
       <div class="detail-item">
+        <label>{% trans "ETA" %}</label>
+        <div data-job-eta>
+          {% if job.eta_seconds > 0 %}{{ job.eta_seconds }}s{% elif job.eta_seconds == 0 %}{% trans "Done" %}{% else %}—{% endif %}
+        </div>
+      </div>
+      <div class="detail-item">
         <label>{% trans "Created at" %}</label>
         <div>{{ job.created_at|date:"Y-m-d H:i:s" }}</div>
       </div>

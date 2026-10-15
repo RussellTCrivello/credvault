@@ -75,13 +75,39 @@ if ($env:VAULT_IMPORT_BATCH_ROWS) {
 Write-Host ' Press Ctrl+C to stop.' -ForegroundColor DarkGray
 Write-Host ''
 
-# Verify Python is available
+# Verify Python is available and meets version requirement
 try {
     $pyVersion = & python --version 2>&1
     Write-Host " Python: $pyVersion" -ForegroundColor DarkGray
+    # Parse the version to check >= 3.11
+    if ($pyVersion -match 'Python (\d+)\.(\d+)') {
+        $pyMajor = [int]$Matches[1]
+        $pyMinor = [int]$Matches[2]
+        if ($pyMajor -lt 3 -or ($pyMajor -eq 3 -and $pyMinor -lt 11)) {
+            Write-Host " ERROR: Python 3.11+ is required (found $pyMajor.$pyMinor)." -ForegroundColor Red
+            exit 1
+        }
+    }
 } catch {
     Write-Host ' ERROR: Python not found. Install Python 3.11+ and ensure it is on PATH.' -ForegroundColor Red
     exit 1
+}
+
+# Verify required dependencies are installed
+try {
+    & python -c "import django; import psycopg" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "missing"
+    }
+} catch {
+    Write-Host ' Installing required dependencies...' -ForegroundColor DarkYellow
+    & python -m pip install -r requirements.txt --quiet
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ' ERROR: Failed to install dependencies.' -ForegroundColor Red
+        Write-Host ' Run manually:  pip install -r requirements.txt' -ForegroundColor Red
+        exit 1
+    }
+    Write-Host ' Dependencies installed.' -ForegroundColor DarkGray
 }
 
 # Verify database connectivity with a lightweight check

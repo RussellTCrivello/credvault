@@ -393,7 +393,12 @@ def _source_manifest(
             file_size = 0
             newline_count = 0
             last_byte = b''
-            is_compressed = filepath.lower().endswith('.gz')
+            _lower_path = filepath.lower()
+            is_compressed = (
+                _lower_path.endswith('.gz')
+                or _lower_path.endswith('.bz2')
+                or _lower_path.endswith('.zst')
+            )
             # Hash the raw bytes of the file (compressed or not) for
             # change detection; count lines in the decompressed content.
             expected_signature = _file_stat_signature(os.stat(filepath))
@@ -412,7 +417,7 @@ def _source_manifest(
                             newline_count += chunk.count(b'\n')
                             if chunk:
                                 last_byte = chunk[-1:]
-                except (OSError, gzip.BadGzipFile, EOFError) as exc:
+                except (OSError, gzip.BadGzipFile, EOFError, ValueError) as exc:
                     raise SourceChangedError(
                         f'Compressed source file is corrupt: {filepath}'
                     ) from exc
@@ -640,7 +645,11 @@ class _VerifiedSourceLines:
                 file_size = 0
                 newline_count = 0
                 last_byte = b''
-                is_compressed = filepath.lower().endswith('.gz')
+                _lp = filepath.lower()
+                is_compressed = (
+                    _lp.endswith('.gz') or _lp.endswith('.bz2')
+                    or _lp.endswith('.zst')
+                )
                 try:
                     current_signature = _file_stat_signature(
                         os.stat(filepath),
@@ -680,7 +689,7 @@ class _VerifiedSourceLines:
                                     if line:
                                         last_byte = line[-1:]
                                     yield line
-                        except (OSError, gzip.BadGzipFile, EOFError) as exc:
+                        except (OSError, gzip.BadGzipFile, EOFError, ValueError) as exc:
                             if isinstance(exc, SourceChangedError):
                                 raise
                             raise SourceChangedError(
