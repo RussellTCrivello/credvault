@@ -19,6 +19,7 @@ source manifest and does not claim to cover host/storage failures.
    a batch or release that lease. Expired leases can be recovered atomically.
 """
 
+import gzip
 import hashlib
 import logging
 import os
@@ -33,7 +34,7 @@ from django.utils import timezone
 
 from .importer import (
     _REFERENCE_INSERTS, _STAGE_DDL,
-    _parse_context, _PARSE_CHUNK_LINES,
+    _open_source_file, _parse_context, _PARSE_CHUNK_LINES,
     collect_files_from_path, stage_rows, worker_count,
 )
 from .models import (
@@ -392,22 +393,49 @@ def _source_manifest(
             file_size = 0
             newline_count = 0
             last_byte = b''
-            with open(filepath, 'rb') as handle:
-                expected_signature = _file_stat_signature(
-                    os.fstat(handle.fileno()),
-                )
-                if on_file_signature is not None:
-                    on_file_signature(filepath, expected_signature)
-                for chunk in iter(lambda: handle.read(1 << 16), b''):
-                    file_hash.update(chunk)
-                    file_size += len(chunk)
-                    newline_count += chunk.count(b'\n')
-                    if chunk:
-                        last_byte = chunk[-1:]
-                _check_streamed_file_stat(
-                    handle, filepath, expected_signature, check_path=True,
-                )
+            _lower_path = filepath.lower()
+            is_compressed = (
+                _lower_path.endswith('.gz')
+                or _lower_path.endswith('.bz2')
+                or _lower_path.endswith('.zst')
+            )
+            # Hash the raw bytes of the file (compressed or not) for
+            # change detection; count lines in the decompressed content.
+            expected_signature = _file_stat_signature(os.stat(filepath))
+            if on_file_signature is not None:
+                on_file_signature(filepath, expected_signature)
+            if is_compressed:
+                # Compressed files: hash the raw bytes for the manifest,
+                # then count lines in the decompressed content (two passes).
+                with open(filepath, 'rb') as raw_handle:
+                    for chunk in iter(lambda: raw_handle.read(1 << 16), b''):
+                        file_hash.update(chunk)
+                        file_size += len(chunk)
+                try:
+                    with _open_source_file(filepath, 'rb') as handle:
+                        for chunk in iter(lambda: handle.read(1 << 16), b''):
+                            newline_count += chunk.count(b'\n')
+                            if chunk:
+                                last_byte = chunk[-1:]
+                except (OSError, gzip.BadGzipFile, EOFError, ValueError) as exc:
+                    raise SourceChangedError(
+                        f'Compressed source file is corrupt: {filepath}'
+                    ) from exc
+            else:
+                # Plain files: hash and count lines in a single pass.
+                with open(filepath, 'rb') as handle:
+                    for chunk in iter(lambda: handle.read(1 << 16), b''):
+                        file_hash.update(chunk)
+                        file_size += len(chunk)
+                        newline_count += chunk.count(b'\n')
+                        if chunk:
+                            last_byte = chunk[-1:]
+            _check_streamed_file_stat(
+                None, filepath, expected_signature, check_path=True,
+            )
         except OSError as exc:
+            if isinstance(exc, SourceChangedError):
+                raise
             raise SourceChangedError(
                 'An import source file is missing or unreadable.'
             ) from exc
@@ -500,9 +528,16 @@ def _file_stat_signature(stat_result):
 def _check_streamed_file_stat(
     handle, filepath, expected_signature, check_path=False,
 ):
-    """Refuse metadata changes; optionally verify the path still names it."""
+    """Refuse metadata changes; optionally verify the path still names it.
+
+    ``handle`` may be ``None`` (for compressed files or post-close checks)
+    in which case only the path stat is verified.
+    """
     try:
-        file_signature = _file_stat_signature(os.fstat(handle.fileno()))
+        if handle is not None and not getattr(handle, 'closed', False):
+            file_signature = _file_stat_signature(os.fstat(handle.fileno()))
+        else:
+            file_signature = expected_signature
         path_signature = (
             _file_stat_signature(os.stat(filepath)) if check_path else
             expected_signature
@@ -610,40 +645,76 @@ class _VerifiedSourceLines:
                 file_size = 0
                 newline_count = 0
                 last_byte = b''
+                _lp = filepath.lower()
+                is_compressed = (
+                    _lp.endswith('.gz') or _lp.endswith('.bz2')
+                    or _lp.endswith('.zst')
+                )
                 try:
-                    with open(filepath, 'rb') as handle:
-                        current_signature = _file_stat_signature(
-                            os.fstat(handle.fileno()),
+                    current_signature = _file_stat_signature(
+                        os.stat(filepath),
+                    )
+                    expected_stat = self._expected_signatures.get(
+                        filepath,
+                    )
+                    if (
+                        expected_stat is not None
+                        and current_signature != expected_stat
+                    ):
+                        raise SourceChangedError(
+                            'Import source file changed before it was read.'
                         )
-                        expected_stat = self._expected_signatures.get(
-                            filepath,
-                        )
-                        if (
-                            expected_stat is not None
-                            and current_signature != expected_stat
-                        ):
+                    if expected_stat is None:
+                        expected_stat = current_signature
+                    self._file_signatures[filepath] = expected_stat
+                    self._active_filepath = filepath
+                    self._active_signature = expected_stat
+                    self.check_source()
+                    if is_compressed:
+                        # Compressed files: hash the raw bytes for the manifest,
+                        # then yield decompressed lines for parsing.
+                        with open(filepath, 'rb') as raw_handle:
+                            for chunk in iter(lambda: raw_handle.read(1 << 16), b''):
+                                file_hash.update(chunk)
+                                file_size += len(chunk)
+                        self._active_handle = None
+                        try:
+                            with _open_source_file(filepath, 'rb') as handle:
+                                self._active_handle = handle
+                                while True:
+                                    line = handle.readline()
+                                    if not line:
+                                        break
+                                    newline_count += line.count(b'\n')
+                                    if line:
+                                        last_byte = line[-1:]
+                                    yield line
+                        except (OSError, gzip.BadGzipFile, EOFError, ValueError) as exc:
+                            if isinstance(exc, SourceChangedError):
+                                raise
                             raise SourceChangedError(
-                                'Import source file changed before it was read.'
-                            )
-                        if expected_stat is None:
-                            expected_stat = current_signature
-                        self._file_signatures[filepath] = expected_stat
-                        self._active_handle = handle
-                        self._active_filepath = filepath
-                        self._active_signature = expected_stat
-                        self.check_source()
-                        while True:
-                            line = handle.readline()
-                            if not line:
-                                break
-                            file_hash.update(line)
-                            file_size += len(line)
-                            newline_count += line.count(b'\n')
-                            if line:
-                                last_byte = line[-1:]
-                            yield line
-                        self.check_source()
+                                f'Compressed source file is corrupt: {filepath}'
+                            ) from exc
+                        finally:
+                            self._active_handle = None
+                    else:
+                        # Plain files: hash and yield in one pass.
+                        with open(filepath, 'rb') as handle:
+                            self._active_handle = handle
+                            while True:
+                                line = handle.readline()
+                                if not line:
+                                    break
+                                file_hash.update(line)
+                                file_size += len(line)
+                                newline_count += line.count(b'\n')
+                                if line:
+                                    last_byte = line[-1:]
+                                yield line
+                    self.check_source()
                 except OSError as exc:
+                    if isinstance(exc, SourceChangedError):
+                        raise
                     raise SourceChangedError(
                         'An import source file became unreadable.'
                     ) from exc
@@ -950,11 +1021,10 @@ def _durable_flush_batch(
             # All DB work for this batch stays in one transaction, but we
             # split it into two cursor blocks so Python can compute
             # fingerprints between the reference-id lookup and the account
-            # insert. This avoids the heavy SQL sha256 expression that was
-            # ~2.3s per 100k rows.
+            # insert.  The SET LOCAL directives at the top of the enclosing
+            # transaction.atomic() already apply here; repeating them would
+            # waste a server round-trip per batch.
             with connection.cursor() as cursor:
-                cursor.execute('SET LOCAL synchronous_commit = off')
-                cursor.execute('SET LOCAL work_mem = %s', ('1024MB',))
                 cursor.execute(_STAGE_DDL)
                 cursor.execute('TRUNCATE vault_import_stage')
                 with cursor.copy(
@@ -2109,7 +2179,14 @@ class DurableImportSession:
             elif self._paused:
                 job.mark_paused(worker_id=self._worker_id)
             else:
-                job.refresh_counters()
+                # The incremental counters in _durable_flush_batch are already
+                # durable; a full aggregate (refresh_counters) on millions of
+                # ledger rows is unnecessary here.  Reload from DB to pick up
+                # any concurrent counter writes, then validate completeness.
+                job.refresh_from_db(fields=[
+                    'total_discovered', 'total_attempted',
+                    'total_committed', 'total_skipped', 'total_failed',
+                ])
                 if job.total_attempted < job.total_discovered:
                     job.mark_failed(
                         'Source ended before every manifest position was accounted for.',
@@ -2121,6 +2198,14 @@ class DurableImportSession:
                         worker_id=self._worker_id,
                     )
             release_lease(job, self._worker_id)
+            # Structured summary — no credential values, only counters.
+            logger.info(
+                'Import job %s finished: status=%s committed=%d skipped=%d '
+                'failed=%d elapsed=%ds',
+                job.job_id, job.status,
+                job.total_committed, job.total_skipped, job.total_failed,
+                job.elapsed_seconds,
+            )
 
         except LeaseLostError:
             # Another worker may already own the replacement lease. Do not

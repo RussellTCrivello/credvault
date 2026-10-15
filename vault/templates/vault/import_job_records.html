@@ -39,7 +39,7 @@
               <td>{{ record.source_position }}</td>
               <td>
                 <span class="badge {% if record.status == 'committed' %}success{% elif record.status == 'failed' %}error{% elif record.status == 'skipped' %}warning{% else %}outline{% endif %}">
-                  {{ record.get_status_display }}
+                  {{ record.status_display }}
                 </span>
               </td>
               <td class="mono" dir="ltr">{{ record.source_hash|truncatechars:20 }}</td>

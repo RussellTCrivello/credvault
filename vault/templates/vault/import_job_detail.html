@@ -70,6 +70,24 @@
         <div data-job-counter="remaining">{{ job.remaining_count }}</div>
       </div>
       <div class="detail-item">
+        <label>{% trans "Throughput" %}</label>
+        <div data-job-throughput>
+          {% if job.throughput_per_second %}{{ job.throughput_per_second|floatformat:0 }} {% trans "lines/s" %}{% else %}—{% endif %}
+        </div>
+      </div>
+      <div class="detail-item">
+        <label>{% trans "Elapsed" %}</label>
+        <div data-job-elapsed>
+          {% if job.elapsed_seconds %}{{ job.elapsed_seconds }}s{% else %}—{% endif %}
+        </div>
+      </div>
+      <div class="detail-item">
+        <label>{% trans "ETA" %}</label>
+        <div data-job-eta>
+          {% if job.eta_seconds > 0 %}{{ job.eta_seconds }}s{% elif job.eta_seconds == 0 %}{% trans "Done" %}{% else %}—{% endif %}
+        </div>
+      </div>
+      <div class="detail-item">
         <label>{% trans "Created at" %}</label>
         <div>{{ job.created_at|date:"Y-m-d H:i:s" }}</div>
       </div>

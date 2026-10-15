@@ -4,6 +4,7 @@ import json
 import os
 import queue
 import threading
+import time
 from contextlib import nullcontext
 from urllib.parse import urlparse
 
@@ -20,7 +21,7 @@ from django.utils.dateparse import parse_date
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy as _lazy, ngettext
 
-from .counts import count_label, exact_count
+from .counts import cached_model_count, count_label, exact_count, invalidate_count_cache
 from .forms import (
     AccountForm, AdvancedSearchForm, ImportFileForm, QuickSearchForm,
     ReferenceForm,
@@ -483,8 +484,12 @@ def _attach_usage(kind, entities):
 
 
 def _records_total_context():
-    """Exact number and readable label for the Records page."""
-    total_records = exact_count(Account.objects.all())
+    """Exact number and readable label for the Records page.
+
+    Uses a short-lived cache to avoid an expensive ``COUNT(*)`` on every
+    page load.  The cache is invalidated when an import commits new records.
+    """
+    total_records = cached_model_count(Account, key='vault_account')
     return {
         'total_records': total_records,
         'total_records_label': count_label(total_records),
@@ -499,9 +504,9 @@ def _reference_choices(kind):
 
 def dashboard(request):
     """Replaces: main_menu() -- the landing page with workspace stats."""
-    total_accounts = exact_count(Account.objects.all())
+    total_accounts = cached_model_count(Account, key='vault_account')
     reference_counts = {
-        kind: exact_count(REFERENCE_REGISTRY[kind]['model'].objects.all())
+        kind: cached_model_count(REFERENCE_REGISTRY[kind]['model'])
         for kind in REFERENCE_REGISTRY
     }
     reference_rows = [
@@ -962,6 +967,14 @@ def import_from_file(request):
             skipped_total = sum(j.total_skipped for j in jobs)
             failed_total = sum(j.total_failed for j in jobs)
 
+            # Invalidate cached dashboard/browse counts after any import
+            # that committed new records, so the next page load reflects
+            # the new totals without waiting for the cache TTL to expire.
+            if created_total > 0:
+                invalidate_count_cache(Account)
+                for kind in REFERENCE_REGISTRY:
+                    invalidate_count_cache(REFERENCE_REGISTRY[kind]['model'])
+
             incomplete_jobs = [
                 job for job in jobs
                 if job.status not in ('completed', 'completed_with_errors')
@@ -1131,6 +1144,23 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                 )
                 processed_before = 0
                 completed_files = 0
+                # Throttle progress events so the NDJSON stream stays
+                # responsive without flooding the client.  The interval is
+                # configurable via VAULT_PROGRESS_INTERVAL (seconds, default 1).
+                _last_progress_ts = [0.0]
+                try:
+                    _PROGRESS_INTERVAL = max(
+                        0.1, float(os.environ.get('VAULT_PROGRESS_INTERVAL', '1.0')),
+                    )
+                except (TypeError, ValueError):
+                    _PROGRESS_INTERVAL = 1.0
+
+                def _throttled_progress(event):
+                    now = time.monotonic()
+                    if now - _last_progress_ts[0] >= _PROGRESS_INTERVAL:
+                        _last_progress_ts[0] = now
+                        updates.put(event)
+
                 with context:
                     for group_number, (path, group_files) in enumerate(
                         path_groups, start=1,
@@ -1146,7 +1176,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
 
                         def path_progress(position, base=processed_before,
                                           active=job_ref):
-                            updates.put({
+                            _throttled_progress({
                                 'type': 'progress',
                                 'phase': 'processing',
                                 'job_id': active.get('job_id'),
@@ -1192,7 +1222,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
 
                         def upload_progress(position, base=processed_before,
                                             active=job_ref):
-                            updates.put({
+                            _throttled_progress({
                                 'type': 'progress',
                                 'phase': 'processing',
                                 'job_id': active.get('job_id'),
@@ -1232,6 +1262,11 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                 # the raw credential line or SQL parameters in that message.
                 worker_error.append(type(exc).__name__)
             finally:
+                # Invalidate cached counts when new records were committed
+                if result['created'] > 0:
+                    invalidate_count_cache(Account)
+                    for kind in REFERENCE_REGISTRY:
+                        invalidate_count_cache(REFERENCE_REGISTRY[kind]['model'])
                 if background:
                     connections.close_all()
                 updates.put(None)
@@ -1412,6 +1447,7 @@ def export_json(request):
 
 def _import_job_status_payload(job):
     """JSON-safe, credential-free progress and lifecycle information."""
+    eta = job.eta_seconds
     return {
         'job_id': str(job.job_id),
         'status': job.status,
@@ -1425,6 +1461,9 @@ def _import_job_status_payload(job):
         'total_skipped': int(job.total_skipped),
         'total_failed': int(job.total_failed),
         'remaining_count': int(job.remaining_count),
+        'throughput_per_second': int(job.throughput_per_second),
+        'elapsed_seconds': int(job.elapsed_seconds),
+        'eta_seconds': int(eta),
         'can_pause': bool(job.can_pause()),
         'can_resume': bool(job.can_resume()),
         'can_cancel': bool(job.can_cancel()),
@@ -1492,7 +1531,13 @@ def import_job_detail(request, job_id):
     from .models import ImportJob
 
     job = get_object_or_404(ImportJob, job_id=job_id)
-    recent_failures = job.records.filter(status='failed').order_by('-processed_at')[:20]
+    # Only fetch the display columns needed by the template; avoid loading
+    # source_hash blobs and error_message text for the full model.
+    recent_failures = list(
+        job.records.filter(status='failed')
+        .order_by('-processed_at')[:20]
+        .values('source_position', 'error_category', 'processed_at')
+    )
 
     return render(request, 'vault/import_job_detail.html', {
         'job': job,
@@ -1501,7 +1546,12 @@ def import_job_detail(request, job_id):
 
 
 def import_job_resume(request, job_id):
-    """Continue a live pause or recover an abandoned replayable source."""
+    """Continue a live pause or recover an abandoned replayable source.
+    
+    For paused jobs with a live worker, this simply signals the worker to continue.
+    For expired/unowned jobs, recovery runs in a background thread to avoid
+    blocking the HTTP request for hours on large imports.
+    """
     from .models import ImportJob
     from .import_engine import lines_factory_for_job, recover_job
 
@@ -1519,6 +1569,7 @@ def import_job_resume(request, job_id):
         return redirect('vault:import_job_detail', job_id=job.job_id)
 
     if request.method == 'POST':
+        # Fast path: paused job with a live worker - just signal it to continue
         if job.status == 'paused' and job.mark_resumed():
             return _respond_import_job_action(
                 request, job, ok=True,
@@ -1533,26 +1584,52 @@ def import_job_resume(request, job_id):
                     level='warning', status=409,
                 )
 
-        # An expired/unowned path-backed job has no live request worker to
-        # continue, so reconcile and replay only its validated source gaps.
-        recovery_log = recover_job(
-            job, lines_iterable_factory=lines_factory_for_job(job),
+        # Background recovery for expired/unowned path-backed jobs.
+        # The reconciliation phase is fast, but the import phase can take hours
+        # for large imports. Run it in a background thread to avoid blocking
+        # the HTTP request.
+        def background_recovery(job_pk, lines_factory):
+            """Run recovery in a background thread."""
+            from django.db import connections
+            try:
+                # Close any inherited DB connections from the parent thread
+                connections.close_all()
+                
+                # Re-fetch the job in this thread
+                from .models import ImportJob
+                job = ImportJob.objects.get(pk=job_pk)
+                
+                # Run the full recovery (reconciliation + import)
+                recovery_log = recover_job(
+                    job, lines_iterable_factory=lines_factory,
+                )
+                logger.info(
+                    'Background recovery completed for job %s: outcome=%s',
+                    job.job_id, recovery_log.outcome,
+                )
+            except Exception as exc:
+                logger.error(
+                    'Background recovery failed for job %s: %s',
+                    job_pk, type(exc).__name__,
+                )
+            finally:
+                connections.close_all()
+        
+        # Prepare the lines factory in the request thread (it captures job state)
+        lines_factory = lines_factory_for_job(job)
+        
+        # Start background thread for recovery
+        recovery_thread = threading.Thread(
+            target=background_recovery,
+            args=(job.pk, lines_factory),
+            name=f'credvault-recovery-{job.job_id}',
+            daemon=True,
         )
-        if recovery_log.outcome == 'success':
-            return _respond_import_job_action(
-                request, job, ok=True,
-                message=_('Job recovery completed successfully.'),
-            )
-        if recovery_log.outcome == 'partial':
-            return _respond_import_job_action(
-                request, job, ok=True,
-                message=recovery_log.notes,
-                level='warning',
-            )
+        recovery_thread.start()
+        
         return _respond_import_job_action(
-            request, job, ok=False,
-            message=recovery_log.notes,
-            level='error', status=409,
+            request, job, ok=True,
+            message=_('Job recovery started in background. Refresh the page to monitor progress.'),
         )
 
     return render(request, 'vault/import_job_confirm.html', {
@@ -1646,17 +1723,52 @@ def import_job_verify(request, job_id):
 
 
 def import_job_records(request, job_id):
-    """List all records for an import job with filtering and pagination."""
-    from .models import ImportJob
+    """List all records for an import job with filtering and pagination.
+
+    Uses a two-step pagination approach: page the PKs first (fast COUNT and
+    LIMIT/OFFSET), then load only the fields needed for the template.  This
+    avoids fetching the full ``source_line`` text and other large columns
+    for every row in the table.
+    """
+    from .models import ImportJob, ImportRecord
 
     job = get_object_or_404(ImportJob, job_id=job_id)
 
+    _STATUS_LABELS = {
+        'pending': str(_('Pending')),
+        'processing': str(_('Processing')),
+        'committed': str(_('Committed')),
+        'skipped': str(_('Skipped')),
+        'failed': str(_('Failed')),
+    }
+
     status_filter = request.GET.get('status', '')
-    records = job.records.all()
+    records = job.records.all().order_by('source_position')
     if status_filter:
         records = records.filter(status=status_filter)
 
-    page_obj = _paginate(request, records, per_page=100)
+    # Paginate PKs first for efficient COUNT(*)
+    pk_qs = records.values_list('pk', flat=True)
+    paginator = Paginator(pk_qs, 100)
+    page_obj = paginator.get_page(request.GET.get('page', '1'))
+    ids = list(page_obj.object_list)
+
+    # Load only the display columns for the current page
+    if ids:
+        loaded = {}
+        for rec in ImportRecord.objects.filter(pk__in=ids).values(
+            'id', 'source_position', 'source_hash', 'status',
+            'error_category', 'processed_at', 'retryable',
+            'account_id',
+        ):
+            rec['status_display'] = _STATUS_LABELS.get(
+                rec['status'], rec['status'],
+            )
+            loaded[rec['id']] = rec
+        page_obj.object_list = [loaded[pk] for pk in ids if pk in loaded]
+    else:
+        page_obj.object_list = []
+
     return render(request, 'vault/import_job_records.html', {
         'job': job,
         'page_obj': page_obj,
