@@ -1425,6 +1425,8 @@ def _import_job_status_payload(job):
         'total_skipped': int(job.total_skipped),
         'total_failed': int(job.total_failed),
         'remaining_count': int(job.remaining_count),
+        'throughput_per_second': int(job.throughput_per_second),
+        'elapsed_seconds': int(job.elapsed_seconds),
         'can_pause': bool(job.can_pause()),
         'can_resume': bool(job.can_resume()),
         'can_cancel': bool(job.can_cancel()),
@@ -1646,17 +1648,52 @@ def import_job_verify(request, job_id):
 
 
 def import_job_records(request, job_id):
-    """List all records for an import job with filtering and pagination."""
-    from .models import ImportJob
+    """List all records for an import job with filtering and pagination.
+
+    Uses a two-step pagination approach: page the PKs first (fast COUNT and
+    LIMIT/OFFSET), then load only the fields needed for the template.  This
+    avoids fetching the full ``source_line`` text and other large columns
+    for every row in the table.
+    """
+    from .models import ImportJob, ImportRecord
 
     job = get_object_or_404(ImportJob, job_id=job_id)
+
+    _STATUS_LABELS = {
+        'pending': str(_('Pending')),
+        'processing': str(_('Processing')),
+        'committed': str(_('Committed')),
+        'skipped': str(_('Skipped')),
+        'failed': str(_('Failed')),
+    }
 
     status_filter = request.GET.get('status', '')
     records = job.records.all()
     if status_filter:
         records = records.filter(status=status_filter)
 
-    page_obj = _paginate(request, records, per_page=100)
+    # Paginate PKs first for efficient COUNT(*)
+    pk_qs = records.values_list('pk', flat=True)
+    paginator = Paginator(pk_qs, 100)
+    page_obj = paginator.get_page(request.GET.get('page', '1'))
+    ids = list(page_obj.object_list)
+
+    # Load only the display columns for the current page
+    if ids:
+        loaded = {}
+        for rec in ImportRecord.objects.filter(pk__in=ids).values(
+            'id', 'source_position', 'source_hash', 'status',
+            'error_category', 'processed_at', 'retryable',
+            'account_id',
+        ):
+            rec['status_display'] = _STATUS_LABELS.get(
+                rec['status'], rec['status'],
+            )
+            loaded[rec['id']] = rec
+        page_obj.object_list = [loaded[pk] for pk in ids if pk in loaded]
+    else:
+        page_obj.object_list = []
+
     return render(request, 'vault/import_job_records.html', {
         'job': job,
         'page_obj': page_obj,

@@ -850,6 +850,30 @@ class ImportJob(models.Model):
             (attempted / self.total_discovered) * 100,
         )
 
+    @property
+    def throughput_per_second(self):
+        """Approximate lines processed per second, or 0 when unknown.
+
+        Uses the elapsed wall-clock time between ``started_at`` and
+        ``last_activity_at`` (or now for active jobs).  Returns 0 for jobs
+        that have not started or have no activity yet.
+        """
+        if not self.started_at or not self.total_attempted:
+            return 0
+        end = self.last_activity_at or self.completed_at or timezone.now()
+        elapsed = (end - self.started_at).total_seconds()
+        if elapsed <= 0:
+            return 0
+        return round(self.total_attempted / elapsed)
+
+    @property
+    def elapsed_seconds(self):
+        """Wall-clock seconds since the job started, or 0."""
+        if not self.started_at:
+            return 0
+        end = self.completed_at or self.last_activity_at or timezone.now()
+        return max(0, round((end - self.started_at).total_seconds()))
+
 
 class ImportRecord(models.Model):
     """

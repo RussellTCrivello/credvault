@@ -52,6 +52,7 @@ Speed for very large jobs:
   fails.
 """
 
+import gzip
 import os
 import re
 from contextlib import contextmanager
@@ -74,9 +75,14 @@ STREAM_BATCH_SIZE = 100000
 
 _BINARY_EXTS = {
     ".sqlite3", ".db", ".pyc", ".pyo", ".mo", ".png", ".jpg", ".jpeg",
-    ".gif", ".webp", ".ico", ".pdf", ".zip", ".tar", ".gz", ".7z", ".exe",
+    ".gif", ".webp", ".ico", ".pdf", ".zip", ".tar", ".7z", ".exe",
     ".dll", ".so", ".dylib", ".woff", ".woff2", ".ttf", ".eot",
 }
+
+#: Compressed extensions that are streamed through a decompressor rather
+#: than skipped.  Only gzip is supported (streaming, no seek, single
+#: thread); other formats remain in _BINARY_EXTS.
+_COMPRESSED_EXTS = {".gz"}
 
 
 _STAGE_DDL = (
@@ -212,8 +218,41 @@ def _cgroup_free_megabytes():
     return None
 
 
+def _windows_free_megabytes():
+    """Free memory on Windows via GlobalMemoryStatusEx (ctypes, no deps)."""
+    try:
+        import ctypes
+        import ctypes.wintypes
+
+        class _MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.wintypes.DWORD),
+                ("dwMemoryLoad", ctypes.wintypes.DWORD),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+
+        stat = _MEMORYSTATUSEX()
+        stat.dwLength = ctypes.sizeof(stat)
+        kernel32 = ctypes.windll.kernel32
+        if not kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+            return None
+        return stat.ullAvailPhys // (1024 * 1024)
+    except (OSError, AttributeError, TypeError, ValueError):
+        return None
+
+
 def _host_free_megabytes():
-    """Memory the machine can still hand out in MB, or None if unknown."""
+    """Memory the machine can still hand out in MB, or None if unknown.
+
+    Supports Linux (/proc/meminfo, sysconf), macOS (sysconf), and Windows
+    (GlobalMemoryStatusEx via ctypes -- no third-party dependency).
+    """
     # MemAvailable counts page cache that can be reclaimed; the free page
     # count from sysconf does not, which would understate a busy server.
     try:
@@ -228,7 +267,11 @@ def _host_free_megabytes():
         page_size = os.sysconf("SC_PAGE_SIZE")
         return (int(pages) * int(page_size)) // (1024 * 1024)
     except (AttributeError, OSError, TypeError, ValueError):
-        return None
+        pass
+    # Windows: GlobalMemoryStatusEx via ctypes
+    if os.name == 'nt':
+        return _windows_free_megabytes()
+    return None
 
 
 def _free_megabytes():
@@ -752,6 +795,20 @@ def search_indexes_suspended():
         ensure_search_indexes()
 
 
+def _open_source_file(filepath, mode='rb'):
+    """Open a file for reading, transparently decompressing gzip inputs.
+
+    Plain files use the built-in ``open()``; ``.gz`` files are wrapped in
+    ``gzip.GzipFile`` so the rest of the import pipeline reads decompressed
+    lines without loading the entire file into memory.  The returned handle
+    must be closed by the caller.
+    """
+    lower = filepath.lower()
+    if lower.endswith('.gz'):
+        return gzip.open(filepath, mode)
+    return open(filepath, mode)
+
+
 def _is_candidate_file(filename, ext="*"):
     lower = filename.lower()
     _, file_ext = os.path.splitext(lower)
@@ -760,6 +817,13 @@ def _is_candidate_file(filename, ext="*"):
     if ext == "*" or not ext:
         return True
     normalized_ext = ext.lower().lstrip(".")
+    # Compressed files like data.txt.gz match on the inner extension (txt)
+    if file_ext in _COMPRESSED_EXTS:
+        inner_name = lower[:-len(file_ext)]
+        _, inner_ext = os.path.splitext(inner_name)
+        if inner_ext:
+            return inner_ext == f".{normalized_ext}"
+        return True
     return lower.endswith(f".{normalized_ext}")
 
 
@@ -810,7 +874,7 @@ def import_path(target_path, ext="*", on_file=None, fast_mode=False):
 
     for filepath in files:
         try:
-            with open(filepath, "rb") as handle:
+            with _open_source_file(filepath, "rb") as handle:
                 created, skipped = _import_one_file_session(handle)
         except OSError:
             continue
@@ -859,7 +923,7 @@ def _import_files(files, on_file=None):
     with search_indexes_suspended():
         for filepath in files:
             try:
-                with open(filepath, "rb") as handle:
+                with _open_source_file(filepath, "rb") as handle:
                     created, skipped = _import_one_file_session(handle)
             except OSError:
                 continue
