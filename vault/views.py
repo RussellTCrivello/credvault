@@ -484,8 +484,12 @@ def _attach_usage(kind, entities):
 
 
 def _records_total_context():
-    """Exact number and readable label for the Records page."""
-    total_records = exact_count(Account.objects.all())
+    """Exact number and readable label for the Records page.
+
+    Uses a short-lived cache to avoid an expensive ``COUNT(*)`` on every
+    page load.  The cache is invalidated when an import commits new records.
+    """
+    total_records = cached_model_count(Account, key='vault_account')
     return {
         'total_records': total_records,
         'total_records_label': count_label(total_records),
@@ -1140,10 +1144,16 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                 )
                 processed_before = 0
                 completed_files = 0
-                # Throttle progress events to at most one per second so the
-                # NDJSON stream stays responsive without flooding the client.
+                # Throttle progress events so the NDJSON stream stays
+                # responsive without flooding the client.  The interval is
+                # configurable via VAULT_PROGRESS_INTERVAL (seconds, default 1).
                 _last_progress_ts = [0.0]
-                _PROGRESS_INTERVAL = 1.0
+                try:
+                    _PROGRESS_INTERVAL = max(
+                        0.1, float(os.environ.get('VAULT_PROGRESS_INTERVAL', '1.0')),
+                    )
+                except (TypeError, ValueError):
+                    _PROGRESS_INTERVAL = 1.0
 
                 def _throttled_progress(event):
                     now = time.monotonic()
@@ -1701,7 +1711,7 @@ def import_job_records(request, job_id):
     }
 
     status_filter = request.GET.get('status', '')
-    records = job.records.all()
+    records = job.records.all().order_by('source_position')
     if status_filter:
         records = records.filter(status=status_filter)
 

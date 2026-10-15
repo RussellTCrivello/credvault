@@ -1021,11 +1021,10 @@ def _durable_flush_batch(
             # All DB work for this batch stays in one transaction, but we
             # split it into two cursor blocks so Python can compute
             # fingerprints between the reference-id lookup and the account
-            # insert. This avoids the heavy SQL sha256 expression that was
-            # ~2.3s per 100k rows.
+            # insert.  The SET LOCAL directives at the top of the enclosing
+            # transaction.atomic() already apply here; repeating them would
+            # waste a server round-trip per batch.
             with connection.cursor() as cursor:
-                cursor.execute('SET LOCAL synchronous_commit = off')
-                cursor.execute('SET LOCAL work_mem = %s', ('1024MB',))
                 cursor.execute(_STAGE_DDL)
                 cursor.execute('TRUNCATE vault_import_stage')
                 with cursor.copy(
@@ -2180,7 +2179,14 @@ class DurableImportSession:
             elif self._paused:
                 job.mark_paused(worker_id=self._worker_id)
             else:
-                job.refresh_counters()
+                # The incremental counters in _durable_flush_batch are already
+                # durable; a full aggregate (refresh_counters) on millions of
+                # ledger rows is unnecessary here.  Reload from DB to pick up
+                # any concurrent counter writes, then validate completeness.
+                job.refresh_from_db(fields=[
+                    'total_discovered', 'total_attempted',
+                    'total_committed', 'total_skipped', 'total_failed',
+                ])
                 if job.total_attempted < job.total_discovered:
                     job.mark_failed(
                         'Source ended before every manifest position was accounted for.',
@@ -2192,6 +2198,14 @@ class DurableImportSession:
                         worker_id=self._worker_id,
                     )
             release_lease(job, self._worker_id)
+            # Structured summary — no credential values, only counters.
+            logger.info(
+                'Import job %s finished: status=%s committed=%d skipped=%d '
+                'failed=%d elapsed=%ds',
+                job.job_id, job.status,
+                job.total_committed, job.total_skipped, job.total_failed,
+                job.elapsed_seconds,
+            )
 
         except LeaseLostError:
             # Another worker may already own the replacement lease. Do not
