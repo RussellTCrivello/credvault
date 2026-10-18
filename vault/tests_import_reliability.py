@@ -22,6 +22,7 @@ database is not available.
 """
 
 import hashlib
+import io
 import os
 import shutil
 import tempfile
@@ -30,8 +31,10 @@ from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
 from django.db import IntegrityError, connection, transaction
-from django.test import Client, TestCase, skipIfDBFeature
+from django.test import Client, TestCase, TransactionTestCase, skipIfDBFeature
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -47,7 +50,7 @@ from .models import (
     Account, Email, ImportJob, ImportRecord, ImportRecoveryLog, Ip, Pass,
     Url, User, record_fingerprint,
 )
-from .utils import parse_line
+from .utils import MAX_SOURCE_LINE_BYTES, parse_line
 
 
 # Check if PostgreSQL is available
@@ -404,6 +407,31 @@ class DurableImportSessionBasicTests(TestCase):
         self.assertEqual(job.status, 'completed')
         self.assertEqual(job.records.count(), 2)
         self.assertEqual(job.total_discovered, 2)
+
+    def test_durable_flush_waits_for_wal_flush(self):
+        """Durable ledger and accounts must not acknowledge async commits."""
+        job = create_import_job(source_name='sync-policy.txt')
+        outcome = {
+            'source_position': 1,
+            'source_hash': 'e' * 64,
+            'idempotency_key': ImportRecord.compute_idempotency_key(
+                job.job_id, 1,
+            ),
+            'status': 'skipped',
+            'error_category': 'invalid_format',
+            'retryable': False,
+        }
+
+        with CaptureQueriesContext(connection) as captured:
+            _durable_flush_batch([], [], job.pk, outcome_metas=[outcome])
+
+        settings = [
+            query['sql'].lower()
+            for query in captured
+            if 'synchronous_commit' in query['sql'].lower()
+        ]
+        self.assertIn('set local synchronous_commit = on', settings)
+        self.assertNotIn('set local synchronous_commit = off', settings)
 
     def test_invalid_lines_recorded_as_skipped(self):
         """Invalid lines are recorded as skipped."""
@@ -770,6 +798,36 @@ class CrashRecoveryTests(TestCase):
         self.assertEqual(job.total_committed, 7)
         self.assertEqual(job.total_skipped, 1)
         self.assertEqual(job.total_failed, 0)
+
+    def test_recoverimports_command_lists_and_recovers_abandoned_job(self):
+        job = create_import_job(
+            source_name='crash-source.txt',
+            source_path=self.source_path,
+            options={'ext': '*'},
+        )
+        self._kill_worker_after(job, committed_batches=2)
+
+        # A live lease is never taken over: nothing is listed or recovered.
+        out = io.StringIO()
+        call_command('recoverimports', '--run', stdout=out)
+        self.assertIn('No recoverable import jobs.', out.getvalue())
+        self.assertEqual(Account.objects.count(), 6)
+
+        ImportJob.objects.filter(pk=job.pk).update(
+            lease_expires_at=timezone.now() - timezone.timedelta(seconds=1)
+        )
+        listing = io.StringIO()
+        call_command('recoverimports', stdout=listing)
+        self.assertIn(str(job.job_id), listing.getvalue())
+        self.assertEqual(Account.objects.count(), 6, 'listing must not import')
+
+        out = io.StringIO()
+        call_command('recoverimports', '--run', stdout=out)
+        self.assertIn('job now completed', out.getvalue())
+        job.refresh_from_db()
+        self.assertEqual(job.status, 'completed')
+        self.assertEqual(Account.objects.count(), 7)
+        self.assertNotIn('Secret', out.getvalue())
         for record in job.records.filter(status='committed'):
             self.assertIsNotNone(record.account_id)
             self.assertTrue(
@@ -1128,3 +1186,80 @@ class ImportManagementViewTests(TestCase):
         self.assertEqual(response.json()['total_discovered'], 12345)
         self.assertTrue(response.json()['can_pause'])
         self.assertTrue(response.json()['can_cancel'])
+
+
+class ParallelFileImportTests(TransactionTestCase):
+    """The opt-in CLI file pool keeps independent jobs and dedup correct."""
+
+    def test_parallel_files_use_separate_jobs_and_preserve_global_dedup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            shared = (
+                'https://parallel-shared.example/login|parallel-shared-user|'
+                'parallel-shared-secret\n'
+            )
+            first = os.path.join(directory, 'one.txt')
+            second = os.path.join(directory, 'two.txt')
+            with open(first, 'w', encoding='utf-8') as handle:
+                handle.write(
+                    'https://parallel-one.example/login|parallel-user-one|'
+                    'parallel-secret-one\n' + shared
+                )
+            with open(second, 'w', encoding='utf-8') as handle:
+                handle.write(
+                    'https://parallel-two.example/login|parallel-user-two|'
+                    'parallel-secret-two\n' + shared
+                )
+
+            output = io.StringIO()
+            call_command(
+                'importfolder', directory, parallel_files=2, quiet=True,
+                stdout=output,
+            )
+
+        jobs = list(ImportJob.objects.order_by('source_path'))
+        self.assertEqual(len(jobs), 2)
+        self.assertTrue(all(job.status == 'completed' for job in jobs))
+        self.assertEqual(sum(job.total_discovered for job in jobs), 4)
+        self.assertEqual(sum(job.total_committed for job in jobs), 3)
+        self.assertEqual(sum(job.total_skipped for job in jobs), 1)
+        self.assertEqual(ImportRecord.objects.count(), 4)
+        self.assertEqual(Account.objects.count(), 3)
+
+
+
+class OversizedImportTests(TestCase):
+    """Path imports bound line memory and retain hash-only skip evidence."""
+
+    def test_oversized_line_is_hash_audited_and_following_line_is_imported(self):
+        oversized = (
+            b'https://oversized.example/login|longuser|synthetic-secret|'
+            + b'x' * (MAX_SOURCE_LINE_BYTES * 3)
+            + b'\n'
+        )
+        valid = (
+            b'https://after-oversized.example/login|after-user|'
+            b'after-secret\n'
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'oversized.txt')
+            with open(path, 'wb') as handle:
+                handle.write(oversized)
+                handle.write(valid)
+
+            job = durable_import_path(
+                path, batch_rows=1000, workers=2,
+            )
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, 'completed')
+        self.assertEqual(job.total_discovered, 2)
+        self.assertEqual(job.total_committed, 1)
+        self.assertEqual(job.total_skipped, 1)
+        self.assertEqual(job.total_failed, 0)
+        self.assertEqual(Account.objects.count(), 1)
+        records = list(job.records.order_by('source_position'))
+        self.assertEqual(records[0].status, 'skipped')
+        self.assertEqual(records[0].error_category, 'line_too_large')
+        self.assertEqual(records[0].source_hash, hashlib.sha256(oversized).hexdigest())
+        self.assertEqual(records[0].source_line, '')
+        self.assertEqual(records[1].status, 'committed')

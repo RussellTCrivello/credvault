@@ -33,22 +33,41 @@ from django.utils import timezone
 
 from .importer import (
     _REFERENCE_INSERTS, _STAGE_DDL,
-    _parse_context, _PARSE_CHUNK_LINES,
-    collect_files_from_path, stage_rows, worker_count,
+    MAX_IMPORT_BUFFER_BYTES, MAX_IN_FLIGHT_PARSE_BYTES, MAX_PARSE_TASK_BYTES,
+    _parse_context,
+    bounded_batch_rows, bounded_worker_count, collect_files_from_path,
+    estimated_batch_item_bytes, estimated_parse_item_bytes, import_work_mem,
+    max_pending_parse_chunks, stage_rows, worker_count,
 )
 from .models import (
     Account, Email, ImportJob, ImportRecord, ImportRecoveryLog,
     Ip, Pass, Url, User, IMPORT_LEASE_SECONDS, record_fingerprint,
 )
-from .utils import parse_line, NO_IP
+from .utils import (
+    NO_IP, OversizedSourceLine,
+    iter_bounded_source_lines, parse_line,
+)
 
 logger = logging.getLogger(__name__)
 _lease_context = threading.local()
 
-# For parallel parsing of durable imports (same chunk sizing as bulk path,
-# but smaller to keep latency low for pause/cancel checks).
+# For parallel parsing of durable imports, smaller chunks keep control
+# requests responsive. The shared pending-task limit in vault.importer bounds
+# memory independently of worker count.
 _DURABLE_PARSE_CHUNK = 2000
-_MAX_PENDING_CHUNKS_PER_WORKER = 3
+
+#: Per-kind ceiling for the "already inserted" reference-value cache. The
+#: cache only saves redundant ``INSERT ... ON CONFLICT DO NOTHING`` work; the
+#: unique constraints stay authoritative. Without a ceiling it kept every
+#: distinct URL/email/password of a job (including credentials) in memory.
+MAX_REFERENCE_CACHE_VALUES = 200000
+
+
+def _bound_reference_cache(seen, limit):
+    """Empty any cache set that grew past ``limit`` values."""
+    for values in seen.values():
+        if len(values) > limit:
+            values.clear()
 
 # Import worker-safe parse functions from vault.workers (no Django top-level imports)
 # This is critical for Windows spawn: Pool workers re-import the module containing
@@ -65,8 +84,11 @@ except ImportError:
         import hashlib as _hashlib
         from vault.utils import parse_line as _parse_line
         from vault.utils import NO_IP as _NO_IP
+        from vault.utils import OversizedSourceLine as _OversizedSourceLine
 
         def _hash_line(line):
+            if isinstance(line, _OversizedSourceLine):
+                return line.source_hash
             if isinstance(line, str):
                 line = line.encode('utf-8', errors='replace')
             elif not isinstance(line, (bytes, bytearray)):
@@ -117,7 +139,11 @@ except ImportError:
                         {
                             **meta,
                             'status': 'skipped',
-                            'error_category': 'invalid_format',
+                            'error_category': (
+                                'line_too_large'
+                                if isinstance(line, _OversizedSourceLine)
+                                else 'invalid_format'
+                            ),
                             'retryable': False,
                         },
                     ))
@@ -326,7 +352,9 @@ def create_import_job(
 
 
 def _hash_source_line(line):
-    """SHA-256 of a source line (str or bytes)."""
+    """SHA-256 of a source line or its hash-only overlong marker."""
+    if isinstance(line, OversizedSourceLine):
+        return line.source_hash
     if isinstance(line, str):
         line = line.encode('utf-8', errors='replace')
     elif not isinstance(line, (bytes, bytearray)):
@@ -632,15 +660,18 @@ class _VerifiedSourceLines:
                         self._active_filepath = filepath
                         self._active_signature = expected_stat
                         self.check_source()
-                        while True:
-                            line = handle.readline()
-                            if not line:
-                                break
-                            file_hash.update(line)
-                            file_size += len(line)
-                            newline_count += line.count(b'\n')
-                            if line:
-                                last_byte = line[-1:]
+
+                        def account_source_bytes(chunk):
+                            nonlocal file_size, newline_count, last_byte
+                            file_hash.update(chunk)
+                            file_size += len(chunk)
+                            newline_count += chunk.count(b'\n')
+                            if chunk:
+                                last_byte = chunk[-1:]
+
+                        for line in iter_bounded_source_lines(
+                            handle, on_chunk=account_source_bytes,
+                        ):
                             yield line
                         self.check_source()
                 except OSError as exc:
@@ -818,8 +849,11 @@ def _durable_flush_batch(
 
     with transaction.atomic():
         with connection.cursor() as cursor:
-            cursor.execute('SET LOCAL synchronous_commit = off')
-            cursor.execute('SET LOCAL work_mem = %s', ('1024MB',))
+            # This is the durable product path: acknowledge only after PostgreSQL
+            # has flushed this transaction's WAL. Keep this ON for accounts,
+            # per-line ledger, counters, and checkpoint as one recovery unit.
+            cursor.execute('SET LOCAL synchronous_commit = on')
+            cursor.execute('SET LOCAL work_mem = %s', (import_work_mem(),))
         _log_section("job SELECT FOR UPDATE setup")
         job = ImportJob.objects.select_for_update().get(pk=job_pk)
         if worker_id:
@@ -953,8 +987,6 @@ def _durable_flush_batch(
             # insert. This avoids the heavy SQL sha256 expression that was
             # ~2.3s per 100k rows.
             with connection.cursor() as cursor:
-                cursor.execute('SET LOCAL synchronous_commit = off')
-                cursor.execute('SET LOCAL work_mem = %s', ('1024MB',))
                 cursor.execute(_STAGE_DDL)
                 cursor.execute('TRUNCATE vault_import_stage')
                 with cursor.copy(
@@ -1636,8 +1668,14 @@ class DurableImportSession:
                  on_progress=None, cancel_check=None, worker_id=None,
                  source_check=None, source_close=None):
         self.job = job
-        self._batch_rows = batch_rows or stage_rows()
-        self._workers = workers if workers is not None else worker_count()
+        self._batch_rows = (
+            stage_rows() if batch_rows is None
+            else bounded_batch_rows(batch_rows)
+        )
+        self._workers = (
+            worker_count() if workers is None
+            else bounded_worker_count(workers)
+        )
         self._on_progress = on_progress
         self._cancel_check = cancel_check
         self._source_check = source_check
@@ -1781,6 +1819,8 @@ class DurableImportSession:
         batch_limit = max(1, int(self._batch_rows))
         batch_valid_count = 0
         batch_outcome_count = 0
+        batch_buffer_bytes = 0
+        batch_items = 0
         lease_counter = 0
         # Polling every 128 lines caused ~140k DB round-trips for an 18M-line
         # file. 2048 lines is still responsive (<0.5s at 5k/s) and cuts the
@@ -1799,6 +1839,7 @@ class DurableImportSession:
 
         def flush_batch():
             nonlocal batch_valid_count, batch_outcome_count
+            nonlocal batch_buffer_bytes, batch_items
             if not batch_metas:
                 return
             # ``None`` rows represent source lines which were deliberately
@@ -1808,17 +1849,47 @@ class DurableImportSession:
             # in memory and cannot be committed under the old manifest.
             if callable(source_check):
                 source_check()
-            _durable_flush_batch(batch_rows, batch_metas, job.pk, seen=reference_seen)
+            try:
+                _durable_flush_batch(
+                    batch_rows, batch_metas, job.pk, seen=reference_seen,
+                )
+            except BaseException:
+                # The cache is filled inside the batch transaction. A rolled
+                # back batch must not leave values marked as stored, or a
+                # retry would skip inserting them and lose the accounts.
+                _bound_reference_cache(reference_seen, 0)
+                raise
+            _bound_reference_cache(reference_seen, MAX_REFERENCE_CACHE_VALUES)
             batch_rows.clear()
             batch_metas.clear()
             batch_valid_count = 0
             batch_outcome_count = 0
+            batch_buffer_bytes = 0
+            batch_items = 0
             if self._on_progress:
                 self._on_progress(self._position)
                 # A callback (or concurrent editor) can change the path after
                 # a commit. Refuse before the iterator yields another line.
                 if callable(source_check):
                     source_check()
+
+        def append_batch_item(row, meta):
+            nonlocal batch_valid_count, batch_outcome_count
+            nonlocal batch_buffer_bytes, batch_items
+            batch_rows.append(row)
+            batch_metas.append(meta)
+            batch_buffer_bytes += estimated_batch_item_bytes(row, meta)
+            batch_items += 1
+            if row is None:
+                batch_outcome_count += 1
+            else:
+                batch_valid_count += 1
+            if (
+                batch_valid_count >= batch_limit
+                or batch_outcome_count >= batch_limit
+                or batch_buffer_bytes >= MAX_IMPORT_BUFFER_BYTES
+            ):
+                flush_batch()
 
         try:
             # ------------------------------------------------------------------
@@ -1843,29 +1914,40 @@ class DurableImportSession:
 
                 if pool is not None:
                     chunk_buf = []
+                    chunk_buf_bytes = 0
                     pending = []
-                    max_pending = self._workers * _MAX_PENDING_CHUNKS_PER_WORKER
+                    pending_bytes = 0
+                    max_pending = max_pending_parse_chunks(self._workers)
                     job_id_str = str(job.job_id)
 
                     def _drain_pending(block=False):
-                        nonlocal batch_valid_count, batch_outcome_count
-                        while pending and (block or len(pending) >= max_pending):
-                            parsed_chunk = pending.pop(0).get()
-                            for row, meta in parsed_chunk:
-                                if row is None:
-                                    batch_rows.append(None)
-                                    batch_metas.append(meta)
-                                    batch_outcome_count += 1
-                                else:
-                                    batch_rows.append(row)
-                                    batch_metas.append(meta)
-                                    batch_valid_count += 1
+                        nonlocal pending_bytes
+                        while pending and (
+                            block
+                            or len(pending) >= max_pending
+                            or pending_bytes >= MAX_IN_FLIGHT_PARSE_BYTES
+                        ):
+                            task, task_bytes = pending.pop(0)
+                            pending_bytes -= task_bytes
+                            for row, meta in task.get():
+                                append_batch_item(row, meta)
 
-                                if (
-                                    batch_valid_count >= batch_limit
-                                    or batch_outcome_count >= batch_limit
-                                ):
-                                    flush_batch()
+                    def _submit_parse_chunk():
+                        nonlocal chunk_buf, chunk_buf_bytes, pending_bytes
+                        if not chunk_buf:
+                            return
+                        task_payload = (chunk_buf, job_id_str)
+                        task_bytes = chunk_buf_bytes
+                        pending.append((
+                            pool.apply_async(
+                                _parse_durable_chunk, (task_payload,),
+                            ),
+                            task_bytes,
+                        ))
+                        pending_bytes += task_bytes
+                        chunk_buf = []
+                        chunk_buf_bytes = 0
+                        _drain_pending(block=False)
 
                     try:
                         for item in lines_iterable:
@@ -1884,17 +1966,19 @@ class DurableImportSession:
                                 self._position += 1
                                 line = item
 
+                            line_bytes = estimated_parse_item_bytes(line)
+                            if chunk_buf and (
+                                len(chunk_buf) >= _DURABLE_PARSE_CHUNK
+                                or chunk_buf_bytes + line_bytes > MAX_PARSE_TASK_BYTES
+                            ):
+                                _submit_parse_chunk()
                             chunk_buf.append((self._position, line))
-
-                            if len(chunk_buf) >= _DURABLE_PARSE_CHUNK:
-                                pending.append(
-                                    pool.apply_async(
-                                        _parse_durable_chunk,
-                                        ((list(chunk_buf), job_id_str),),
-                                    )
-                                )
-                                chunk_buf.clear()
-                                _drain_pending(block=False)
+                            chunk_buf_bytes += line_bytes
+                            if (
+                                len(chunk_buf) >= _DURABLE_PARSE_CHUNK
+                                or chunk_buf_bytes >= MAX_PARSE_TASK_BYTES
+                            ):
+                                _submit_parse_chunk()
 
                             control_poll_counter += 1
                             lease_counter += 1
@@ -1906,33 +1990,9 @@ class DurableImportSession:
                                         'Import worker no longer owns this job.'
                                     )
 
-                        if chunk_buf:
-                            pending.append(
-                                pool.apply_async(
-                                    _parse_durable_chunk,
-                                    ((list(chunk_buf), job_id_str),),
-                                )
-                            )
-                            chunk_buf.clear()
-
-                        # Drain all remaining parsed chunks in order.
-                        while pending:
-                            parsed_chunk = pending.pop(0).get()
-                            for row, meta in parsed_chunk:
-                                if row is None:
-                                    batch_rows.append(None)
-                                    batch_metas.append(meta)
-                                    batch_outcome_count += 1
-                                else:
-                                    batch_rows.append(row)
-                                    batch_metas.append(meta)
-                                    batch_valid_count += 1
-
-                                if (
-                                    batch_valid_count >= batch_limit
-                                    or batch_outcome_count >= batch_limit
-                                ):
-                                    flush_batch()
+                        _submit_parse_chunk()
+                        # Drain all remaining parsed chunks in source order.
+                        _drain_pending(block=True)
                     finally:
                         try:
                             pool.close()
@@ -1973,8 +2033,7 @@ class DurableImportSession:
                         try:
                             record_data = parse_line(line)
                         except Exception as parse_exc:
-                            batch_rows.append(None)
-                            batch_metas.append({
+                            append_batch_item(None, {
                                 **meta,
                                 'status': 'failed',
                                 'error_category': 'parse_error',
@@ -1984,28 +2043,25 @@ class DurableImportSession:
                                 ),
                                 'retryable': True,
                             })
-                            batch_outcome_count += 1
                         else:
                             if record_data is None:
-                                batch_rows.append(None)
-                                batch_metas.append({
+                                append_batch_item(None, {
                                     **meta,
                                     'status': 'skipped',
-                                    'error_category': 'invalid_format',
+                                    'error_category': (
+                                        'line_too_large'
+                                        if isinstance(line, OversizedSourceLine)
+                                        else 'invalid_format'
+                                    ),
                                     'retryable': False,
                                 })
-                                batch_outcome_count += 1
                             else:
-                                batch_rows.append(_row_from_parsed(record_data))
-                                batch_metas.append(meta)
-                                batch_valid_count += 1
+                                append_batch_item(
+                                    _row_from_parsed(record_data), meta,
+                                )
 
                         control_poll_counter += 1
-                        if (
-                            batch_valid_count >= batch_limit
-                            or batch_outcome_count >= batch_limit
-                        ):
-                            flush_batch()
+                        if batch_items == 0:
                             control_poll_counter = 2048
 
                         lease_counter += 1
@@ -2049,8 +2105,7 @@ class DurableImportSession:
                     try:
                         record_data = parse_line(line)
                     except Exception as parse_exc:
-                        batch_rows.append(None)
-                        batch_metas.append({
+                        append_batch_item(None, {
                             **meta,
                             'status': 'failed',
                             'error_category': 'parse_error',
@@ -2060,28 +2115,25 @@ class DurableImportSession:
                             ),
                             'retryable': True,
                         })
-                        batch_outcome_count += 1
                     else:
                         if record_data is None:
-                            batch_rows.append(None)
-                            batch_metas.append({
+                            append_batch_item(None, {
                                 **meta,
                                 'status': 'skipped',
-                                'error_category': 'invalid_format',
+                                'error_category': (
+                                    'line_too_large'
+                                    if isinstance(line, OversizedSourceLine)
+                                    else 'invalid_format'
+                                ),
                                 'retryable': False,
                             })
-                            batch_outcome_count += 1
                         else:
-                            batch_rows.append(_row_from_parsed(record_data))
-                            batch_metas.append(meta)
-                            batch_valid_count += 1
+                            append_batch_item(
+                                _row_from_parsed(record_data), meta,
+                            )
 
                     control_poll_counter += 1
-                    if (
-                        batch_valid_count >= batch_limit
-                        or batch_outcome_count >= batch_limit
-                    ):
-                        flush_batch()
+                    if batch_items == 0:
                         control_poll_counter = 2048
 
                     lease_counter += 1
@@ -2912,16 +2964,18 @@ def durable_import_uploads(uploaded_files, source_name=None, on_progress=None,
                 newline_count = 0
                 last_byte = b''
                 uploaded_file.seek(0)
-                for line in uploaded_file:
-                    line_bytes = (
-                        line.encode('utf-8', errors='replace')
-                        if isinstance(line, str) else bytes(line)
-                    )
+
+                def account_upload_bytes(line_bytes):
+                    nonlocal file_size, newline_count, last_byte
                     file_hash.update(line_bytes)
                     file_size += len(line_bytes)
                     newline_count += line_bytes.count(b'\n')
                     if line_bytes:
                         last_byte = line_bytes[-1:]
+
+                for line in iter_bounded_source_lines(
+                    uploaded_file, on_chunk=account_upload_bytes,
+                ):
                     yield line
                 line_count_for_file = newline_count + int(
                     file_size > 0 and last_byte != b'\n'
@@ -2968,7 +3022,7 @@ def durable_import_uploads(uploaded_files, source_name=None, on_progress=None,
 def durable_import_path(target_path, ext='*', on_progress=None,
                         cancel_check=None, batch_rows=None,
                         expected_line_count=None, on_job_created=None,
-                        prepared_manifest=None):
+                        prepared_manifest=None, workers=None):
     """Import all matching files using one immutable path manifest/job."""
     target_path = os.path.abspath(target_path)
     if prepared_manifest is None:
@@ -3021,6 +3075,7 @@ def durable_import_path(target_path, ext='*', on_progress=None,
     session = DurableImportSession(
         job,
         batch_rows=batch_rows,
+        workers=workers,
         on_progress=on_progress,
         cancel_check=cancel_check,
     )

@@ -876,9 +876,12 @@ class ImportRecord(models.Model):
         ('failed', _('Failed')),
     ]
 
+    # No separate FK index: both (import_job, source_position) and
+    # (import_job, status) below lead with this column, so a third index on
+    # it alone only adds ledger write cost.
     import_job = models.ForeignKey(
         ImportJob, on_delete=models.CASCADE, related_name='records',
-        verbose_name=_('Import job'),
+        verbose_name=_('Import job'), db_index=False,
     )
     source_position = models.BigIntegerField(
         _('Source position'),
@@ -945,10 +948,6 @@ class ImportRecord(models.Model):
             models.Index(
                 fields=['import_job', 'source_position'],
                 name='vault_importrec_job_pos_idx',
-            ),
-            models.Index(
-                fields=['idempotency_key'],
-                name='vault_importrec_idem_idx',
             ),
         ]
 

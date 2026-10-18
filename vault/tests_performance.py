@@ -1,21 +1,34 @@
 """
 Performance and bulk-load checks.
 
-Everything here runs in the normal test run except
-:class:`ImportThroughputTests`, which writes hundreds of thousands of rows and
-is therefore skipped unless ``VAULT_RUN_PERFORMANCE=1``: it measures both the
-compatibility bulk loader and the durable streaming path on the machine it runs
-on (see README.md, "Import speed").
+Correctness checks run in the normal test suite. The opt-in throughput and
+concurrent-search benchmarks write large synthetic datasets and require
+``VAULT_RUN_PERFORMANCE=1`` or ``VAULT_RUN_CONCURRENT_PERF=1``. They measure
+both the compatibility bulk loader and the durable path on the machine they
+run on (see README.md, "Import speed" and "Search during imports").
 """
 
+import io
+import math
 import os
+import statistics
+import sys
+
+try:
+    import resource
+except ImportError:  # pragma: no cover - unavailable on Windows
+    resource = None
 import tempfile
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
 from django.core.paginator import Paginator
+from django.db import connection
 from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 
@@ -29,7 +42,7 @@ from .importer import (
     worker_count,
 )
 from .import_engine import _source_manifest, durable_import_path
-from .models import Account, Email, Ip, Pass, Url, User
+from .models import Account, Email, ImportJob, Ip, Pass, Url, User
 from .utils import parse_line
 
 PASSWORD = 'correct-horse-battery'
@@ -368,3 +381,257 @@ class ImportThroughputTests(TransactionTestCase):
         self.assertEqual((created, skipped), (500, 0))
         for account in Account.objects.all():
             self.assertEqual(account.compute_fingerprint(), account.fingerprint)
+
+
+
+class ConcurrentImportSearchTests(TransactionTestCase):
+    """End-to-end interactive search measurements during durable ingestion."""
+
+    @unittest.skipUnless(
+        os.environ.get('VAULT_RUN_CONCURRENT_PERF') == '1',
+        'set VAULT_RUN_CONCURRENT_PERF=1 to measure searches during import',
+    )
+    def test_search_latency_and_storage_during_durable_import(self):
+        from django.db import close_old_connections, connections
+
+        line_count = max(
+            10000, int(os.environ.get('VAULT_CONCURRENT_PERF_LINES', '100000')),
+        )
+        batch_rows = max(
+            1000,
+            int(os.environ.get('VAULT_CONCURRENT_PERF_BATCH_ROWS', '10000')),
+        )
+        interval = max(
+            0.05,
+            float(os.environ.get('VAULT_CONCURRENT_PERF_INTERVAL', '0.1')),
+        )
+
+        administrator = get_user_model().objects.create_superuser(
+            'concurrent-perf-admin', 'perf@example.invalid', PASSWORD,
+        )
+        self.client.force_login(administrator)
+        Account.objects.create(
+            url=Url.objects.create(
+                name='https://interactive-query.example/login',
+            ),
+            account_type='email',
+            email=Email.objects.create(
+                name='interactive-search@latency.example',
+            ),
+            password=Pass.objects.create(name='synthetic-query-secret'),
+        )
+
+        cases = (
+            (
+                'exact email', reverse('vault:search'),
+                {'field': 'email', 'q': 'interactive-search@latency.example'},
+            ),
+            (
+                'substring URL', reverse('vault:advanced_search'),
+                {'url': 'interactive-query.example'},
+            ),
+        )
+        baseline = {name: [] for name, _url, _params in cases}
+        concurrent = {name: [] for name, _url, _params in cases}
+
+        def measure(destination, name, url, params):
+            started = time.perf_counter()
+            response = self.client.get(url, params)
+            elapsed = time.perf_counter() - started
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.context['total'], 1)
+            destination[name].append(elapsed)
+
+        # Record a small in-process baseline immediately before ingestion.
+        for _ in range(5):
+            for name, url, params in cases:
+                measure(baseline, name, url, params)
+
+        with tempfile.TemporaryDirectory(prefix='credvault-search-load-') as directory:
+            path = os.path.join(directory, 'concurrent-import.txt')
+            with open(path, 'wb') as source:
+                for index in range(line_count):
+                    source.write((synthetic_line(index) + '\n').encode())
+
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    'SELECT pg_database_size(current_database()), wal_bytes '
+                    'FROM pg_stat_wal'
+                )
+                size_before, wal_before = cursor.fetchone()
+
+            result = {}
+
+            def import_source():
+                close_old_connections()
+                started = time.perf_counter()
+                try:
+                    result['job'] = durable_import_path(
+                        path,
+                        batch_rows=batch_rows,
+                        workers=1,
+                    )
+                    result['seconds'] = time.perf_counter() - started
+                    return result['job']
+                finally:
+                    # Do not leave the test database pinned by the executor's
+                    # thread-local Django connection.
+                    connections.close_all()
+
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(import_source)
+                while not future.done():
+                    for name, url, params in cases:
+                        measure(concurrent, name, url, params)
+                    time.sleep(interval)
+                job = future.result()
+
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    'SELECT pg_database_size(current_database()), wal_bytes '
+                    'FROM pg_stat_wal'
+                )
+                size_after, wal_after = cursor.fetchone()
+                cursor.execute(
+                    'SELECT relname, pg_total_relation_size(relid) '
+                    'FROM pg_stat_user_tables WHERE schemaname = %s '
+                    'AND relname = ANY(%s) ORDER BY relname',
+                    [
+                        'public',
+                        [
+                            'vault_account', 'vault_url', 'vault_email',
+                            'vault_user', 'vault_pass', 'vault_ip',
+                            'vault_importrecord',
+                        ],
+                    ],
+                )
+                table_sizes = dict(cursor.fetchall())
+
+        self.assertEqual(job.status, 'completed')
+        self.assertEqual(job.total_committed, line_count)
+        self.assertEqual(Account.objects.count(), line_count + 1)
+        self.assertTrue(all(concurrent[name] for name, _url, _params in cases))
+
+        def percentile(values, fraction):
+            ordered = sorted(values)
+            index = max(0, min(len(ordered) - 1, math.ceil(len(ordered) * fraction) - 1))
+            return ordered[index]
+
+        process_peak_rss = 'unavailable'
+        if resource is not None:
+            rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            peak_bytes = rss if sys.platform == 'darwin' else rss * 1024
+            process_peak_rss = f'{peak_bytes / (1024 ** 2):,.1f} MiB'
+
+        print(
+            f'\nConcurrent benchmark: {line_count:,} durable records in '
+            f"{result['seconds']:.1f}s "
+            f"({line_count / result['seconds']:,.0f} records/s), "
+            f"{job.total_committed:,} committed across "
+            f"{(line_count + batch_rows - 1) // batch_rows:,} batches; "
+            f"database size delta {size_after - size_before:,} bytes; "
+            f"WAL delta {wal_after - wal_before:,} bytes; "
+            f"test-process peak RSS {process_peak_rss}"
+        )
+        for table, table_bytes in sorted(table_sizes.items()):
+            print(f'  storage {table}: {table_bytes:,} bytes')
+        for name, _url, _params in cases:
+            before = baseline[name]
+            during = concurrent[name]
+            print(
+                f'  {name}: baseline n={len(before)} '
+                f'p50={statistics.median(before) * 1000:.1f}ms '
+                f'p95={percentile(before, 0.95) * 1000:.1f}ms; '
+                f'during n={len(during)} '
+                f'p50={statistics.median(during) * 1000:.1f}ms '
+                f'p95={percentile(during, 0.95) * 1000:.1f}ms '
+                f'max={max(during) * 1000:.1f}ms'
+            )
+
+
+
+class FileConcurrencyBenchmarkTests(TransactionTestCase):
+    """Compare sequential and bounded multi-file durable imports end to end."""
+
+    @unittest.skipUnless(
+        os.environ.get('VAULT_RUN_FILE_CONCURRENCY_PERF') == '1',
+        'set VAULT_RUN_FILE_CONCURRENCY_PERF=1 to compare file concurrency',
+    )
+    def test_file_concurrency_scaling(self):
+        line_count = max(
+            10000, int(os.environ.get('VAULT_FILE_CONCURRENCY_LINES', '100000')),
+        )
+        file_count = max(
+            2, min(8, int(os.environ.get('VAULT_FILE_CONCURRENCY_FILES', '4'))),
+        )
+        results = []
+
+        def clear_imported_data():
+            ImportJob.objects.all().delete()
+            Account.objects.all().delete()
+            for model in (Url, Email, User, Pass, Ip):
+                model.objects.all().delete()
+
+        with tempfile.TemporaryDirectory(prefix='credvault-file-scale-') as root:
+            single_directory = os.path.join(root, 'sequential')
+            many_directory = os.path.join(root, 'parallel')
+            os.makedirs(single_directory)
+            os.makedirs(many_directory)
+
+            with open(
+                os.path.join(single_directory, 'all.txt'),
+                'w', encoding='utf-8',
+            ) as handle:
+                for index in range(line_count):
+                    handle.write(synthetic_line(index) + '\n')
+
+            for file_index in range(file_count):
+                start = line_count * file_index // file_count
+                stop = line_count * (file_index + 1) // file_count
+                with open(
+                    os.path.join(many_directory, f'part-{file_index:04}.txt'),
+                    'w', encoding='utf-8',
+                ) as handle:
+                    for index in range(start, stop):
+                        handle.write(synthetic_line(index) + '\n')
+
+            for parallel_files in (1, 2, 4):
+                clear_imported_data()
+                path = single_directory if parallel_files == 1 else many_directory
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                started = time.perf_counter()
+                if parallel_files == 1:
+                    # Keep the intra-file baseline reproducible on this host;
+                    # parallel file runs use one parser per file by design.
+                    with mock.patch.dict(
+                        os.environ, {'VAULT_IMPORT_WORKERS': '2'},
+                    ):
+                        call_command(
+                            'importfolder', path, parallel_files=1, quiet=True,
+                            stdout=stdout, stderr=stderr,
+                        )
+                else:
+                    call_command(
+                        'importfolder', path, parallel_files=parallel_files,
+                        quiet=True, stdout=stdout, stderr=stderr,
+                    )
+                elapsed = time.perf_counter() - started
+                jobs = list(ImportJob.objects.order_by('source_path'))
+                self.assertEqual(
+                    sum(job.total_committed for job in jobs), line_count,
+                )
+                self.assertTrue(all(
+                    job.status == 'completed' for job in jobs
+                ))
+                self.assertEqual(Account.objects.count(), line_count)
+                expected_jobs = 1 if parallel_files == 1 else file_count
+                self.assertEqual(len(jobs), expected_jobs)
+                results.append((parallel_files, elapsed))
+
+        print(f'\nFile-level durable import benchmark: {line_count:,} records')
+        for parallel_files, elapsed in results:
+            print(
+                f'  --parallel-files={parallel_files}: {elapsed:.1f}s '
+                f'({line_count / elapsed:,.0f} records/s)'
+            )

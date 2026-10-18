@@ -1,3 +1,4 @@
+import hashlib
 import io
 import json
 import os
@@ -16,11 +17,18 @@ from django.urls import reverse
 
 from .import_engine import SourceChangedError
 from .importer import (
-    DEFAULT_STAGE_ROWS, BulkImportSession, bulk_import_lines, stage_rows,
-    worker_count,
+    DEFAULT_IMPORT_WORK_MEM, DEFAULT_STAGE_ROWS, MAX_IMPORT_BATCH_ROWS,
+    MAX_IMPORT_BUFFER_BYTES, MAX_IMPORT_WORKERS, MAX_IN_FLIGHT_PARSE_BYTES,
+    MAX_IN_FLIGHT_PARSE_CHUNKS, MAX_PARSE_TASK_BYTES, BulkImportSession,
+    bounded_batch_rows,
+    bounded_worker_count, bulk_import_lines, import_work_mem,
+    max_pending_parse_chunks, stage_rows, worker_count,
 )
 from .models import Account, Email, ImportJob, Ip, Pass, Url, User
-from .utils import parse_line
+from .utils import (
+    MAX_SOURCE_LINE_BYTES, OversizedSourceLine, iter_bounded_source_lines,
+    parse_line,
+)
 
 
 def latest_import_job():
@@ -733,6 +741,54 @@ class WorkspaceInterfaceTests(TestCase):
         with mock.patch.dict(os.environ, {'VAULT_IMPORT_BATCH_ROWS': 'lots'}):
             self.assertGreaterEqual(stage_rows(), DEFAULT_STAGE_ROWS)
 
+    def test_batch_size_has_a_hard_upper_bound(self):
+        with mock.patch.dict(
+            os.environ, {'VAULT_IMPORT_BATCH_ROWS': str(MAX_IMPORT_BATCH_ROWS * 100)}
+        ):
+            self.assertEqual(stage_rows(), MAX_IMPORT_BATCH_ROWS)
+        self.assertEqual(
+            bounded_batch_rows(MAX_IMPORT_BATCH_ROWS * 100),
+            MAX_IMPORT_BATCH_ROWS,
+        )
+        self.assertEqual(bounded_batch_rows(25), 25)
+
+    def test_import_work_mem_is_configurable_but_bounded(self):
+        self.assertEqual(import_work_mem(), DEFAULT_IMPORT_WORK_MEM)
+        with mock.patch.dict(os.environ, {'VAULT_IMPORT_WORK_MEM': '256mb'}):
+            self.assertEqual(import_work_mem(), '256MB')
+        with mock.patch.dict(os.environ, {'VAULT_IMPORT_WORK_MEM': '512MB'}):
+            self.assertEqual(import_work_mem(), DEFAULT_IMPORT_WORK_MEM)
+        with mock.patch.dict(os.environ, {'VAULT_IMPORT_WORK_MEM': '2GB'}):
+            self.assertEqual(import_work_mem(), DEFAULT_IMPORT_WORK_MEM)
+        with mock.patch.dict(os.environ, {'VAULT_IMPORT_WORK_MEM': 'invalid'}):
+            self.assertEqual(import_work_mem(), DEFAULT_IMPORT_WORK_MEM)
+        with mock.patch.dict(os.environ, {'VAULT_IMPORT_WORK_MEM': '9' * 5000}):
+            self.assertEqual(import_work_mem(), DEFAULT_IMPORT_WORK_MEM)
+
+    def test_import_queues_and_batches_have_byte_limits(self):
+        self.assertGreater(MAX_IMPORT_BUFFER_BYTES, 0)
+        self.assertGreater(MAX_PARSE_TASK_BYTES, 0)
+        self.assertGreater(MAX_IN_FLIGHT_PARSE_BYTES, 0)
+
+    def test_bounded_source_line_reader_hashes_oversize_without_retaining_it(self):
+        oversized_bytes = b'x' * (MAX_SOURCE_LINE_BYTES + 13) + b'\n'
+        source = io.BytesIO(oversized_bytes + b'normal\n')
+        consumed = []
+        lines = list(
+            iter_bounded_source_lines(source, on_chunk=consumed.append)
+        )
+
+        self.assertEqual(len(lines), 2)
+        self.assertIsInstance(lines[0], OversizedSourceLine)
+        self.assertEqual(lines[0].byte_length, len(oversized_bytes))
+        self.assertEqual(
+            lines[0].source_hash, hashlib.sha256(oversized_bytes).hexdigest(),
+        )
+        self.assertEqual(b''.join(consumed), oversized_bytes + b'normal\n')
+        self.assertEqual(lines[1], b'normal\n')
+        self.assertIsNone(parse_line(lines[0]))
+        self.assertFalse(hasattr(lines[0], 'source_line'))
+
     def test_parse_workers_store_the_same_records_as_inline_parsing(self):
         lines = [
             f'https://workers{i % 4}.example.com/x|wuser{i}@workers.example'
@@ -840,6 +896,18 @@ class WorkspaceInterfaceTests(TestCase):
             self.assertEqual(worker_count(), 1)
         with mock.patch.dict(os.environ, {'VAULT_IMPORT_WORKERS': 'lots'}):
             self.assertGreaterEqual(worker_count(), 1)
+        with mock.patch.dict(os.environ, {
+            'VAULT_IMPORT_WORKERS': str(MAX_IMPORT_WORKERS * 100),
+        }):
+            self.assertEqual(worker_count(), MAX_IMPORT_WORKERS)
+        self.assertEqual(
+            bounded_worker_count(MAX_IMPORT_WORKERS * 100),
+            MAX_IMPORT_WORKERS,
+        )
+        self.assertEqual(
+            max_pending_parse_chunks(MAX_IMPORT_WORKERS),
+            MAX_IN_FLIGHT_PARSE_CHUNKS,
+        )
 
     def test_delete_requires_post_confirmation(self):
         response = self.client.post(

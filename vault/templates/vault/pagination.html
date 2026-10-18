@@ -1,5 +1,13 @@
 {% load i18n %}
-{% if page_obj and page_obj.paginator.num_pages > 1 %}
+{% if page_obj and page_obj.paginator is None %}
+  {% if page_obj.next_cursor %}
+  <nav class="vault-pagination" aria-label="{% trans 'Pagination' %}">
+    <span class="pagination-controls">
+      <a class="button small-button" href="?{% if query_string %}{{ query_string }}&{% endif %}after={{ page_obj.next_cursor }}">{% trans "Next" %}</a>
+    </span>
+  </nav>
+  {% endif %}
+{% elif page_obj and page_obj.paginator.num_pages > 1 %}
   <nav class="vault-pagination" aria-label="{% trans 'Pagination' %}">
     <span class="pagination-status">
       {% blocktrans with number=page_obj.number total=page_obj.paginator.num_pages %}Page {{ number }} of {{ total }}{% endblocktrans %}

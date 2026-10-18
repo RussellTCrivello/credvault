@@ -220,6 +220,12 @@ Redirect behavior after an import (settled, and asserted by
   `X-Import-Progress: 1`) keeps its own contract: the final NDJSON `done`
   event carries the redirect to `/records/` for the browser.
 
+From the command line, `python manage.py recoverimports` lists abandoned,
+replayable jobs and `python manage.py recoverimports --run [--job UUID]`
+recovers them with the same code as the Resume button (a live lease is never
+taken over). A recovery whose log outcome is `partial` replayed missing lines;
+it is not an error. See `docs/OPERATIONS_AND_RECOVERY.md`.
+
 Recovery: `recover_job()` reconciles the ledger against the database,
 persists the recalculated counters, and -- when the job's source can be
 re-read (path-based imports store `source_path` and the extension filter)
@@ -361,7 +367,11 @@ POSTGRES_PASSWORD='choose-a-password' .venv/bin/python manage.py importfolder \
 * `--fast` drops the five trigram search indexes for the duration and rebuilds
   them once at the end -- including when the import fails. Exact searches keep
   working throughout; substring (advanced) searches are slower while the
-  import runs.
+  import runs. `VAULT_FAST_MODE_SCOPE=all` restores the older, much broader
+  behaviour (every non-unique btree index as well); use it only for an offline
+  load. **Measured:** into an existing 880k-account database, fast mode was
+  *slower* end to end than the default online mode and made searches 5-10x
+  slower; see "Fast mode versus online ingestion" below.
 * Any number of paths in one command, each read recursively, all in one job,
   with per-file counts on the terminal.
 * `--ext '*'` reads every file in the folders; the default is `.txt`.
@@ -391,10 +401,17 @@ random_page_cost = 1.1         # SSD
 max_parallel_maintenance_workers = 3
 ```
 
-The importer already sets `synchronous_commit = off` for its own batches
-(a power loss can lose the last batches, not corrupt the data) and
-`maintenance_work_mem` for the index rebuild, so neither depends on the server
-file; `VAULT_MAINTENANCE_WORK_MEM` overrides the default 512 MB.
+Durability contract: the durable engine (web import page and `importfolder`)
+sets `SET LOCAL synchronous_commit = on` for every batch transaction, so a
+batch is acknowledged only after its WAL is flushed; this is asserted by
+`vault/tests_import_reliability.py`. Only the lower-level compatibility loader
+in `vault.importer` (used by tests and `bulk_import_lines`, not by any
+production entry point) uses `synchronous_commit = off`; a power loss can lose
+its last batches but not corrupt data. The importer also sets
+`maintenance_work_mem` for the index rebuild; `VAULT_MAINTENANCE_WORK_MEM`
+overrides the 1 GB default. Measured cost of `on` versus `off` in the
+sandbox: about 0.1 ms per commit (see `benchmarks/results/2026-10-18/summary.txt`);
+that is not representative of network storage.
 
 Optional, for a load of many millions of rows, stop autovacuum from competing
 for CPU and I/O while the tables are being filled, then let the planner catch
@@ -424,6 +441,46 @@ without `VAULT_PERF_FAST=1`, and once with `VAULT_IMPORT_WORKERS=3`, to see
 which of the three knobs pays on your machine. Watch a running import with
 `select * from pg_stat_activity` (or `pg_stat_progress_copy`); whichever side
 sits at 100% CPU tells you whether the workers or PostgreSQL are the limit.
+
+## Fast mode versus online ingestion
+
+Measured on 2 vCPU / 3.9 GB, a 200,000-line durable import into a database that
+already held 879,519 accounts, with two query workers running the real search
+views in a loop (`benchmarks/`, full tables in `docs/BENCHMARK_RESULTS.md`):
+
+| Mode | Import time | Accounts/s | exact-email p95 during import | broad substring URL p50 during import |
+| --- | --- | --- | --- | --- |
+| Online (default), indexes maintained | 51-53 s | 3,342-3,431 | 42-56 ms | 262-268 ms |
+| `--fast`, five trigram indexes suspended | 102.7 s | 1,714 | 42 ms | 1,325 ms |
+| `--fast` with every btree index also suspended (old behaviour) | 77.2 s | 2,280 | 782 ms (7 samples) | 728 ms |
+
+(The last row ran before migration 0008; its online baseline on that schema was
+68.6-69.9 s, 2,516-2,564 accounts/s. Single runs on a shared VM; two runs of the
+online mode differed by 2-3 %.)
+
+In this regime the default online path is the fastest *and* keeps search
+available, so `--fast` is no longer recommended for incremental loads. It may
+still pay off for a bulk load into a nearly empty database (the measurements
+above in "Import speed"), which this change did not re-measure.
+
+## Counts and pagination contract
+
+* **Default (unchanged):** exact `COUNT(*)` for the matching set and
+  page-number/offset pagination. Counts are exact and consistent with the
+  snapshot of that request; page numbers can shift while rows are inserted.
+* **Cursor mode (opt-in):** `?sort=id&after=<id>` (ascending) or
+  `?sort=-id&after=<id>` (descending, `after=0` starts at the newest row) on
+  the Records, Search and Advanced search pages. No total is computed and the
+  page says so ("Cursor mode: total not computed"). A row is neither repeated
+  nor skipped when rows are inserted during the walk (rows behind the cursor
+  are reached later; rows ahead of a descending cursor are not shown), and the
+  cost of any page equals the cost of the first. Measured on 880k accounts:
+  the page at 50 % depth costs 0.07-0.3 ms / 3 buffers by keyset versus 44-46 ms
+  / 1,205 buffers by `OFFSET`. Other sort orders keep offset pagination.
+* The count is never estimated under an "exact" label. Exact counts grow
+  linearly with the table (50 ms for 880k accounts); see
+  `docs/DATABASE_OPTIMIZATION_REPORT.md` for when to switch the dashboard
+  count to a cached value (needs a product decision on its freshness).
 
 ## Query speed
 

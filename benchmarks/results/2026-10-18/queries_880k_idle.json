@@ -1,0 +1,98 @@
+{
+  "accounts": 879519,
+  "cases": {
+    "exact_email": {
+      "runs": 7,
+      "p50_ms": 10.1,
+      "p95_ms": 11.1,
+      "max_ms": 11.1
+    },
+    "exact_domain": {
+      "runs": 7,
+      "p50_ms": 83.6,
+      "p95_ms": 94.1,
+      "max_ms": 94.1
+    },
+    "substring_url_rare": {
+      "runs": 7,
+      "p50_ms": 21.4,
+      "p95_ms": 22.7,
+      "max_ms": 22.7
+    },
+    "substring_url_common": {
+      "runs": 7,
+      "p50_ms": 204.3,
+      "p95_ms": 285.8,
+      "max_ms": 285.8
+    },
+    "substring_keyword_common": {
+      "runs": 7,
+      "p50_ms": 384.1,
+      "p95_ms": 415.8,
+      "max_ms": 415.8
+    },
+    "deep_page_common_substring": {
+      "runs": 7,
+      "p50_ms": 237.5,
+      "p95_ms": 252.3,
+      "max_ms": 252.3
+    },
+    "count_all_accounts": {
+      "runs": 7,
+      "p50_ms": 23.6,
+      "p95_ms": 24.3,
+      "max_ms": 24.3
+    }
+  },
+  "plans": {
+    "count_all": {
+      "execution_ms": 45.301,
+      "planning_ms": 0.094,
+      "shared_hit": 1032,
+      "shared_read": 0,
+      "node": "Aggregate"
+    },
+    "substring_common_url_ids": {
+      "execution_ms": 107.75,
+      "planning_ms": 0.102,
+      "shared_hit": 2227,
+      "shared_read": 0,
+      "node": "Seq Scan"
+    },
+    "substring_rare_url_ids": {
+      "execution_ms": 14.365,
+      "planning_ms": 0.11,
+      "shared_hit": 1435,
+      "shared_read": 0,
+      "node": "Bitmap Heap Scan"
+    },
+    "accounts_by_exact_email": {
+      "execution_ms": 0.043,
+      "planning_ms": 0.271,
+      "shared_hit": 8,
+      "shared_read": 0,
+      "node": "Limit"
+    },
+    "keyset_first_page": {
+      "execution_ms": 0.032,
+      "planning_ms": 0.037,
+      "shared_hit": 4,
+      "shared_read": 0,
+      "node": "Limit"
+    },
+    "keyset_page_at_50pct": {
+      "execution_ms": 0.313,
+      "planning_ms": 0.068,
+      "shared_hit": 3,
+      "shared_read": 1,
+      "node": "Limit"
+    },
+    "offset_page_at_50pct": {
+      "execution_ms": 43.592,
+      "planning_ms": 0.031,
+      "shared_hit": 1205,
+      "shared_read": 0,
+      "node": "Limit"
+    }
+  }
+}

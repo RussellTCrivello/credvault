@@ -32,6 +32,9 @@ from .models import Account, Email, Ip, Pass, Url, User
 from .utils import extract_domain
 
 
+MAX_IMPORT_PROGRESS_EVENTS = 64
+
+
 class StreamableDownloadResponse(StreamingHttpResponse):
     """
     StreamingHttpResponse that also exposes a cached .content property
@@ -204,9 +207,10 @@ def has_search_query(params):
 
 
 def _clean_query_string(request_get):
-    """Return URL query string without the pagination 'page' parameter."""
+    """Return URL query string without the pagination 'page'/'after' parameters."""
     params = request_get.copy()
     params.pop('page', None)
+    params.pop('after', None)
     return params.urlencode()
 
 
@@ -428,6 +432,70 @@ def filter_accounts(params):
     return _sort_accounts(qs.none(), params.get('sort'))
 
 
+class KeysetPage:
+    """
+    One page of a cursor ("keyset") walk through id-ordered results.
+
+    Contract: no exact total is computed and there are no page numbers; the
+    walk is stable under concurrent inserts (a row is neither repeated nor
+    skipped because other rows were added before the cursor), and the cost of
+    page N is the same as page 1. The default page-number mode with exact
+    counts is unchanged; this mode is opt-in with ``?sort=id|-id&after=<id>``.
+    """
+
+    paginator = None
+
+    def __init__(self, object_list, next_cursor):
+        self.object_list = object_list
+        self.next_cursor = next_cursor
+        self.has_next_page = next_cursor is not None
+
+    def __iter__(self):
+        return iter(self.object_list)
+
+    def __len__(self):
+        return len(self.object_list)
+
+
+def _keyset_request(request):
+    """Return (after_id, descending) when cursor mode was requested."""
+    raw = request.GET.get('after')
+    sort = request.GET.get('sort')
+    if raw is None or sort not in ('id', '-id'):
+        return None
+    try:
+        after = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if after < 0:
+        return None
+    return after, sort == '-id'
+
+
+def _paginate_accounts_keyset(queryset, keyset, per_page):
+    after, descending = keyset
+    if descending:
+        # 0 means "start from the newest row".
+        if after:
+            queryset = queryset.filter(pk__lt=after)
+    else:
+        queryset = queryset.filter(pk__gt=after)
+    ids = list(queryset.values_list('pk', flat=True)[:per_page + 1])
+    next_cursor = ids[per_page - 1] if len(ids) > per_page else None
+    ids = ids[:per_page]
+    loaded = Account.objects.select_related(
+        'url', 'email', 'user', 'password', 'ip'
+    ).in_bulk(ids)
+    return KeysetPage([loaded[pk] for pk in ids if pk in loaded], next_cursor)
+
+
+def _page_total(page_obj):
+    """Exact total for a numbered page; None for a cursor page."""
+    if page_obj.paginator is None:
+        return None
+    return page_obj.paginator.count
+
+
 def _paginate_accounts(request, queryset, per_page=100):
     """
     One page of Account rows, loaded in two steps.
@@ -438,6 +506,9 @@ def _paginate_accounts(request, queryset, per_page=100):
     records on the page alone, in the same order. Django's paginator uses the
     exact queryset count and has no row-count ceiling.
     """
+    keyset = _keyset_request(request)
+    if keyset is not None:
+        return _paginate_accounts_keyset(queryset, keyset, per_page)
     paginator = Paginator(queryset.values_list('pk', flat=True), per_page)
     page_obj = paginator.get_page(request.GET.get('page', '1'))
     ids = list(page_obj.object_list)
@@ -533,7 +604,7 @@ def browse_all(request):
     if has_query:
         queryset = filter_accounts(request.GET)
         page_obj = _paginate_accounts(request, queryset)
-        total = page_obj.paginator.count
+        total = _page_total(page_obj)
         records = page_obj.object_list
 
     return render(request, 'vault/browse.html', {
@@ -542,7 +613,7 @@ def browse_all(request):
         'records': records,
         'page_obj': page_obj,
         'total': total,
-        'total_label': count_label(total),
+        'total_label': count_label(total) if total is not None else None,
         **_records_total_context(),
         'query_string': _clean_query_string(request.GET),
     })
@@ -563,7 +634,7 @@ def search_records(request):
     if has_query:
         queryset = filter_accounts(request.GET)
         page_obj = _paginate_accounts(request, queryset)
-        total = page_obj.paginator.count
+        total = _page_total(page_obj)
         records = page_obj.object_list
 
     return render(request, 'vault/search.html', {
@@ -572,7 +643,7 @@ def search_records(request):
         'records': records,
         'page_obj': page_obj,
         'total': total,
-        'total_label': count_label(total),
+        'total_label': count_label(total) if total is not None else None,
         'query_string': _clean_query_string(request.GET),
     })
 
@@ -593,7 +664,7 @@ def advanced_search(request):
         params['adv'] = '1'
         queryset = filter_accounts(params)
         page_obj = _paginate_accounts(request, queryset)
-        total = page_obj.paginator.count
+        total = _page_total(page_obj)
         records = page_obj.object_list
 
     return render(request, 'vault/advanced_search.html', {
@@ -601,7 +672,7 @@ def advanced_search(request):
         'records': records,
         'page_obj': page_obj,
         'total': total,
-        'total_label': count_label(total),
+        'total_label': count_label(total) if total is not None else None,
         'query_string': _clean_query_string(request.GET),
     })
 
@@ -1013,6 +1084,15 @@ def import_from_file(request):
 def _stream_import_progress(uploaded_files, paths, fast_mode=False):
     """Stream manifest scanning and durable import progress as NDJSON."""
     def events():
+        # In production the import worker and response generator run
+        # concurrently, so a bounded queue provides backpressure if the
+        # client reads progress slowly. In an outer test transaction the
+        # worker runs inline before events are drained; keep that test-only
+        # queue unbounded to avoid blocking the same thread.
+        background = not connection.in_atomic_block
+        updates = queue.Queue(
+            maxsize=MAX_IMPORT_PROGRESS_EVENTS if background else 0,
+        )
         yield json.dumps({'type': 'phase', 'phase': 'counting'}) + '\n'
 
         path_groups = [
@@ -1038,7 +1118,6 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
             }) + '\n'
             return
 
-        updates = queue.Queue()
         result = {
             'created': 0,
             'skipped': 0,
@@ -1240,7 +1319,6 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
         # database transaction with a worker thread. Run inline in that case
         # so test/transaction isolation is preserved; normal production
         # requests still process in the background and stream each batch.
-        background = not connection.in_atomic_block
         worker = None
         if background:
             worker = threading.Thread(

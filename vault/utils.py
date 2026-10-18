@@ -19,7 +19,9 @@ one (or an explicit placeholder such as ``N/A``), and everything between the
 identifier and the IP address is the password.
 """
 
+import hashlib
 import re
+from typing import NamedTuple
 
 from .validators import (
     MAX_HOST_LENGTH, classify_identifier, is_null_ip, normalize_ip,
@@ -50,8 +52,68 @@ _PORT_RE = re.compile(r"(__PROTO_COLON__//[^/\s:|;\t]+):(\d+)(?=/)")
 #: separator of a pipe-delimited line.
 DELIMITERS = ('|', '\t', ';', ':')
 
+#: A valid record's encoded fields fit comfortably under this limit. The cap
+#: includes the line ending and prevents pathological lines from making file
+#: readers, parser queues, or audit workers allocate without bound.
+MAX_SOURCE_LINE_BYTES = 16 * 1024
+SOURCE_READ_CHUNK_BYTES = 64 * 1024
+
+
+class OversizedSourceLine(NamedTuple):
+    """Hash-only marker for an overlong line; never retains its plaintext."""
+
+    source_hash: str
+    byte_length: int
+
+
 #: What `parse_line` reports when a record carries no IP address.
 NO_IP = 'N/A'
+
+
+def _source_chunk_bytes(chunk):
+    if isinstance(chunk, str):
+        return chunk.encode('utf-8', errors='replace')
+    return bytes(chunk)
+
+
+def iter_bounded_source_lines(handle, on_chunk=None):
+    """Yield complete lines while retaining at most one bounded line buffer.
+
+    ``on_chunk`` receives the exact encoded bytes as they are consumed, which
+    lets the durable path hash the whole file without keeping an overlong
+    line in memory. Such a line is represented only by its SHA-256 and byte
+    length, so it remains auditable without copying credential text.
+    """
+    while True:
+        line = handle.readline(MAX_SOURCE_LINE_BYTES + 1)
+        if not line:
+            return
+        encoded = _source_chunk_bytes(line)
+        if len(encoded) <= MAX_SOURCE_LINE_BYTES:
+            if on_chunk is not None:
+                on_chunk(encoded)
+            yield line
+            continue
+
+        digest = hashlib.sha256()
+        byte_length = 0
+        current = line
+        while current:
+            chunk_bytes = _source_chunk_bytes(current)
+            digest.update(chunk_bytes)
+            byte_length += len(chunk_bytes)
+            if on_chunk is not None:
+                on_chunk(chunk_bytes)
+            has_newline = (
+                current.endswith(b'\n')
+                if isinstance(current, (bytes, bytearray))
+                else current.endswith('\n')
+            )
+            if has_newline:
+                break
+            current = handle.readline(SOURCE_READ_CHUNK_BYTES)
+
+        yield OversizedSourceLine(digest.hexdigest(), byte_length)
 
 
 def extract_domain(raw_url: str) -> str:
@@ -229,6 +291,16 @@ def parse_line(line):
     Returns the canonical record dict, or None when the line is not a
     complete record whose five values all match their format.
     """
+    if isinstance(line, OversizedSourceLine):
+        return None
+    if isinstance(line, (bytes, bytearray)) and len(line) > MAX_SOURCE_LINE_BYTES:
+        return None
+    if isinstance(line, str) and (
+        len(line) > MAX_SOURCE_LINE_BYTES
+        or len(line.encode('utf-8', errors='replace')) > MAX_SOURCE_LINE_BYTES
+    ):
+        return None
+
     cleaned = _decode(line).strip().lstrip('\ufeff')
     if not cleaned or cleaned.startswith('#'):
         return None

@@ -12,8 +12,12 @@ Both functions are deliberately self-contained and do not touch the database.
 
 import hashlib
 
+from vault.utils import OversizedSourceLine
+
 
 def _hash_line(line):
+    if isinstance(line, OversizedSourceLine):
+        return line.source_hash
     if isinstance(line, str):
         line = line.encode('utf-8', errors='replace')
     elif not isinstance(line, (bytes, bytearray)):
@@ -72,7 +76,11 @@ def _parse_durable_chunk(payload):
                 out.append((None, {
                     **meta,
                     'status': 'skipped',
-                    'error_category': 'invalid_format',
+                    'error_category': (
+                        'line_too_large'
+                        if isinstance(line, OversizedSourceLine)
+                        else 'invalid_format'
+                    ),
                     'retryable': False,
                 }))
             else:
