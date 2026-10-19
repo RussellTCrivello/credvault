@@ -4,7 +4,7 @@ All numbers were measured on 2026-10-18 in one sandbox: 2 vCPU, 3.9 GB RAM, one
 virtual disk, PostgreSQL 16.2 (Unix socket, `shared_buffers=512MB`,
 `fsync=on`, `synchronous_commit=on`, `wal_compression=off`), Python 3.11.2,
 Django 5.2.18, synthetic data from `perfbench generate`. Reproduction steps:
-`benchmarks/README.md`. Raw JSON/console output: `benchmarks/results/2026-10-18/` (sections 0-11) and
+`docs/scalability/BENCHMARK_SUITE.md`. Raw JSON/console output: `benchmarks/results/2026-10-18/` (sections 0-11) and
 `benchmarks/results/2026-10-19/` (sections 12-20, taken on a rebuilt sandbox of the
 same size; the 0.88 M numbers were re-measured, so absolute values differ from
 sections 0-11 by up to 30 % because the VM and PostgreSQL build were recreated).
@@ -12,7 +12,7 @@ sections 0-11 by up to 30 % because the VM and PostgreSQL build were recreated).
 **How to read this.** Each row compares variants inside one run set on the
 same cloned database. Most are single runs on a shared VM; where a variant was
 repeated, both runs are shown and the spread was 1-3 %. Nothing below is a
-production or billion-record claim (see `docs/CAPACITY_REPORT.md`).
+production or billion-record claim (see `docs/scalability/CAPACITY_REPORT.md`).
 
 ## 0. Test data
 
@@ -534,7 +534,7 @@ host, email, IP or password.
 
 Full `manage.py test vault --parallel=1` after these changes: 261 tests OK,
 5 skipped (the opt-in performance tests, run separately). See
-`docs/IMPLEMENTATION_AUDIT.md`.
+`docs/scalability/IMPLEMENTATION_AUDIT.md`.
 
 ## 22. Defects found by re-running the opt-in performance tests
 

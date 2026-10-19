@@ -1,6 +1,6 @@
 # Database optimization report (deliverable D)
 
-Measured data: `docs/BENCHMARK_RESULTS.md`, `benchmarks/results/2026-10-18/`.
+Measured data: `docs/scalability/BENCHMARK_RESULTS.md`, `benchmarks/results/2026-10-18/`.
 Base: 879,519 accounts, 1,000,000 ledger rows, PostgreSQL 16.2.
 
 ## 1. Storage per record (measured)
@@ -27,12 +27,12 @@ plus backups.
 **Projection, not a measurement:** at the measured per-row costs, 1 B unique
 accounts with a full ledger would need roughly 2.0 TB of tables and indexes
 (1,970 B x 1 B) before WAL, bloat, replicas and backups; real sizes grow with
-index depth and value cardinality. See `docs/CAPACITY_REPORT.md`.
+index depth and value cardinality. See `docs/scalability/CAPACITY_REPORT.md`.
 
 ## 2. Index audit (every index on the ledger, account and reference tables, 880k accounts)
 
 *Update:* the same audit was repeated at 5.5 M accounts
-(`docs/BENCHMARK_RESULTS.md` section 13). It confirmed 0008, found seven more
+(`docs/scalability/BENCHMARK_RESULTS.md` section 13). It confirmed 0008, found seven more
 unread indexes (five reference `*_like`, two ledger `status`), which migration
 0009 drops, and showed the `lower(name)` indexes are read by `_match_exact_ids` and
 must stay. The table below is the original 880 k audit.
@@ -146,7 +146,7 @@ Contract (implemented and tested in `vault/tests_pagination.py`; README section
 * Every `INSERT ... SELECT ... ON CONFLICT` into a table with a unique key
   (five reference tables, the account table) now has `ORDER BY` that key, so
   concurrent transactions wait on one another in one direction only (deadlock
-  fix, `docs/BENCHMARK_RESULTS.md` 22.1). Measured +3 % throughput at 1.13 M
+  fix, `docs/scalability/BENCHMARK_RESULTS.md` 22.1). Measured +3 % throughput at 1.13 M
   accounts (sorted index inserts); not measured at 8 M.
 * `refresh_stale_reference_stats` analyzes a joined reference table inside the batch
   transaction only when its `reltuples` is 0 and it has at least 16 pages. A table
@@ -156,7 +156,7 @@ Contract (implemented and tested in `vault/tests_pagination.py`; README section
 ## 6. Partitioning and sharding assessment
 
 Prototype measured (`benchmarks/sql/partition_prototype.sql`, results in
-`docs/BENCHMARK_RESULTS.md` section 19, 1 M rows per table, everything cached):
+`docs/scalability/BENCHMARK_RESULTS.md` section 19, 1 M rows per table, everything cached):
 
 * Hash partitioning the **ledger** by `import_job_id` (16 partitions) with
   `UNIQUE (import_job_id, idempotency_key)`: insert +9 %, key-only lookup 2.8x
@@ -173,7 +173,7 @@ Prototype measured (`benchmarks/sql/partition_prototype.sql`, results in
   hash and scatter-gather for substring search. Architectural estimate only.
 * What partitioning is *for* (per-partition `VACUUM`, `REINDEX CONCURRENTLY`, dropping
   or archiving a job's ledger) could not show up at 1 M cached rows. Revisit with the
-  triggers in `docs/PERFORMANCE_TARGETS.md` R8, and only together with a retention
+  triggers in `docs/scalability/PERFORMANCE_TARGETS.md` R8, and only together with a retention
   policy (R6) because the ledger is the audit trail.
 
 ## 7. Migration and rollback summary

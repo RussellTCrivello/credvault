@@ -10,7 +10,7 @@
   duplicate nothing.
 * **What bends first is ingest, not search:** durable ingest fell from 6,049
   accounts/s (empty) to about 1,800 accounts/s at 8 M accounts on this host, and
-  to 870-1,750 accounts/s when two query workers run (`docs/BENCHMARK_RESULTS.md`
+  to 870-1,750 accounts/s when two query workers run (`docs/scalability/BENCHMARK_RESULTS.md`
   sections 12-14). Broad searches and counts grow linearly with the match set and
   are now bounded by an opt-in cap and cached totals.
 * **Not verified:** 10 M accounts and above (this sandbox's 21 GB disk stops the
@@ -76,11 +76,11 @@ revisited before such a load.
   required).
 * Horizontal scaling needs a deliberate shard key. The product has no tenant or
   workspace key, and uniqueness is global (fingerprint, reference names,
-  idempotency key). See `docs/DATABASE_OPTIMIZATION_REPORT.md` section 6.
+  idempotency key). See `docs/scalability/DATABASE_OPTIMIZATION_REPORT.md` section 6.
 
 ## 5. Progressive validation ladder
 
-Gate each stage on the targets in `docs/PERFORMANCE_TARGETS.md`. For every stage
+Gate each stage on the targets in `docs/scalability/PERFORMANCE_TARGETS.md`. For every stage
 record: total and unique records, file count and size mix, duplicate and invalid
 rates, ingest rate by stage, table/index/ledger/WAL sizes, p50/p95/p99 for the
 `perfbench concurrent` query set during an import, CPU/memory/IO, vacuum and

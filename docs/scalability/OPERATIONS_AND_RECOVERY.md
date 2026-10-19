@@ -67,7 +67,7 @@ python manage.py recoverimports --run --job <UUID>
 
 What a crash loses: only the current uncommitted batch, which recovery
 recomputes. Verified by killing the process (SIGKILL) at 81,582 durable lines
-of 200,000 and recovering (`docs/BENCHMARK_RESULTS.md` section 9). **Not verified:**
+of 200,000 and recovering (`docs/scalability/BENCHMARK_RESULTS.md` section 9). **Not verified:**
 PostgreSQL crash, host/power loss, full disk, backup restore, replica
 failover. Run those drills before relying on the guarantee.
 
@@ -93,7 +93,7 @@ the full ledger. Legacy rows may still hold plaintext `source_line` /
 | --- | --- |
 | Searches slow during an import | Was `--fast` used? (`VAULT_FAST_MODE_SCOPE=all`?) Check indexes: `select indexname from pg_indexes where tablename like 'vault_%'`; compare with `perfbench storage` |
 | Import slower than before | `perfbench stages` for parse speed; `pg_stat_wal` and checkpoint messages; autovacuum workers; `perfbench storage` for index bloat |
-| Importer memory high | batch rows, parse workers, concurrent file jobs; see budgets in `docs/PERFORMANCE_TARGETS.md` |
+| Importer memory high | batch rows, parse workers, concurrent file jobs; see budgets in `docs/scalability/PERFORMANCE_TARGETS.md` |
 | `COUNT(*)` slow on dashboards | linear growth; ask for the cached-count decision (R5); cursor mode avoids totals |
 | Deep pages slow | use cursor mode (`?sort=id&after=<id>`) |
 | Job stuck in `processing` | lease expired? `recoverimports` lists it |
@@ -108,7 +108,7 @@ the full ledger. Legacy rows may still hold plaintext `source_line` /
   on rollback. Staging uses session-local temp tables, which are not persisted.
 * No new persistent copy of credentials was introduced (no external index, cache,
   queue or replica). Any future one must be included in the threat model and
-  inherit access controls and retention (see `docs/CAPACITY_REPORT.md`).
+  inherit access controls and retention (see `docs/scalability/CAPACITY_REPORT.md`).
 * Run PostgreSQL with a least-privilege application role (`CREATEDB` only on
   test hosts), protect WAL archives/backups like the primary data, and keep
   the `perfbench` scratch directory (`/tmp/bench` by default) on protected
@@ -124,7 +124,7 @@ indexes are only an optimization).
 ## 9. Drills (run them before relying on this)
 
 All drills are scripts in `benchmarks/`, run against a disposable cluster; results in
-`docs/BENCHMARK_RESULTS.md` sections 9, 17 and 18.
+`docs/scalability/BENCHMARK_RESULTS.md` sections 9, 17 and 18.
 
 | Drill | Script | What it proves | What it does not prove |
 | --- | --- | --- | --- |

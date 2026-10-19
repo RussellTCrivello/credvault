@@ -5,7 +5,7 @@ the paginator reaches every page; nothing stops at a row threshold. PostgreSQL
 must visit every matching index entry for an exact ``COUNT(*)``, and measured
 on this code base that count -- not the page query -- is the whole cost of a
 broad search (2 ms to fetch a page versus 1-2 s to count 7.4 M accounts, see
-``docs/BENCHMARK_RESULTS.md``). It grows linearly with the data set.
+``docs/scalability/BENCHMARK_RESULTS.md``). It grows linearly with the data set.
 
 Two scale controls exist, both explicit and visible to the user:
 

@@ -25,7 +25,7 @@ work-memory, byte-bounded queue, worker-count, parallel-file and WAL/durability
 tests added earlier.
 
 Verified by drills rather than unit tests (scripts in `benchmarks/`, results in
-`docs/BENCHMARK_RESULTS.md` sections 9, 17, 18): importer SIGKILL, PostgreSQL
+`docs/scalability/BENCHMARK_RESULTS.md` sections 9, 17, 18): importer SIGKILL, PostgreSQL
 `-m immediate` stop mid-import (twice), physical backup + WAL archive + PITR.
 
 Not covered by any test or drill: disk-full, failover/replicas, power loss on a
@@ -54,8 +54,8 @@ anything above 8.27 M accounts.
 | `admin_LogIntel/settings.py` | `LOGGING` block (import metrics logger, console) |
 | `benchmarks/*.sh`, `benchmarks/sql/` | ladder, experiment, crash, backup/PITR, partition scripts |
 | `vault/tests*.py` | tests listed above |
-| `README.md` | durability contract, fast mode vs online, counts and pagination contract, `recoverimports` |
-| `SCALABILITY_ASSESSMENT.md`, `docs/*.md`, `benchmarks/**` | deliverables A-I, scripts and raw results |
+| `docs/README.md` | durability contract, fast mode vs online, counts and pagination contract, `recoverimports` |
+| `docs/scalability/*.md`, `benchmarks/**` | deliverables A-I (all documentation lives under `docs/`), scripts and raw results |
 
 The only settings change is the `LOGGING` block; no dependencies or `requirements.txt` entries were changed. No existing
 public URL, form field or default search/pagination behaviour changed; the
@@ -67,7 +67,7 @@ the test runs modified were restored.
 `0009_drop_reference_like_indexes`: forward 0.4 s, reverse 30.6 s on 8.3 M accounts; drops only indexes no code path reads.
 
 `0008_ledger_index_cleanup` only drops indexes (see
-`docs/DATABASE_OPTIMIZATION_REPORT.md` section 7). Forward 0.8 s, reverse 5.4 s on
+`docs/scalability/DATABASE_OPTIMIZATION_REPORT.md` section 7). Forward 0.8 s, reverse 5.4 s on
 a 1 M-row ledger; unique constraints unchanged; reversible; take a backup before
 running on a very large database.
 
@@ -76,7 +76,7 @@ running on a very large database.
 `VAULT_RESULT_COUNT_CAP`, `VAULT_TOTAL_COUNT_TTL`, `VAULT_TOTAL_COUNT_MIN_ROWS`, `VAULT_IMPORT_METRICS_INTERVAL` (defaults keep previous behaviour except cached totals above 1 M estimated rows), `VAULT_FAST_MODE_SCOPE` (`search` default, `all`), `importfolder --parallel-files`,
 `manage.py recoverimports`, `manage.py perfbench`. Existing variables
 (`VAULT_IMPORT_WORKERS`, `VAULT_IMPORT_BATCH_ROWS`, `VAULT_IMPORT_WORK_MEM`,
-`VAULT_MAINTENANCE_WORK_MEM`) are documented in `docs/OPERATIONS_AND_RECOVERY.md`.
+`VAULT_MAINTENANCE_WORK_MEM`) are documented in `docs/scalability/OPERATIONS_AND_RECOVERY.md`.
 
 ## 5. Acceptance criteria versus evidence
 

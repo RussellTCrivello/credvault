@@ -19,7 +19,7 @@ across millions of lines and thousands of files:
      and ORM-saved records match exactly. The unique fingerprint drops records
      that are already stored.
 
-Each batch runs in a single transaction. See README.md, "Performance", for
+Each batch runs in a single transaction. See docs/README.md, "Performance", for
 measured speeds.
 
 Canonicalizing in step 2 is what keeps the reference tables free of

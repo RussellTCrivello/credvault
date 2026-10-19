@@ -1,3 +1,18 @@
+# CredVault
+
+Django + PostgreSQL workspace for importing, searching and auditing large
+credential datasets. All project documentation lives in this `docs/` folder; the
+repository root holds only the project itself (`manage.py`, `admin_LogIntel/`,
+`vault/`, `locale/`, `benchmarks/`, `requirements.txt`).
+
+## Documentation map
+
+| Folder / file | Contents |
+| --- | --- |
+| `docs/README.md` (this file) | data formats, setup, search semantics, import jobs and recovery, performance and tuning |
+| `docs/scalability/` | the scalability program: `SCALABILITY_ASSESSMENT.md` (start here), `PERFORMANCE_TARGETS.md`, `FILE_PROCESSING_ARCHITECTURE.md`, `DATABASE_OPTIMIZATION_REPORT.md`, `BENCHMARK_RESULTS.md`, `CAPACITY_REPORT.md`, `OPERATIONS_AND_RECOVERY.md`, `IMPLEMENTATION_AUDIT.md`, `BENCHMARK_SUITE.md` (how to run `benchmarks/`) |
+| `docs/history/` | earlier reports and hand-off notes, kept unchanged as a record (completion matrix, import repair/reliability, performance phases 2-3, verification) |
+
 # Data formats
 
 The workspace stores five kinds of value -- URL, email, username, password and
@@ -231,7 +246,7 @@ From the command line, `python manage.py recoverimports` lists abandoned,
 replayable jobs and `python manage.py recoverimports --run [--job UUID]`
 recovers them with the same code as the Resume button (a live lease is never
 taken over). A recovery whose log outcome is `partial` replayed missing lines;
-it is not an error. See `docs/OPERATIONS_AND_RECOVERY.md`.
+it is not an error. See `docs/scalability/OPERATIONS_AND_RECOVERY.md`.
 
 Recovery: `recover_job()` reconciles the ledger against the database,
 persists the recalculated counters, and -- when the job's source can be
@@ -403,7 +418,7 @@ work_mem = 256MB               # per join/sort; the batch SQL uses a few at once
 maintenance_work_mem = 2GB     # index builds (the importer raises it per batch too)
 max_wal_size = 8GB             # fewer checkpoints during a long load
 checkpoint_timeout = 30min
-wal_compression = on
+wal_compression = off          # on a 2-vCPU test box pglz halved the import rate; measure before enabling
 random_page_cost = 1.1         # SSD
 max_parallel_maintenance_workers = 3
 ```
@@ -435,6 +450,47 @@ VACUUM (ANALYZE);
 The importer already runs `ANALYZE` on every staging batch, so the final
 `VACUUM (ANALYZE)` is a one-off cleanup rather than a requirement.
 
+### Windows, 32 GB RAM, 5 cores, SSD (recommendation, not benchmarked)
+
+These values come from the measurements in `docs/scalability/BENCHMARK_RESULTS.md`
+(a 2-vCPU / 3.9 GB sandbox); nothing here was run on this hardware class, so
+treat them as a starting point and measure.
+
+* **Parse workers.** On Windows the importer defaults to **one** parse worker
+  (workers are started with spawn there). A real 18 M-line import showed
+  `db_busy_ratio` about 0.81, i.e. the database idled about 19 % of the time waiting
+  for the single parser. That 19 % is an upper bound on the gain. Use 3 workers and
+  raise to 4 only if `db_busy_ratio` in the `vault.import.metrics` log stays below
+  0.95:
+
+  ```powershell
+  $env:VAULT_IMPORT_WORKERS = 3
+  python manage.py importfolder C:\path\to\folder
+  ```
+
+* **`postgresql.conf`** (restart the PostgreSQL service afterwards):
+
+  ```ini
+  shared_buffers = 8GB            # more rarely pays off on Windows
+  effective_cache_size = 22GB
+  maintenance_work_mem = 2GB
+  max_wal_size = 32GB             # fewer checkpoints; needs about 32 GB free SSD space (only 4 GB was tested)
+  checkpoint_timeout = 30min      # no effect in the sandbox; optional
+  wal_buffers = 64MB
+  random_page_cost = 1.1
+  wal_compression = off
+  ```
+
+* **Leave alone:** `synchronous_commit` (the durable engine sets it to `on` per batch;
+  turning it off would risk losing acknowledged batches), `--fast`, and
+  `--parallel-files` (keep 1) and the 250,000-row batch size.
+* **Large files:** use `manage.py importfolder <path>`, not the browser upload. It is
+  resumable with `recoverimports` and does not depend on an open browser tab.
+* **Measure:** import a 1-2 M-line slice three ways (current settings, workers only,
+  workers plus the PostgreSQL settings) and compare the `event=summary`
+  `vault.import.metrics` lines. Expect the rate to keep falling as the database
+  grows (6,050 to 1,800 accounts/s between 0.9 M and 8 M accounts in the sandbox).
+
 ### Measure your own machine
 
 ```bash
@@ -453,7 +509,7 @@ sits at 100% CPU tells you whether the workers or PostgreSQL are the limit.
 
 Measured on 2 vCPU / 3.9 GB, a 200,000-line durable import into a database that
 already held 879,519 accounts, with two query workers running the real search
-views in a loop (`benchmarks/`, full tables in `docs/BENCHMARK_RESULTS.md`):
+views in a loop (`benchmarks/`, full tables in `docs/scalability/BENCHMARK_RESULTS.md`):
 
 | Mode | Import time | Accounts/s | exact-email p95 during import | broad substring URL p50 during import |
 | --- | --- | --- | --- | --- |
@@ -495,7 +551,7 @@ above in "Import speed"), which this change did not re-measure.
   UI. Cache is per process. Dashboard 575 -> 34 ms at 7.4 M accounts.
 * The count is never estimated under an "exact" label. Exact counts grow
   linearly with the table (231 ms for 8.27 M accounts); see
-  `docs/DATABASE_OPTIMIZATION_REPORT.md`.
+  `docs/scalability/DATABASE_OPTIMIZATION_REPORT.md`.
 
 ## Query speed
 
@@ -565,7 +621,7 @@ history; the PostgreSQL numbers above replaced them.
 
 Measured: one PostgreSQL 16 server on a 2-vCPU / 3.9 GB sandbox ingested and
 searched **8.27 M accounts (11.5 GB)** with every correctness check, crash drill
-and point-in-time restore passing (`docs/BENCHMARK_RESULTS.md`). On that host the
+and point-in-time restore passing (`docs/scalability/BENCHMARK_RESULTS.md`). On that host the
 durable ingest rate fell from about 6,000 to about 1,800 accounts/s as the data
 grew 9x, so import time, not search, is what bends first. Exact lookups stayed
 about 9 ms; broad substring and keyword searches grow linearly with the data
@@ -574,7 +630,7 @@ about 9 ms; broad substring and keyword searches grow linearly with the data
 **Not verified:** anything above 8.3 M accounts, billions of records, more than
 one server, replicas and failover, cold caches, power loss on a lying disk. A
 linear extrapolation gives about 1.5-2 TB and at least days of import time for
-1 B accounts, but that is arithmetic, not a test (`docs/CAPACITY_REPORT.md`).
+1 B accounts, but that is arithmetic, not a test (`docs/scalability/CAPACITY_REPORT.md`).
 Reaching billions needs a design this repository does not contain (a shard key,
 parallel COPY into shards, enough RAM to keep the indexes hot).
 
@@ -587,5 +643,5 @@ parallel COPY into shards, enough RAM to keep the indexes hot).
 | `VAULT_TOTAL_COUNT_MIN_ROWS` | `1000000` | estimated rows from which totals are cached |
 | `VAULT_IMPORT_METRICS_INTERVAL` | `30` | seconds between import metric log lines (`0` = off) |
 
-See `docs/OPERATIONS_AND_RECOVERY.md` for the full table, the drills and the
+See `docs/scalability/OPERATIONS_AND_RECOVERY.md` for the full table, the drills and the
 rollback of migrations 0008 and 0009.

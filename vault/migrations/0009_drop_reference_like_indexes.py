@@ -9,7 +9,7 @@ Django creates ``<table>_name_<hash>_like`` next to every unique/indexed
 * substring search uses the ``upper(name)`` trigram GIN indexes (migration 0003).
 
 None of them reads the ``_like`` index. Measured after loading 5.5 M accounts
-(``docs/BENCHMARK_RESULTS.md`` section 12): scans 0 on email/user/ip/url and
+(``docs/scalability/BENCHMARK_RESULTS.md`` section 12): scans 0 on email/user/ip/url and
 25,359 on the password index (equality probes the planner could equally serve
 from ``name_key``). Dropping them saves 651 MB at 7.4 M accounts (~7 % of the
 database) and 3 % of the WAL of a 440k-account import; the import rate was

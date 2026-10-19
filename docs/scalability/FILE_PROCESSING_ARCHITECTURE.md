@@ -30,7 +30,7 @@ discover -> manifest (names, sizes, SHA-256, line count) -> open
 
 The line format (`URL<sep>identifier<sep>password[<sep>IP]`, newline-delimited,
 no quoting, no embedded newlines) means a record boundary is exactly a `\n`.
-Stage profiling (`docs/BENCHMARK_RESULTS.md` section 1) shows reading and
+Stage profiling (`docs/scalability/BENCHMARK_RESULTS.md` section 1) shows reading and
 line-splitting cost 2-3 % of the pre-database work and parsing 92 %. Therefore:
 
 * **Sequential streaming per file** is the adopted strategy for every file size.

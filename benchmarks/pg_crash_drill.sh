@@ -3,7 +3,7 @@
 # connections dropped, same crash-recovery path as a postmaster crash / power loss as far as the
 # server's own WAL replay is concerned) in the middle of a durable import, restart, run amcheck,
 # recover the interrupted jobs and compare with an uninterrupted run.
-# This does NOT simulate loss of the OS page cache or a lying disk; see docs/OPERATIONS_AND_RECOVERY.md.
+# This does NOT simulate loss of the OS page cache or a lying disk; see docs/scalability/OPERATIONS_AND_RECOVERY.md.
 # usage: pg_crash_drill.sh DATA_DIR EXPECTED_ACCOUNTS EXPECTED_LINES
 . "${CV_ENV_FILE:-/tmp/pgenv.sh}"
 DATA=${1:?folder}; EXP_ACC=${2:?}; EXP_LINES=${3:?}

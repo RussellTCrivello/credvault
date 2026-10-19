@@ -5,7 +5,7 @@ Correctness checks run in the normal test suite. The opt-in throughput and
 concurrent-search benchmarks write large synthetic datasets and require
 ``VAULT_RUN_PERFORMANCE=1`` or ``VAULT_RUN_CONCURRENT_PERF=1``. They measure
 both the compatibility bulk loader and the durable path on the machine they
-run on (see README.md, "Import speed" and "Search during imports").
+run on (see docs/README.md, "Import speed" and "Search during imports").
 """
 
 import io
@@ -284,7 +284,7 @@ class ImportThroughputTests(TransactionTestCase):
     ``VAULT_PERF_LINES`` picks the size (default 200,000), ``VAULT_PERF_FAST=1``
     imports with the search indexes suspended, and
     ``VAULT_IMPORT_BATCH_ROWS`` / ``VAULT_IMPORT_WORKERS`` are the importer
-    knobs being compared (README.md, "Tuning for a fast machine").
+    knobs being compared (docs/README.md, "Tuning for a fast machine").
     """
 
     @unittest.skipUnless(

@@ -2,10 +2,10 @@
 
 **Date:** 2026-10-19 (first pass 2026-10-18) · **Branch:** `arena/b98bd230-credvault` (from `main` @ `095abd0`)
 **Scope:** repository and bottleneck assessment, updated after the implementation
-program. Companion documents: `docs/PERFORMANCE_TARGETS.md`,
-`docs/FILE_PROCESSING_ARCHITECTURE.md`, `docs/DATABASE_OPTIMIZATION_REPORT.md`,
-`docs/BENCHMARK_RESULTS.md` (+ `benchmarks/`), `docs/CAPACITY_REPORT.md`,
-`docs/OPERATIONS_AND_RECOVERY.md`, `docs/IMPLEMENTATION_AUDIT.md`.
+program. Companion documents: `docs/scalability/PERFORMANCE_TARGETS.md`,
+`docs/scalability/FILE_PROCESSING_ARCHITECTURE.md`, `docs/scalability/DATABASE_OPTIMIZATION_REPORT.md`,
+`docs/scalability/BENCHMARK_RESULTS.md` (+ `benchmarks/`), `docs/scalability/CAPACITY_REPORT.md`,
+`docs/scalability/OPERATIONS_AND_RECOVERY.md`, `docs/scalability/IMPLEMENTATION_AUDIT.md`.
 
 ## 1. Executive summary
 
@@ -37,7 +37,7 @@ pass to 0.88 M accounts, second pass to **8.27 M accounts / 11.5 GB**):
   (unordered `INSERT ... ON CONFLICT` into the same unique index) and **a 25-minute
   runaway account INSERT** when a reference table's statistics said "empty".
   The decisions R1-R8 were delegated by the user and are recorded in
-  `docs/PERFORMANCE_TARGETS.md`.
+  `docs/scalability/PERFORMANCE_TARGETS.md`.
 * **Still not verified:** 10 M+ accounts, billions of records, multi-node,
   replicas/failover, cold caches, a disk that loses acknowledged writes.
 * **Added:** byte-aware bounded readers/queues/batches, importer resource limits,
@@ -49,7 +49,7 @@ pass to 0.88 M accounts, second pass to **8.27 M accounts / 11.5 GB**):
   incremental loads, partitioning/sharding (no shard key; global uniqueness).
 * **Not established:** anything above ~1 M accounts, any billion-record claim,
   PostgreSQL-restart/power-loss/failover/backup drills, multi-core scaling,
-  cold-cache behaviour. See `docs/CAPACITY_REPORT.md`.
+  cold-cache behaviour. See `docs/scalability/CAPACITY_REPORT.md`.
 
 ## 2. Existing architecture (preserved)
 
@@ -65,7 +65,7 @@ and exact counts are unchanged by default.
 
 | # | Original concern | Evidence gathered | Status |
 | --- | --- | --- | --- |
-| 1 | One database, no sharding | no tenant key; global uniqueness | **open**; design discussed, not built (`docs/DATABASE_OPTIMIZATION_REPORT.md` section 6) |
+| 1 | One database, no sharding | no tenant key; global uniqueness | **open**; design discussed, not built (`docs/scalability/DATABASE_OPTIMIZATION_REPORT.md` section 6) |
 | 2 | Global uniqueness constraints | enforced in every test run (0 duplicate fingerprints, including concurrent file jobs and crash recovery) | **verified at small scale** |
 | 3 | Ledger row per line | 783 B per line before, 527 B after; 30 % of storage | **reduced 33 %**; retention/partitioning needs approval (R6) |
 | 4 | Fast mode suspends 31 indexes | slower than online mode and 5-70x worse reads on 880k accounts | **corrected**: default scope is the five trigram indexes; `all` is opt-in; online mode is the recommended path |
@@ -98,7 +98,7 @@ and exact counts are unchanged by default.
 | Batch threshold counted skipped outcomes with valid rows, changing transaction boundaries (found by `CrashRecoveryTests`) | separate valid/outcome counters restored; test passes |
 | Documentation said importer sets `off` while the durable path sets `on` | README fixed; only the compatibility loader uses `off` |
 | `--fast` broader than documented; one query `OperationalError` seen with it | scope narrowed (the error message was not captured; not reproduced after) |
-| Parallel file imports deadlocked on `vault_ip` (`deadlock detected`, job failed, recoverable): transactions inserted overlapping unique names in different orders | every reference and account `INSERT ... SELECT` is now `ORDER BY` the unique key; structural test `InsertOrderTests`; found by the opt-in `FileConcurrencyBenchmarkTests` (2 failures in 2 runs after the concurrent test; 0 in the verification runs of the fix: see `docs/BENCHMARK_RESULTS.md` section 22) |
+| Parallel file imports deadlocked on `vault_ip` (`deadlock detected`, job failed, recoverable): transactions inserted overlapping unique names in different orders | every reference and account `INSERT ... SELECT` is now `ORDER BY` the unique key; structural test `InsertOrderTests`; found by the opt-in `FileConcurrencyBenchmarkTests` (2 failures in 2 runs after the concurrent test; 0 in the verification runs of the fix: see `docs/scalability/BENCHMARK_RESULTS.md` section 22) |
 | Account INSERT planned as a nested loop that rescans a 50,000-row table per staged row (one backend at 100 % CPU for 25 min) when `reltuples = 0` after an empty-table ANALYZE | `refresh_stale_reference_stats` analyzes only such tables inside the batch; tests `StaleStatisticsTests` |
 | Perf tooling could leak data | synthetic only; prints no record contents; documented not to be run on production |
 
@@ -112,7 +112,7 @@ and exact counts are unchanged by default.
 3. Keyword search (five trigram bitmaps) is the slowest unaddressed query; needs
    a product limit, a different index design or replicas.
 4. Ledger retention (R6) is recorded as archive-first but not implemented.
-5. Counts and R1-R8 are decided (delegated; `docs/PERFORMANCE_TARGETS.md`).
+5. Counts and R1-R8 are decided (delegated; `docs/scalability/PERFORMANCE_TARGETS.md`).
 6. Re-measure file-level parallelism, parse workers and `wal_compression` on a
    multi-core host; revisit intra-file segmentation only if reading is measured
    as a bottleneck on slow storage.

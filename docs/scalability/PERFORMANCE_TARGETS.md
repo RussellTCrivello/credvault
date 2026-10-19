@@ -2,7 +2,7 @@
 
 > **Provenance.** The first commit of this branch contained this file empty
 > (a defect found and fixed in the follow-up session). It is rewritten here from
-> the measurements in `docs/BENCHMARK_RESULTS.md`. The numbering R1-R8 below is
+> the measurements in `docs/scalability/BENCHMARK_RESULTS.md`. The numbering R1-R8 below is
 > re-established; where earlier documents cite R5, R6 or R8 the meaning is
 > unchanged (count freshness, ledger retention, shard key).
 
@@ -19,14 +19,14 @@
 ## 2. Working targets and where they stand
 
 Hardware-relative: every figure below was measured on **2 vCPU, 3.9 GB, one
-virtual disk, PostgreSQL 16.2** (`benchmarks/README.md`). Treat the targets as
+virtual disk, PostgreSQL 16.2** (`docs/scalability/BENCHMARK_SUITE.md`). Treat the targets as
 shapes to re-verify on production hardware, not as promises.
 
 | # | Target | Measured status | Verdict |
 | --- | --- | --- | --- |
 | T1 | Exact lookup (email / domain-rare) p95 <= 100 ms during an import, independent of data size | p95 20-36 ms (email) and 64-72 ms (rare domain) at 2.6 M, 5.5 M and 7.4 M accounts, 2 query workers; idle p50 about 9 ms at 0.88 M and 8.27 M | **met up to 8.3 M** |
 | T2 | Broad first page (domain, URL substring) p95 <= 1 s during an import | exact totals: p95 363 -> 534 -> (7.4 M not run exact); with `VAULT_RESULT_COUNT_CAP=100000` at 7.4 M: p95 147-194 ms | **met only with the cap**; exact totals grow linearly with matches |
-| T3 | Keyword search (OR over five tables) p95 <= 1 s during an import | p95 565 ms (2.6 M), 1,694 ms (5.5 M), 1,281 ms (7.4 M, capped); idle 8.3 M: 2,154 ms | **not met** at >= 5 M; cost is the trigram bitmap on a broad pattern, not the count (section 5 of `docs/BENCHMARK_RESULTS.md`) |
+| T3 | Keyword search (OR over five tables) p95 <= 1 s during an import | p95 565 ms (2.6 M), 1,694 ms (5.5 M), 1,281 ms (7.4 M, capped); idle 8.3 M: 2,154 ms | **not met** at >= 5 M; cost is the trigram bitmap on a broad pattern, not the count (section 5 of `docs/scalability/BENCHMARK_RESULTS.md`) |
 | T4 | Whole-table totals (dashboard, Records, References) <= 100 ms | 575 ms -> 34 ms (dashboard), 189 -> 3.5 ms (Records), 545 -> 32 ms (References) at 7.4 M with the cached total | **met** with the default TTL |
 | T5 | Durable online ingest, empty to 1 M lines | 6,050 accounts/s (145 s) | **met** (reference) |
 | T6 | Durable online ingest at >= 5 M accounts, no query load | 1,714-1,835 accounts/s at 7.6-8.1 M | recorded; see T7 |
