@@ -24,8 +24,8 @@ from django.test import Client, RequestFactory, TestCase, TransactionTestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from . import import_engine
-from .import_engine import (
+from vault import import_engine
+from vault.import_engine import (
     DurableImportSession,
     _durable_flush_batch,
     _source_manifest,
@@ -42,8 +42,8 @@ from .import_engine import (
     release_lease,
     verify_import_job,
 )
-from .models import Account, Email, ImportJob, ImportRecord, Pass, Url, User
-from .views import _paginate_accounts, filter_accounts
+from vault.models import Account, Email, ImportJob, ImportRecord, Pass, Url, User
+from vault.views import _paginate_accounts, filter_accounts
 
 
 class DurableOutcomeAuditTests(TestCase):

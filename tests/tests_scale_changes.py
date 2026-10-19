@@ -6,9 +6,9 @@ from unittest import mock
 from django.db import IntegrityError, connection, transaction
 from django.test import TestCase, TransactionTestCase
 
-from . import importer
-from .models import Account, Email, ImportJob, ImportRecord, Ip, Pass, Url
-from .validators import (
+from vault import importer
+from vault.models import Account, Email, ImportJob, ImportRecord, Ip, Pass, Url
+from vault.validators import (
     _normalize_host_cached, _normalize_host_uncached, normalize_host,
 )
 
@@ -142,7 +142,7 @@ class HostCacheTests(TestCase):
 
 class ReferenceCacheBoundTests(TestCase):
     def test_bound_empties_only_oversized_sets(self):
-        from .import_engine import _bound_reference_cache
+        from vault.import_engine import _bound_reference_cache
         seen = {'url': {'a', 'b', 'c'}, 'pass': {'x'}}
         _bound_reference_cache(seen, 2)
         self.assertEqual(seen, {'url': set(), 'pass': {'x'}})
@@ -153,7 +153,7 @@ class ReferenceCacheBoundTests(TestCase):
 class ReferenceCacheImportTests(TransactionTestCase):
     def test_tiny_cache_ceiling_still_imports_every_record_once(self):
         import tempfile
-        from . import import_engine
+        from vault import import_engine
         lines = [
             f'https://h{i % 3}.example.com/p|user{i}@x.example|pw-{i}|N/A'
             for i in range(60)
@@ -171,7 +171,7 @@ class ReferenceCacheImportTests(TransactionTestCase):
         self.assertEqual(Url.objects.count(), 3)
 
     def test_failed_batch_clears_the_cache_before_the_error_propagates(self):
-        from . import import_engine
+        from vault import import_engine
         captured = {}
         real_flush = import_engine._durable_flush_batch
 
@@ -208,7 +208,7 @@ class InsertOrderTests(TransactionTestCase):
 
     def test_reference_and_account_inserts_are_ordered(self):
         import re
-        from . import import_engine
+        from vault import import_engine
         statements = [sql for _table, sql in importer._REFERENCE_INSERTS]
         statements += [importer._ACCOUNT_INSERT,
                        import_engine._ACCOUNT_INSERT_RETURNING]

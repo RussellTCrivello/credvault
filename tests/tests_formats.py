@@ -18,10 +18,10 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
 
-from .importer import bulk_import_lines, canonical_record
-from .models import Account, Email, Ip, Pass, Url, User
-from .utils import extract_domain, parse_line
-from .validators import (
+from vault.importer import bulk_import_lines, canonical_record
+from vault.models import Account, Email, Ip, Pass, Url, User
+from vault.utils import extract_domain, parse_line
+from vault.validators import (
     classify_identifier, is_null_ip, is_valid_email, is_valid_ip, url_host,
     is_valid_password, is_valid_url, is_valid_username, normalize_email,
     normalize_ip, normalize_password, normalize_url, normalize_username,

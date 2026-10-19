@@ -32,8 +32,8 @@ from django.db import connection
 from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 
-from .counts import count_label, exact_count
-from .importer import (
+from vault.counts import count_label, exact_count
+from vault.importer import (
     STREAM_BATCH_SIZE,
     BulkImportSession,
     bulk_import_lines,
@@ -41,9 +41,9 @@ from .importer import (
     stage_rows,
     worker_count,
 )
-from .import_engine import _source_manifest, durable_import_path
-from .models import Account, Email, ImportJob, Ip, Pass, Url, User
-from .utils import parse_line
+from vault.import_engine import _source_manifest, durable_import_path
+from vault.models import Account, Email, ImportJob, Ip, Pass, Url, User
+from vault.utils import parse_line
 
 PASSWORD = 'correct-horse-battery'
 
@@ -169,7 +169,7 @@ class ReferenceUsageTests(TestCase):
         bulk_import_lines(iter([parse_line('https://b.example.com/x|user9|pw|1.2.3.4')]))
 
     def test_usage_column_counts_records_per_value(self):
-        from .views import _attach_usage
+        from vault.views import _attach_usage
         urls = list(Url.objects.order_by('name'))
         _attach_usage('url', urls)
         usage = {u.name: u.usage for u in urls}
@@ -279,7 +279,7 @@ class ImportThroughputTests(TransactionTestCase):
 
         VAULT_RUN_PERFORMANCE=1 VAULT_PERF_LINES=1000000 VAULT_PERF_FAST=1 \
             POSTGRES_PASSWORD='...' .venv/bin/python manage.py test \
-            vault.tests_performance.ImportThroughputTests
+            tests.tests_performance.ImportThroughputTests
 
     ``VAULT_PERF_LINES`` picks the size (default 200,000), ``VAULT_PERF_FAST=1``
     imports with the search indexes suspended, and

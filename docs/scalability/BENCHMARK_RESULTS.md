@@ -532,7 +532,7 @@ host, email, IP or password.
 
 ## 21. Test status
 
-Full `manage.py test vault --parallel=1` after these changes: 261 tests OK,
+Full `manage.py test --parallel=1` after these changes: 261 tests OK,
 5 skipped (the opt-in performance tests, run separately). See
 `docs/scalability/IMPLEMENTATION_AUDIT.md`.
 
@@ -590,7 +590,7 @@ the parser, was the limit, as in section 12), then at 11.1 % (527,719 accounts
 committed, 2,027,733 lines attempted) it failed with
 `SourceChangedError` 28 s after the user left the import page for `/import/jobs/`.
 Not a performance problem and not a file change. Cause, reproduced by
-`vault/tests_upload_disconnect.py` (before the fix: job `failed`, same log line):
+`tests/tests_upload_disconnect.py` (before the fix: job `failed`, same log line):
 the import runs in a worker thread inside the streaming HTTP response; when the
 client disconnects the server closes the response and Django closes `request.FILES`,
 deleting the temporary upload while the worker still reads it. A second defect in

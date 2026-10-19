@@ -99,7 +99,7 @@ caps for substring search, or a read replica.
 
 ## 4. Pagination and counts
 
-Contract (implemented and tested in `vault/tests_pagination.py`; README section
+Contract (implemented and tested in `tests/tests_pagination.py`; README section
 "Counts and pagination contract"):
 
 * Default: exact counts and page numbers, unchanged.
@@ -109,7 +109,7 @@ Contract (implemented and tested in `vault/tests_pagination.py`; README section
 * No estimate is ever shown as exact.
 * Search totals: exact by default. `VAULT_RESULT_COUNT_CAP=N` computes a total from
   at most N+1 rows, shows `N+` and a note when exceeded, and is exact for any search
-  with at most N matches (`vault/counts.py`, `vault/tests_counts.py`). Measured
+  with at most N matches (`vault/counts.py`, `tests/tests_counts.py`). Measured
   45 ms versus 1,095 ms for a whole broad search at 8.27 M accounts.
 * Whole-table totals (dashboard, Records, References): exact below 1 M estimated
   rows; above, an exact count cached for `VAULT_TOTAL_COUNT_TTL` (60 s) and refreshed

@@ -46,7 +46,7 @@ class AdministratorLoginTests(TestCase):
                 )
 
     def test_record_detail_redirects_anonymous_visitors(self):
-        from .models import Account, Pass, Url
+        from vault.models import Account, Pass, Url
         record = Account.objects.create(
             url=Url.objects.create(name='https://example.com/login'),
             account_type='email',

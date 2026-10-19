@@ -9,7 +9,7 @@ not a project dependency).
 
 | Run | Result |
 | --- | --- |
-| `manage.py test vault --parallel=1` (final) | **261 tests, OK, 5 skipped** |
+| `manage.py test --parallel=1` (final) | **261 tests, OK, 5 skipped** |
 | Skipped | the five opt-in performance tests (`VAULT_RUN_PERFORMANCE`, `VAULT_RUN_CONCURRENT_PERF`, `VAULT_RUN_FILE_CONCURRENCY_PERF`) |
 | Opt-in performance tests (`VAULT_PERF_LINES=50000`) | all pass after the two fixes of section 6.3: 4 of 4 verification runs of the concurrent + file-concurrency pair (before: 2 of 2 failed with `deadlock detected`, and one hung for 25 minutes) |
 | `manage.py makemigrations --check --dry-run` | no drift |
@@ -53,7 +53,7 @@ anything above 8.27 M accounts.
 | `vault/views.py` (upload stream), `import_engine.py` (log line) | upload imports survive a browser that leaves the page (`tests_upload_disconnect.py`); `SourceChangedError` log line carries its fixed message and cause type |
 | `admin_LogIntel/settings.py` | `LOGGING` block (import metrics logger, console) |
 | `benchmarks/*.sh`, `benchmarks/sql/` | ladder, experiment, crash, backup/PITR, partition scripts |
-| `vault/tests*.py` | tests listed above |
+| `tests/*.py` | tests listed above |
 | `docs/README.md` | durability contract, fast mode vs online, counts and pagination contract, `recoverimports` |
 | `docs/scalability/*.md`, `benchmarks/**` | deliverables A-I (all documentation lives under `docs/`), scripts and raw results |
 

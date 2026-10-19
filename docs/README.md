@@ -3,7 +3,7 @@
 Django + PostgreSQL workspace for importing, searching and auditing large
 credential datasets. All project documentation lives in this `docs/` folder; the
 repository root holds only the project itself (`manage.py`, `admin_LogIntel/`,
-`vault/`, `locale/`, `benchmarks/`, `requirements.txt`).
+`vault/`, `tests/`, `locale/`, `benchmarks/`, `requirements.txt`).
 
 ## Documentation map
 
@@ -137,8 +137,15 @@ check fails, nothing is saved.
 ## Tests
 
 ```bash
-POSTGRES_PASSWORD='choose-a-password' .venv/bin/python manage.py test vault
+POSTGRES_PASSWORD='choose-a-password' .venv/bin/python manage.py test
 ```
+
+All tests live in the top-level `tests/` package (not inside the `vault/` app), and
+`manage.py test` discovers them from the repository root. Run one module or class
+with a dotted label, e.g. `manage.py test tests.tests_counts` or
+`manage.py test tests.test_core.WorkspaceInterfaceTests`. Note that
+`manage.py test vault` no longer finds anything. The five opt-in performance tests
+stay skipped unless their `VAULT_RUN_*` variables are set.
 
 # Search semantics
 
@@ -169,7 +176,7 @@ Quick search stays exact on purpose: it is the fast, predictable path, and
 the search page says so. The two tiers are locked in by the tests
 (`test_advanced_search_matches_substrings`,
 `test_quick_search_stays_exact_for_non_domain_values` in
-`vault/tests.py`).
+`tests/test_core.py`).
 
 The "`domain` also matches paths under the domain" half of quick search is
 implemented as B-tree range scans (`lower(name) >= 'https://example.com/'`
@@ -231,7 +238,7 @@ jobs or per-line ledgers and are not called by the production web/management
 entry points.
 
 Redirect behavior after an import (settled, and asserted by
-`vault/tests.py`):
+`tests/test_core.py`):
 
 * **One job** -- a file/folder upload or a single path -- redirects to the
   job detail page `/import/jobs/<job-id>/`, where the job's status, stage,
@@ -329,7 +336,7 @@ overlap the parse workers exist to create, and one oversized set-based insert
 has to do all of its planning and joining in one go. The default is therefore
 250,000 rows -- twice the earlier 100,000 -- and it is not raised automatically
 on a machine with more memory. Use `VAULT_IMPORT_BATCH_ROWS` and
-`vault/tests_performance.py` to find your own machine's number.
+`tests/tests_performance.py` to find your own machine's number.
 
 ### Durable streaming path
 
@@ -342,7 +349,7 @@ stream parsing, account/reference writes, ledger entries, and checkpoints:
 VAULT_RUN_PERFORMANCE=1 VAULT_PERF_LINES=20000 \
 POSTGRES_PASSWORD='choose-a-password' \
 .venv/bin/python manage.py test \
-  vault.tests_performance.ImportThroughputTests.test_durable_path_import_throughput
+  tests.tests_performance.ImportThroughputTests.test_durable_path_import_throughput
 ```
 
 On the isolated sandbox PostgreSQL test cluster, 20,000 synthetic unique
@@ -363,7 +370,7 @@ what actually changes the import and search speed of this workspace.
 
 | Resource | Used by | Setting on that machine |
 | --- | --- | --- |
-| CPU | parsing (`VAULT_IMPORT_WORKERS` processes) and PostgreSQL (COPY, the set-based inserts, the index rebuilds) | `VAULT_IMPORT_WORKERS=2` on 3 cores, leaving one core for PostgreSQL; try `3` and compare with `vault/tests_performance.py` |
+| CPU | parsing (`VAULT_IMPORT_WORKERS` processes) and PostgreSQL (COPY, the set-based inserts, the index rebuilds) | `VAULT_IMPORT_WORKERS=2` on 3 cores, leaving one core for PostgreSQL; try `3` and compare with `tests/tests_performance.py` |
 | RAM | PostgreSQL's page cache and `work_mem` for the batch joins; the importer's own buffer (about 90 MB at the default batch size) | `shared_buffers=16GB`, `effective_cache_size=48GB`, `work_mem=256MB`, `maintenance_work_mem=2GB` |
 | Disk | the WAL, the reference tables and the five trigram indexes | keep the cluster on the SSD; `random_page_cost=1.1`, `max_wal_size=8GB`, `checkpoint_timeout=30min`, `wal_compression=on` |
 | Graphics card | nothing | 6 GB are not used by any part of this workspace |
@@ -426,7 +433,7 @@ max_parallel_maintenance_workers = 3
 Durability contract: the durable engine (web import page and `importfolder`)
 sets `SET LOCAL synchronous_commit = on` for every batch transaction, so a
 batch is acknowledged only after its WAL is flushed; this is asserted by
-`vault/tests_import_reliability.py`. Only the lower-level compatibility loader
+`tests/tests_import_reliability.py`. Only the lower-level compatibility loader
 in `vault.importer` (used by tests and `bulk_import_lines`, not by any
 production entry point) uses `synchronous_commit = off`; a power loss can lose
 its last batches but not corrupt data. The importer also sets
@@ -496,7 +503,7 @@ treat them as a starting point and measure.
 ```bash
 VAULT_RUN_PERFORMANCE=1 VAULT_PERF_LINES=1000000 VAULT_PERF_FAST=1 \
 POSTGRES_PASSWORD='choose-a-password' \
-.venv/bin/python manage.py test vault.tests_performance
+.venv/bin/python manage.py test tests.tests_performance
 ```
 
 It prints lines per second for whatever you exported. Run it a second time
@@ -606,7 +613,7 @@ history; the PostgreSQL numbers above replaced them.
   or any number of folder/file paths (one per line) on the page; any number of
   paths on the `importfolder` command.
 * Records loaded in bulk and records saved through the ORM produce the same
-  fingerprint (`vault/tests_performance.py` checks it).
+  fingerprint (`tests/tests_performance.py` checks it).
 * Counts and pagination: list, search, overview, import-job, and import-ledger
   pages use exact queryset totals and have no 10,000-row ceiling; page links can
   reach every matching row, and displayed counts do not use a `+` estimate.

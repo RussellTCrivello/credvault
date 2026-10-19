@@ -38,19 +38,19 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from . import import_engine
-from .import_engine import (
+from vault import import_engine
+from vault.import_engine import (
     DurableImportSession, acquire_lease, create_import_job,
     discover_interrupted_jobs, durable_import_file, durable_import_path,
     lines_factory_for_job, recover_job, release_lease, renew_lease,
     verify_import_job,
     _durable_flush_batch, _hash_source_line, _write_ledger_entries,
 )
-from .models import (
+from vault.models import (
     Account, Email, ImportJob, ImportRecord, ImportRecoveryLog, Ip, Pass,
     Url, User, record_fingerprint,
 )
-from .utils import MAX_SOURCE_LINE_BYTES, parse_line
+from vault.utils import MAX_SOURCE_LINE_BYTES, parse_line
 
 
 # Check if PostgreSQL is available

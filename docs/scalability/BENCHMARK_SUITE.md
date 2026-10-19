@@ -63,9 +63,9 @@ minimal PostgreSQL bundles ship without contrib modules.
 ## Opt-in tests (inside the Django test runner)
 
 ```bash
-VAULT_RUN_PERFORMANCE=1 VAULT_PERF_LINES=200000 manage.py test vault.tests_performance.ImportThroughputTests
-VAULT_RUN_CONCURRENT_PERF=1 manage.py test vault.tests_performance.ConcurrentImportSearchTests
-VAULT_RUN_FILE_CONCURRENCY_PERF=1 manage.py test vault.tests_performance.FileConcurrencyBenchmarkTests
+VAULT_RUN_PERFORMANCE=1 VAULT_PERF_LINES=200000 manage.py test tests.tests_performance.ImportThroughputTests
+VAULT_RUN_CONCURRENT_PERF=1 manage.py test tests.tests_performance.ConcurrentImportSearchTests
+VAULT_RUN_FILE_CONCURRENCY_PERF=1 manage.py test tests.tests_performance.FileConcurrencyBenchmarkTests
 ```
 
 These use tiny result sets and an empty database; the `perfbench concurrent`

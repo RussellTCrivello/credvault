@@ -8,10 +8,10 @@ from unittest import mock
 
 from django.test import TestCase, TransactionTestCase
 
-from . import import_metrics
-from .import_engine import durable_import_file
-from .import_metrics import ImportMetrics
-from .models import Account
+from vault import import_metrics
+from vault.import_engine import durable_import_file
+from vault.import_metrics import ImportMetrics
+from vault.models import Account
 
 
 class FakeClock:

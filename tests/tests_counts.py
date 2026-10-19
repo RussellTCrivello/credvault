@@ -8,8 +8,8 @@ from django.core.cache import cache
 from django.test import TestCase
 from django.urls import reverse
 
-from . import counts
-from .models import Account, Email, Ip, Pass, Url
+from vault import counts
+from vault.models import Account, Email, Ip, Pass, Url
 
 
 def _make_accounts(total, host='counts.example.com'):

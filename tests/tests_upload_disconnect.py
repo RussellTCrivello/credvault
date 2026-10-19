@@ -15,8 +15,8 @@ from unittest import mock
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TransactionTestCase
 
-from . import views
-from .models import Account, ImportJob
+from vault import views
+from vault.models import Account, ImportJob
 
 
 def _wait_for_job(timeout=60):

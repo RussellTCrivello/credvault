@@ -15,8 +15,8 @@ from django.core.management import call_command
 from django.test import Client, TestCase
 from django.urls import reverse
 
-from .import_engine import SourceChangedError
-from .importer import (
+from vault.import_engine import SourceChangedError
+from vault.importer import (
     DEFAULT_IMPORT_WORK_MEM, DEFAULT_STAGE_ROWS, MAX_IMPORT_BATCH_ROWS,
     MAX_IMPORT_BUFFER_BYTES, MAX_IMPORT_WORKERS, MAX_IN_FLIGHT_PARSE_BYTES,
     MAX_IN_FLIGHT_PARSE_CHUNKS, MAX_PARSE_TASK_BYTES, BulkImportSession,
@@ -24,8 +24,8 @@ from .importer import (
     bounded_worker_count, bulk_import_lines, import_work_mem,
     max_pending_parse_chunks, stage_rows, worker_count,
 )
-from .models import Account, Email, ImportJob, Ip, Pass, Url, User
-from .utils import (
+from vault.models import Account, Email, ImportJob, Ip, Pass, Url, User
+from vault.utils import (
     MAX_SOURCE_LINE_BYTES, OversizedSourceLine, iter_bounded_source_lines,
     parse_line,
 )
@@ -820,7 +820,7 @@ class WorkspaceInterfaceTests(TestCase):
         # Prefer fork where the context factory really supports it; on Windows
         # the only supported method is spawn.
         import multiprocessing
-        from .importer import _parse_context
+        from vault.importer import _parse_context
 
         real_methods = multiprocessing.get_all_start_methods()
         with mock.patch(
@@ -837,7 +837,7 @@ class WorkspaceInterfaceTests(TestCase):
 
     def test_parse_context_falls_back_when_fork_context_is_rejected(self):
         import multiprocessing
-        from .importer import _parse_context
+        from vault.importer import _parse_context
 
         real_get_context = multiprocessing.get_context
 
