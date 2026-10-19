@@ -53,6 +53,14 @@ python manage.py recoverimports --run --job <UUID>
 * A recovery log outcome `partial` means "lines were replayed", not failure;
   `failed` and `completed_with_errors` need inspection; `success` means nothing
   needed replay.
+* A browser that leaves the import page no longer fails an upload import (it did
+  before 2026-10-19: Django deleted the temporary upload while the worker still
+  read it, the job failed with `SourceChangedError` and a log line
+  `Import source changed for job ... (SourceChangedError: An uploaded source became
+  unavailable while it was read; cause ValueError)`). The log line now carries the
+  fixed message and the cause type, never a source value. A job that failed this
+  way keeps its committed lines; re-upload the file (idempotent for accounts) or,
+  better for millions of lines, use `importfolder`.
 * Uploaded (non-path) imports cannot be replayed after the worker dies; upload
   again (global fingerprint uniqueness makes the re-upload idempotent for
   accounts, but it creates a new job and ledger).

@@ -532,7 +532,7 @@ host, email, IP or password.
 
 ## 21. Test status
 
-Full `manage.py test vault --parallel=1` after these changes: 259 tests OK,
+Full `manage.py test vault --parallel=1` after these changes: 261 tests OK,
 5 skipped (the opt-in performance tests, run separately). See
 `docs/IMPLEMENTATION_AUDIT.md`.
 
@@ -581,3 +581,24 @@ emptied tables, so this was a real, not only a test-harness, risk.
 
 Raw: `results/2026-10-19/perftest_file_concurrency_before_fix.log`,
 `perftest_after_fix_run4.log`.
+
+## 23. Defect reported from real use: upload import failed when the browser navigated away
+
+Report (18,212,968-line upload, Windows, `runserver`): the job ran at about 8,000
+lines/s, `db_busy_ratio` 0.80-0.82 and `parse_pending_bytes` 0 (so the database, not
+the parser, was the limit, as in section 12), then at 11.1 % (527,719 accounts
+committed, 2,027,733 lines attempted) it failed with
+`SourceChangedError` 28 s after the user left the import page for `/import/jobs/`.
+Not a performance problem and not a file change. Cause, reproduced by
+`vault/tests_upload_disconnect.py` (before the fix: job `failed`, same log line):
+the import runs in a worker thread inside the streaming HTTP response; when the
+client disconnects the server closes the response and Django closes `request.FILES`,
+deleting the temporary upload while the worker still reads it. A second defect in
+the same path (introduced by the bounded progress queue of the first pass): with no
+consumer left the worker would block on `put()` after 64 queued events. Fix: the
+response generator now waits for the worker in a `finally` (so the upload stays open
+until it is read), and progress events are dropped instead of blocking once the client
+is gone. After the fix the same test completes all 3,000 lines. Not covered: the
+client-side script, a window closed before the job exists, a server restart (uploads
+are never replayable by design); the 18 M-line case itself was not re-run here (it
+needs the user's file). The reported run's 74 % skipped lines were not examined here.

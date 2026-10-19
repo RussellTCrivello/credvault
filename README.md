@@ -203,7 +203,14 @@ upload with unaccounted lines cannot be replayed after its live request worker
 exits. While that worker is alive, Pause
 holds it at a committed checkpoint and Continue resumes the same in-memory
 upload stream; after a process/server restart, upload the source again to
-replay unaccounted lines. The lower-level `vault.importer` bulk functions
+replay unaccounted lines. Leaving the import page (closing the tab, or
+opening the job list) does **not** stop an upload import: the request stays open
+server-side until the worker has finished reading the upload, progress events are
+dropped instead of blocking, and the job page keeps showing live progress. Closing
+the browser *window* during the upload itself (before the job exists) still
+aborts it. For files of many millions of lines prefer `manage.py importfolder`
+(path-backed, resumable with `recoverimports`, independent of any browser). The
+lower-level `vault.importer` bulk functions
 remain for compatibility and performance tests; they do not create durable
 jobs or per-line ledgers and are not called by the production web/management
 entry points.

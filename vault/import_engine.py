@@ -2193,9 +2193,13 @@ class DurableImportSession:
             # mark its job failed or clear its lease.
             logger.warning('Import worker lease lost for job %s.', job.job_id)
         except SourceChangedError as exc:
+            # Every SourceChangedError message is a fixed literal (never a
+            # source value), so it is safe to log and is what an operator
+            # needs to tell "file edited" from "upload closed by the client".
+            cause = type(exc.__cause__).__name__ if exc.__cause__ else '-'
             logger.warning(
-                'Import source changed for job %s (%s).',
-                job.job_id, type(exc).__name__,
+                'Import source changed for job %s (%s: %s; cause %s).',
+                job.job_id, type(exc).__name__, exc, cause,
             )
             try:
                 job.mark_failed(

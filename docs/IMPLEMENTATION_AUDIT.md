@@ -9,7 +9,7 @@ not a project dependency).
 
 | Run | Result |
 | --- | --- |
-| `manage.py test vault --parallel=1` (final) | **259 tests, OK, 5 skipped** |
+| `manage.py test vault --parallel=1` (final) | **261 tests, OK, 5 skipped** |
 | Skipped | the five opt-in performance tests (`VAULT_RUN_PERFORMANCE`, `VAULT_RUN_CONCURRENT_PERF`, `VAULT_RUN_FILE_CONCURRENCY_PERF`) |
 | Opt-in performance tests (`VAULT_PERF_LINES=50000`) | all pass after the two fixes of section 6.3: 4 of 4 verification runs of the concurrent + file-concurrency pair (before: 2 of 2 failed with `deadlock detected`, and one hung for 25 minutes) |
 | `manage.py makemigrations --check --dry-run` | no drift |
@@ -19,7 +19,7 @@ New automated tests (all in `vault/`): `tests_pagination.py` (6),
 `tests_scale_changes.py` (12 + 2 insert-order + 2 stale-statistics),
 `tests_counts.py` (19: exact below the cap, `N+` above, no estimate labelled
 exact, cached totals, TTL, invalidation on UI add/delete, cap=0 default),
-`tests_import_metrics.py` (7: counters, ratios, no source values in logs, interval
+`tests_upload_disconnect.py` (2: import completes after the client disconnects; normal stream still ends with `done`), `tests_import_metrics.py` (7: counters, ratios, no source values in logs, interval
 0 disables), one `recoverimports` test, plus the bounded-reader, oversized-line,
 work-memory, byte-bounded queue, worker-count, parallel-file and WAL/durability
 tests added earlier.
@@ -50,6 +50,7 @@ anything above 8.27 M accounts.
 | `vault/counts.py`, `views.py`, `templates/vault/pagination.html` | capped search totals and cached whole-table totals (opt-in / above 1 M rows), `N+` label |
 | `vault/import_metrics.py`, `import_engine.py` | in-process import metrics (`vault.import.metrics`), no source values |
 | `vault/importer.py`, `import_engine.py` (second pass) | all reference/account `INSERT ... SELECT` ordered by the unique key (deadlock fix); `refresh_stale_reference_stats` (runaway-plan fix) |
+| `vault/views.py` (upload stream), `import_engine.py` (log line) | upload imports survive a browser that leaves the page (`tests_upload_disconnect.py`); `SourceChangedError` log line carries its fixed message and cause type |
 | `admin_LogIntel/settings.py` | `LOGGING` block (import metrics logger, console) |
 | `benchmarks/*.sh`, `benchmarks/sql/` | ladder, experiment, crash, backup/PITR, partition scripts |
 | `vault/tests*.py` | tests listed above |
@@ -97,7 +98,7 @@ running on a very large database.
 | Progressive-scale tests show actual capacity | **partly met** | ladder to 8.27 M accounts; 10 M+ not run (disk); ingest falls to 30 % of the empty rate |
 | Partitioning/sharding preserves uniqueness | **prototyped, not adopted** | single-node prototype showed no gain and `UNIQUE(id)` is impossible on a fingerprint-partitioned account table; sharding not built |
 | Billion-record support | **not claimed**; unverified projections labelled |
-| Automated tests pass; docs; security | met | 259 OK |
+| Automated tests pass; docs; security | met | 261 OK |
 
 ## 6. Known limitations and unresolved items
 

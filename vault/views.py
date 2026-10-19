@@ -1127,6 +1127,21 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
         updates = queue.Queue(
             maxsize=MAX_IMPORT_PROGRESS_EVENTS if background else 0,
         )
+        abandoned = threading.Event()
+
+        def emit(update):
+            """Queue a progress event, but never block once the client left.
+
+            The import must outlive the browser: if the page is closed or the
+            user navigates away, nothing drains the bounded queue any more.
+            """
+            while not abandoned.is_set():
+                try:
+                    updates.put(update, timeout=0.5)
+                    return
+                except queue.Full:
+                    continue
+
         yield json.dumps({'type': 'phase', 'phase': 'counting'}) + '\n'
 
         path_groups = [
@@ -1163,7 +1178,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
         def announce_job(job):
             job_id = str(job.job_id)
             result['job_ids'].append(job_id)
-            updates.put({
+            emit({
                 'type': 'job',
                 'job_id': job_id,
                 'source_name': job.source_name,
@@ -1198,7 +1213,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                 def report_file_scanned(_source, _byte_size, _line_count):
                     nonlocal scanned
                     scanned += 1
-                    updates.put({
+                    emit({
                         'type': 'count_progress',
                         'files_scanned': scanned,
                         'total_files': total_files,
@@ -1231,7 +1246,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                     upload_manifest[2] if upload_manifest is not None else 0
                 )
                 total_lines = sum(group_line_counts) + upload_line_count
-                updates.put({
+                emit({
                     'type': 'progress',
                     'phase': 'processing',
                     'processed': 0,
@@ -1259,7 +1274,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
 
                         def path_progress(position, base=processed_before,
                                           active=job_ref):
-                            updates.put({
+                            emit({
                                 'type': 'progress',
                                 'phase': 'processing',
                                 'job_id': active.get('job_id'),
@@ -1287,7 +1302,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                             worker_error.append('ImportIncomplete')
                         processed_before += group_total
                         completed_files += len(group_files)
-                        updates.put({
+                        emit({
                             'type': 'progress',
                             'phase': 'processing',
                             'processed': min(total_lines, processed_before),
@@ -1305,7 +1320,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
 
                         def upload_progress(position, base=processed_before,
                                             active=job_ref):
-                            updates.put({
+                            emit({
                                 'type': 'progress',
                                 'phase': 'processing',
                                 'job_id': active.get('job_id'),
@@ -1332,7 +1347,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                             worker_error.append('ImportIncomplete')
                         processed_before += upload_line_count
                         completed_files += len(uploaded_files)
-                        updates.put({
+                        emit({
                             'type': 'progress',
                             'phase': 'processing',
                             'processed': min(total_lines, processed_before),
@@ -1347,7 +1362,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
             finally:
                 if background:
                     connections.close_all()
-                updates.put(None)
+                emit(None)
 
         # Django TestCase and explicit outer transactions cannot share a
         # database transaction with a worker thread. Run inline in that case
@@ -1364,13 +1379,21 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
             worker.start()
         else:
             import_worker(background=False)
-        while True:
-            update = updates.get()
-            if update is None:
-                break
-            yield json.dumps(update) + '\n'
-        if worker is not None:
-            worker.join()
+        try:
+            while True:
+                update = updates.get()
+                if update is None:
+                    break
+                yield json.dumps(update) + '\n'
+        finally:
+            # Normal end, or GeneratorExit because the client disconnected.
+            # Django closes request.FILES (deleting the temporary uploads) as
+            # soon as the response is closed, so on a disconnect keep this
+            # request open until the worker has finished reading them; the
+            # job is durable and its progress stays visible on the job page.
+            abandoned.set()
+            if worker is not None:
+                worker.join()
 
         if worker_error:
             yield json.dumps({
