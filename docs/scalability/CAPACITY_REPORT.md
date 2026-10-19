@@ -43,6 +43,15 @@
 | Recovery after `pg_ctl stop -m immediate` | server redo 5.6-13.4 s, remaining 651,890 / 825,881 lines replayed in 91-120 s; counts identical; `pg_amcheck` clean |
 | Point-in-time recovery | backup 5.5 s, restore plus WAL replay 15.1 s at 1.8 GB; counts exact at the target time |
 
+### Field observation (not my measurement)
+
+A user-reported 18,212,968-line browser upload on the owner's Windows machine ran at
+about 7,600-8,400 lines/s with one parse worker, `db_busy_ratio` 0.80-0.82, an empty
+parse backlog and about 2,000 new accounts/s (74 % of the lines were skipped). It
+failed at 11.1 % because the browser left the import page, a defect fixed afterwards
+(`docs/scalability/BENCHMARK_RESULTS.md` section 23). Hardware: 32 GB RAM, 5 cores, SSD.
+It is one log, with unknown PostgreSQL settings; no completed 18 M-line run exists.
+
 ## 3. Measured at smaller scale and projected (explicit assumptions)
 
 These are arithmetic on the measurements above, **not forecasts**:

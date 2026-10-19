@@ -38,6 +38,11 @@ pass to 0.88 M accounts, second pass to **8.27 M accounts / 11.5 GB**):
   runaway account INSERT** when a reference table's statistics said "empty".
   The decisions R1-R8 were delegated by the user and are recorded in
   `docs/scalability/PERFORMANCE_TARGETS.md`.
+* **Field report (user's machine, Windows, 18.2 M-line browser upload):** about 8,000
+  lines/s with `db_busy_ratio` 0.81 and one parse worker (the Windows default), then a
+  failure when the user left the import page. Fixed (third defect below); Windows
+  tuning guidance added to `docs/README.md`. The speed figure is the user's log, not a
+  benchmark I ran.
 * **Still not verified:** 10 M+ accounts, billions of records, multi-node,
   replicas/failover, cold caches, a disk that loses acknowledged writes.
 * **Added:** byte-aware bounded readers/queues/batches, importer resource limits,
@@ -100,21 +105,25 @@ and exact counts are unchanged by default.
 | `--fast` broader than documented; one query `OperationalError` seen with it | scope narrowed (the error message was not captured; not reproduced after) |
 | Parallel file imports deadlocked on `vault_ip` (`deadlock detected`, job failed, recoverable): transactions inserted overlapping unique names in different orders | every reference and account `INSERT ... SELECT` is now `ORDER BY` the unique key; structural test `InsertOrderTests`; found by the opt-in `FileConcurrencyBenchmarkTests` (2 failures in 2 runs after the concurrent test; 0 in the verification runs of the fix: see `docs/scalability/BENCHMARK_RESULTS.md` section 22) |
 | Account INSERT planned as a nested loop that rescans a 50,000-row table per staged row (one backend at 100 % CPU for 25 min) when `reltuples = 0` after an empty-table ANALYZE | `refresh_stale_reference_stats` analyzes only such tables inside the batch; tests `StaleStatisticsTests` |
+| Upload import failed with `SourceChangedError` when the browser left the import page (Django closed the temporary upload under the worker; the bounded progress queue could also block it) | the response now waits for the worker and drops progress when nobody listens; `tests/tests_upload_disconnect.py`; the log line now shows the fixed message and cause type |
 | Perf tooling could leak data | synthetic only; prints no record contents; documented not to be run on production |
 
 ## 6. Open items and recommended next steps (by value)
 
-1. Repeat stages 0-2 and continue to 10 M+ accounts on production-like hardware
+1. Run the Windows 32 GB / 5-core settings of `docs/README.md` on the real machine
+   (workers 3, larger `shared_buffers` and `max_wal_size`) and compare
+   `vault.import.metrics` summaries; nothing there is benchmarked yet.
+2. Repeat stages 0-2 and continue to 10 M+ accounts on production-like hardware
    (more RAM, more cores, NVMe) with `benchmarks/scale_ladder.sh` and
    `perfbench concurrent`; this is where the ingest curve must be re-measured.
-2. Still untested drills: disk full, power loss with a lying disk, replica
+3. Still untested drills: disk full, power loss with a lying disk, replica
    failover, restore time at terabytes, `max_wal_size` above 4 GB.
-3. Keyword search (five trigram bitmaps) is the slowest unaddressed query; needs
+4. Keyword search (five trigram bitmaps) is the slowest unaddressed query; needs
    a product limit, a different index design or replicas.
-4. Ledger retention (R6) is recorded as archive-first but not implemented.
-5. Counts and R1-R8 are decided (delegated; `docs/scalability/PERFORMANCE_TARGETS.md`).
-6. Re-measure file-level parallelism, parse workers and `wal_compression` on a
+5. Ledger retention (R6) is recorded as archive-first but not implemented.
+6. Counts and R1-R8 are decided (delegated; `docs/scalability/PERFORMANCE_TARGETS.md`).
+7. Re-measure file-level parallelism, parse workers and `wal_compression` on a
    multi-core host; revisit intra-file segmentation only if reading is measured
    as a bottleneck on slow storage.
-7. Evaluate dropping the five reference-table `*_like` indexes (about 135 MB
+8. Evaluate dropping the five reference-table `*_like` indexes (about 135 MB
    per 0.88 M accounts) once ORM `startswith` usage is ruled out.

@@ -129,3 +129,25 @@ page expose committed/skipped/failed counters and stage.
 | Rolled-back batch with reference cache | cache cleared | yes |
 | PostgreSQL restart, disk full, replica failover, backup restore | not tested | no |
 | Retry storm protection | a live lease blocks a second owner; no automatic retry loop exists | lease tests (existing) |
+
+## 7. Additions from the second pass (2026-10-19)
+
+* **Insert order.** Every reference and account `INSERT ... SELECT ... ON CONFLICT`
+  is sorted by the unique key (`name`, `fingerprint`). Without it, concurrent file jobs
+  inserted overlapping keys in hash order and deadlocked
+  (`docs/scalability/BENCHMARK_RESULTS.md` 22.1). Guard: `tests/tests_scale_changes.py`
+  (`InsertOrderTests`).
+* **Planner statistics.** A reference table analyzed while empty keeps `reltuples = 0`
+  and is estimated at one row however large it grows, turning the account INSERT's
+  joins into an O(n^2) nested loop. `refresh_stale_reference_stats` analyzes such tables
+  inside the batch transaction; healthy tables are never touched (22.2).
+* **Upload lifecycle.** An upload import runs in a worker thread inside the streaming
+  response. The response generator waits for that worker in a `finally`, so Django
+  cannot delete the temporary upload (`request.FILES`) while it is still being read
+  when the browser disconnects, and progress events are dropped instead of blocking
+  once nobody is listening (section 23 of the results; `tests/tests_upload_disconnect.py`).
+  Uploads are still never replayable after a restart: use `importfolder` for large
+  files.
+* **Windows.** Parse workers default to one there (spawn start method); raise
+  `VAULT_IMPORT_WORKERS` explicitly.
+* **Metrics.** `vault/import_metrics.py` logs counters and timings only (no source values).

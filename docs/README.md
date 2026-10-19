@@ -11,7 +11,34 @@ repository root holds only the project itself (`manage.py`, `admin_LogIntel/`,
 | --- | --- |
 | `docs/README.md` (this file) | data formats, setup, search semantics, import jobs and recovery, performance and tuning |
 | `docs/scalability/` | the scalability program: `SCALABILITY_ASSESSMENT.md` (start here), `PERFORMANCE_TARGETS.md`, `FILE_PROCESSING_ARCHITECTURE.md`, `DATABASE_OPTIMIZATION_REPORT.md`, `BENCHMARK_RESULTS.md`, `CAPACITY_REPORT.md`, `OPERATIONS_AND_RECOVERY.md`, `IMPLEMENTATION_AUDIT.md`, `BENCHMARK_SUITE.md` (how to run `benchmarks/`) |
-| `docs/history/` | earlier reports and hand-off notes, kept unchanged as a record (completion matrix, import repair/reliability, performance phases 2-3, verification) |
+| `docs/history/` | (see its `README.md`) earlier reports and hand-off notes, kept unchanged as a record (completion matrix, import repair/reliability, performance phases 2-3, verification) |
+
+## Project status (2026-10-19)
+
+* **Branch / PR:** `arena/b98bd230-credvault`, pull request #12 against `main`
+  (base `095abd0`). Schema: migrations `0001`-`0009` (`0008` and `0009` only drop
+  unused indexes; both reversible).
+* **Tests:** 261 pass, 5 opt-in performance tests are skipped
+  (`python manage.py test`; all tests are in `tests/`).
+* **Verified (sandbox: 2 vCPU, 3.9 GB, PostgreSQL 16.2):** durable import, exact and
+  substring search, crash recovery (importer kill, PostgreSQL immediate stop,
+  point-in-time restore) with exact counts, to **8.27 M accounts / 11.5 GB**.
+  Exact lookups stay about 9 ms; durable ingest falls from about 6,050 to about
+  1,800 accounts/s between 0.9 M and 8 M accounts; broad substring and keyword
+  searches take 1-2 s at 8.3 M.
+* **Not verified:** above 8.3 M accounts, billions of records, more than one
+  server, replicas/failover, cold caches, power loss on a disk that loses
+  acknowledged writes. No billion-record claim is made.
+* **Recent fixes (2026-10-19):** deadlocks between `--parallel-files` jobs
+  (inserts now ordered by the unique key); a runaway account INSERT when a
+  reference table had been analyzed while empty; upload imports that failed when
+  the browser left the import page.
+* **Recommended for big files:** `python manage.py importfolder <path>` (resumable,
+  independent of the browser). On Windows set `VAULT_IMPORT_WORKERS=3` first (see
+  "Windows, 32 GB RAM, 5 cores, SSD").
+* **Where to read more:** `docs/scalability/SCALABILITY_ASSESSMENT.md` (start),
+  `docs/scalability/BENCHMARK_RESULTS.md` (all numbers),
+  `docs/scalability/OPERATIONS_AND_RECOVERY.md` (settings, drills, recovery).
 
 # Data formats
 
@@ -306,14 +333,18 @@ reading.
 | Before this change | 100,000 | one process | 170 s | 5,900 / s |
 | This change, same batch | 100,000 | 2 | 133 s | 7,500 / s |
 | This change, default batch | 250,000 | 2 | 141-148 s | about 7,000 / s |
-| This change, default batch, maximum speed | 250,000 | 2 | 130 s (116 s load + 14 s index rebuild) | 7,700 / s |
+| This change, default batch, maximum speed (`--fast`) | 250,000 | 2 | 130 s (116 s load + 14 s index rebuild) | 7,700 / s |
 
 The parse workers are the largest single gain: parsing used to run between the
 database batches, and now it runs while the previous batch is being copied and
 merged. Parsing alone runs at about 60,000 lines/s on one core, which is why
 overlapping it matters more than making it faster.
 
-Maximum speed then removes the second largest cost, the per-row update of the
+**Caveat (superseded for populated databases):** this table is from the first, empty-database
+measurement. Later measurements on a populated database found `--fast` slower than
+online mode (section "Fast mode versus online ingestion") and the whole durable
+path slower as the data grows (6,050 to 1,800 accounts/s from 0.9 M to 8 M accounts;
+`docs/scalability/BENCHMARK_RESULTS.md`). Maximum speed removes the second largest cost, the per-row update of the
 five trigram indexes, and rebuilds them once at the end. In these runs it was
 worth about 12% over the whole load (148 s to 130 s) and about 22% on the load
 itself (148 s to 116 s, then 14 s to build the five indexes again); the gain
@@ -372,7 +403,7 @@ what actually changes the import and search speed of this workspace.
 | --- | --- | --- |
 | CPU | parsing (`VAULT_IMPORT_WORKERS` processes) and PostgreSQL (COPY, the set-based inserts, the index rebuilds) | `VAULT_IMPORT_WORKERS=2` on 3 cores, leaving one core for PostgreSQL; try `3` and compare with `tests/tests_performance.py` |
 | RAM | PostgreSQL's page cache and `work_mem` for the batch joins; the importer's own buffer (about 90 MB at the default batch size) | `shared_buffers=16GB`, `effective_cache_size=48GB`, `work_mem=256MB`, `maintenance_work_mem=2GB` |
-| Disk | the WAL, the reference tables and the five trigram indexes | keep the cluster on the SSD; `random_page_cost=1.1`, `max_wal_size=8GB`, `checkpoint_timeout=30min`, `wal_compression=on` |
+| Disk | the WAL, the reference tables and the five trigram indexes | keep the cluster on the SSD; `random_page_cost=1.1`, `max_wal_size=8GB`; `wal_compression` off unless measured (it halved the rate on a 2-vCPU test box) |
 | Graphics card | nothing | 6 GB are not used by any part of this workspace |
 
 **The graphics card does not help.** PostgreSQL, Django and this importer are
@@ -601,28 +632,43 @@ history; the PostgreSQL numbers above replaced them.
 
 ## What changed
 
-* Import: lines are parsed in worker processes, staged in a temporary table
-  with COPY, and merged with set-based `INSERT ... ON CONFLICT DO NOTHING ...
-  SELECT`. Batches default to 250,000 rows (`VAULT_IMPORT_BATCH_ROWS`), parse
-  workers to `min(4, CPU count)` (`VAULT_IMPORT_WORKERS`).
-* Import, maximum speed: `--fast` on `importfolder`, or the checkbox on the
-  import page, suspends the five trigram search indexes for the duration and
-  rebuilds them once at the end (`VAULT_MAINTENANCE_WORK_MEM` sizes the
-  rebuild).
-* Import inputs: one or many uploaded files, a whole folder from the browser,
-  or any number of folder/file paths (one per line) on the page; any number of
-  paths on the `importfolder` command.
-* Records loaded in bulk and records saved through the ORM produce the same
-  fingerprint (`tests/tests_performance.py` checks it).
-* Counts and pagination: list, search, overview, import-job, and import-ledger
-  pages use exact queryset totals and have no 10,000-row ceiling; page links can
-  reach every matching row, and displayed counts do not use a `+` estimate.
-  Exact PostgreSQL counts may take time for broad queries on very large tables;
-  result rows remain paginated and exports stream every matching record.
-* Reference pages: "usage" is counted only for the values on the current page,
-  not for the whole reference table.
-* Search: exact (B-tree) on the search page, substring through the `pg_trgm`
-  GIN indexes on Advanced search -- see "Search semantics".
+Import
+* Lines are parsed in worker processes, staged in a temporary table with COPY and
+  merged with set-based `INSERT ... ON CONFLICT DO NOTHING ... SELECT`, sorted by the
+  unique key so concurrent jobs cannot deadlock. Batches default to 250,000 rows
+  (`VAULT_IMPORT_BATCH_ROWS`); parse workers to `min(4, CPU count)` on Linux/macOS and
+  **1 on Windows** (`VAULT_IMPORT_WORKERS` overrides, max 16).
+* Every batch is durable (`synchronous_commit = on`), has a per-line hash-only
+  ledger, and resumes after a crash (`recoverimports`). Reads are bounded (16 KiB per
+  line, byte-aware queues and batches); reference caches are bounded and cleared on
+  rollback; reference-table statistics are refreshed only when they say "empty".
+* Inputs: one or many uploaded files, a folder from the browser, or any number of
+  folder/file paths (page or `importfolder`). `importfolder --parallel-files N` runs
+  independent files concurrently (opt-in; mixed results). An upload import keeps
+  running if the browser leaves the page.
+* `--fast` (or the import-page checkbox) suspends the five trigram indexes and
+  rebuilds them at the end. **It is not recommended**: on a populated database it was
+  slower than online mode and made searches slower while it ran (see "Fast mode versus
+  online ingestion").
+* Import progress metrics are logged (`vault.import.metrics`,
+  `VAULT_IMPORT_METRICS_INTERVAL`), never with source values.
+
+Search, counts and storage
+* Search: exact (B-tree) on the search page; substring through the `pg_trgm` GIN
+  indexes on Advanced search (see "Search semantics").
+* Counts are exact by default. Opt-in/bounded: `VAULT_RESULT_COUNT_CAP` (search totals
+  shown as `N+` above the cap) and cached whole-table totals above
+  `VAULT_TOTAL_COUNT_MIN_ROWS` (see "Counts and pagination contract"). Opt-in keyset
+  pagination (`?sort=id&after=<id>`).
+* Reference pages count "usage" only for the values on the current page.
+* Migrations 0008 and 0009 drop eleven redundant or unread indexes (about 17 % of
+  storage on the first audit and a further 737 MB at 7.4 M accounts).
+* Records loaded in bulk and through the ORM produce the same fingerprint
+  (`tests/tests_performance.py` checks it).
+
+Repository layout
+* Documentation: `docs/`. Tests: `tests/`. Benchmark scripts and raw results:
+  `benchmarks/`. Application: `vault/`, `admin_LogIntel/`, `locale/`.
 
 ## Limits
 

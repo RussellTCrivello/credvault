@@ -53,7 +53,7 @@ anything above 8.27 M accounts.
 | `vault/views.py` (upload stream), `import_engine.py` (log line) | upload imports survive a browser that leaves the page (`tests_upload_disconnect.py`); `SourceChangedError` log line carries its fixed message and cause type |
 | `admin_LogIntel/settings.py` | `LOGGING` block (import metrics logger, console) |
 | `benchmarks/*.sh`, `benchmarks/sql/` | ladder, experiment, crash, backup/PITR, partition scripts |
-| `tests/*.py` | tests listed above |
+| `tests/*.py` (moved out of `vault/` on 2026-10-19; `tests/test_core.py` was `vault/tests.py`) | tests listed above; run with `manage.py test` |
 | `docs/README.md` | durability contract, fast mode vs online, counts and pagination contract, `recoverimports` |
 | `docs/scalability/*.md`, `benchmarks/**` | deliverables A-I (all documentation lives under `docs/`), scripts and raw results |
 
@@ -130,15 +130,30 @@ running on a very large database.
    1 M estimated rows, and the cache is per process.
 10. Ledger retention (R6, archive-first) and sharding were not implemented.
 11. Import metrics are logged, not exported to a monitoring system.
+12. The README's older "Import speed" tables describe pre-existing measurements
+    on different hardware and were not re-run.
 13. Keyword search through five trigram bitmaps (about 2.2 s idle at 8.3 M) is not
     improved.
 14. Single runs only for the ladder, the drills and the experiments; the PITR drill
     used 1.8 GB, far below production sizes.
-12. The README's older "Import speed" tables describe pre-existing measurements
-    on different hardware and were not re-run.
+15. Windows: parse workers default to one there; the recommended 32 GB / 5-core settings
+    in `docs/README.md` were not benchmarked on that hardware, and the 18 M-line
+    field report is a user log, not a measurement I made.
+16. Upload imports (browser) are never replayable after a server restart, and closing the
+    browser window before the job exists still aborts them; use `importfolder` for
+    large files.
 
 ## 7. Repository state
 
-Changes are on branch `arena/b98bd230-credvault` and are committed there (see
-`git log`). No other branch was touched. Large generated data (`/tmp/bench`) is
-outside the repository.
+Branch `arena/b98bd230-credvault` (pull request #12, base `main` @ `095abd0`), all
+work committed and pushed; no other branch was touched. Layout: application in
+`vault/`, `admin_LogIntel/`, `locale/`; tests in `tests/`; benchmark scripts and raw
+results in `benchmarks/`; **all documentation in `docs/`** (`docs/README.md`,
+`docs/scalability/`, `docs/history/`). The repository root holds only project files.
+Tracked `.pyc` files were removed from git (they were already in `.gitignore`).
+Large generated data (`/tmp/bench`) is outside the repository.
+
+Commit history of the program: `1f85c10` first pass; `289a6cf` scale ladder, counts,
+0009, drills, deadlock and stale-statistics fixes; `1e93bb7` upload-disconnect fix;
+`06f5de7` docs reorganized and Windows guidance; `5619c48` tests moved; then the
+documentation refresh of 2026-10-19.

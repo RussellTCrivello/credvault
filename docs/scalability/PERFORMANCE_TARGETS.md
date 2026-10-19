@@ -30,7 +30,7 @@ shapes to re-verify on production hardware, not as promises.
 | T4 | Whole-table totals (dashboard, Records, References) <= 100 ms | 575 ms -> 34 ms (dashboard), 189 -> 3.5 ms (Records), 545 -> 32 ms (References) at 7.4 M with the cached total | **met** with the default TTL |
 | T5 | Durable online ingest, empty to 1 M lines | 6,050 accounts/s (145 s) | **met** (reference) |
 | T6 | Durable online ingest at >= 5 M accounts, no query load | 1,714-1,835 accounts/s at 7.6-8.1 M | recorded; see T7 |
-| T7 | Durable online ingest with two query workers at >= 5 M accounts >= 1,000 accounts/s | 1,753 (2.6 M), 1,019 (5.5 M), 870 (7.4 M, cap on) | **met to 5.5 M, narrowly missed at 7.4 M**; import rate falls about 1/size, I/O-bound on this host |
+| T7 | Durable online ingest with two query workers at >= 5 M accounts >= 1,000 accounts/s | 1,753 (2.6 M), 1,019 (5.5 M), 870 (7.4 M, cap on) | **met to 5.5 M, narrowly missed at 7.4 M**; import rate falls steadily with size (about 3x from 0.9 M to 8 M accounts), I/O-bound on this host |
 | T8 | Importer memory <= 1 GB RSS (process tree) at 1 M lines | 637 MB single process, 735 MB tree | **met** |
 | T9 | Crash/kill: no lost, duplicated or phantom record; resume replays only uncommitted positions | SIGKILL of the importer (2 runs) and `pg_ctl stop -m immediate` of the server (2 runs): final counts identical to an uninterrupted run, 0 duplicate fingerprints, `pg_amcheck` clean | **met** for process and server crash; **not** tested: power loss with a lying disk |
 | T10 | Point-in-time recovery from a physical backup, exact to a chosen time | 1.8 GB backup, WAL replay to the second before an accidental delete: row counts identical, 0 duplicates, amcheck clean (15 s) | **met** (single run, small data) |
@@ -41,7 +41,7 @@ shapes to re-verify on production hardware, not as promises.
 
 | Resource | Budget | Where |
 | --- | --- | --- |
-| Parse workers | `min(4, CPUs)`, max 16, `VAULT_IMPORT_WORKERS` | `importer.worker_count` |
+| Parse workers | `min(4, CPUs)` on Linux/macOS, 1 on Windows, max 16, `VAULT_IMPORT_WORKERS` | `importer.worker_count` |
 | In-flight parse bytes | bounded queue plus byte cap | `MAX_IN_FLIGHT_PARSE_BYTES` |
 | Commit batch | 250,000 rows or a byte cap, whichever first | `VAULT_IMPORT_BATCH_ROWS`, `MAX_IMPORT_BUFFER_BYTES` |
 | Reference-value cache | 200,000 values, cleared on rollback | `MAX_REFERENCE_CACHE_VALUES` |

@@ -4,7 +4,7 @@
 
 | Setting | Default | Effect | Evidence / caution |
 | --- | --- | --- | --- |
-| `VAULT_IMPORT_WORKERS` | `min(4, CPUs)` (max 16) | parse processes per job | parsing is 92 % of pre-DB CPU time; do not exceed `cores - 1` |
+| `VAULT_IMPORT_WORKERS` | `min(4, CPUs)` on Linux/macOS; **1 on Windows** (max 16) | parse processes per job | parsing is 92 % of pre-DB CPU time; do not exceed `cores - 1`. A real Windows import showed `db_busy_ratio` 0.81 with one worker, so set 3 on a 5-core machine and watch `db_busy_ratio` |
 | `VAULT_IMPORT_BATCH_ROWS` | 250,000 (max 1,000,000) | rows per commit | 250 k was fastest of 10 k/50 k/250 k; memory about 2.5 KB per buffered row; a crash recomputes up to one batch |
 | `VAULT_IMPORT_WORK_MEM` | 64MB (max 256MB) | `SET LOCAL work_mem` for import transactions | `work_mem` applies per sort/hash node and per session; size against concurrent sessions |
 | `VAULT_MAINTENANCE_WORK_MEM` | 1024MB | trigram index rebuild after `--fast` | |
