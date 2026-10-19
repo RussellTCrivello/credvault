@@ -1,0 +1,8 @@
+pg_basebackup: 5.5 s, 1.8G
+Done. 1 import job(s) completed. Imported 175986 record(s); skipped 24014 non-record line(s).
+backup had 1005675 accounts; at T_good (2026-10-19 02:23:29.623174 UTC) accounts=1181661 ledger=1317165
+after simulated operator error: accounts=1131661
+restore + WAL replay to target + promote: 15.1 s
+restored: accounts=1181661 (expected 1181661) ledger=1317165 (expected 1317165)
+duplicate fingerprints on restored copy: 0
+amcheck on restored copy exit 0 (output lines: 0)

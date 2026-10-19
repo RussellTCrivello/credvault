@@ -2,7 +2,7 @@
 
 Everything here runs against a **disposable** PostgreSQL cluster. Nothing is
 executed by the normal test suite. Results from 2026-10-18 are in
-`results/2026-10-18/` (raw JSON, no record contents).
+`results/2026-10-18/` and `results/2026-10-19/` (raw JSON/text, no record contents; the second set is the scale ladder to 8.27 M accounts, index audit, counts, drills and prototype).
 
 ## Environment used for the recorded results
 
@@ -20,6 +20,7 @@ one run set.
 | `perfbench stages FILE --chunk-bytes 4096 65536 1048576` | per-stage wall/CPU: raw read, line split, per-line SHA-256, decode, parse+validate+normalize |
 | `perfbench queries --runs 7 --explain` | p50/p95 of the real views (exact, domain, rare/common substring, deep page, count) and `EXPLAIN (ANALYZE, BUFFERS)` of the underlying statements |
 | `perfbench storage` | bytes per table and per index, bytes per account |
+| `perfbench counts` | cost of exact vs bounded vs cached counts at the current table size |
 | `perfbench concurrent PATH [--fast] --query-workers N` | idle vs during-import latency (p50/p95/p99/max) with a durable import running, plus accounts/s, WAL bytes, database growth |
 
 ## Reproducing the experiments
@@ -45,6 +46,19 @@ benchmarks/run_mem.sh             # peak RSS of the process tree, 200k vs 1M lin
 Scripts assume the pgserver wheel layout for `psql`; edit `PGB`/`PSQL` for a
 system PostgreSQL. `CV_ROOT` and `CV_BENCH` override the repo and scratch
 directories. Keep each run's JSON next to the commit it was taken at.
+
+## Scale ladder, experiments and drills (results/2026-10-19)
+
+| Script | Purpose |
+| --- | --- |
+| `scale_ladder.sh` | grows the database stage by stage (`s0` 1 M lines, `s1` +2 M, `s2` +3 M), recording import time, sizes, WAL, `perfbench queries`/`storage` and a concurrent run per stage |
+| `exp_import.sh` | one cloned-database import experiment with a set of environment overrides (used for the index, WAL, `shared_buffers` and fast-mode comparisons) |
+| `pg_crash_drill.sh DIR EXPECTED_ACCOUNTS EXPECTED_LINES` | stop PostgreSQL with `-m immediate` mid-import, restart, `pg_amcheck`, `recoverimports --run`, compare with an uninterrupted run (`KILL_AFTER` seconds, `CV_PGDATA`) |
+| `backup_restore_drill.sh DIR` | `pg_basebackup` + WAL archive, import, delete rows, restore to just before the delete, wait for recovery to end, compare counts, `pg_amcheck` |
+| `sql/partition_prototype.sql` | hash-partitioning prototype of the ledger and account tables, 1 M rows |
+
+`pg_trgm` and `amcheck` must exist in the cluster (`CREATE EXTENSION`); some
+minimal PostgreSQL bundles ship without contrib modules.
 
 ## Opt-in tests (inside the Django test runner)
 

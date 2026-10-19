@@ -477,10 +477,18 @@ above in "Import speed"), which this change did not re-measure.
   cost of any page equals the cost of the first. Measured on 880k accounts:
   the page at 50 % depth costs 0.07-0.3 ms / 3 buffers by keyset versus 44-46 ms
   / 1,205 buffers by `OFFSET`. Other sort orders keep offset pagination.
+* **Capped totals (opt-in):** `VAULT_RESULT_COUNT_CAP=N` counts at most N+1 rows
+  for a search total. At most N matches: the exact number, unchanged. More than
+  N: the page shows "N+" and a note, never a number presented as exact. A broad
+  search at 8.27 M accounts went from 1,095 ms to 45 ms. Default `0` = exact.
+* **Cached whole-table totals:** dashboard, Records and References totals are
+  exact for tables below `VAULT_TOTAL_COUNT_MIN_ROWS` (default 1,000,000 estimated
+  rows); above that, an exact count is cached for `VAULT_TOTAL_COUNT_TTL` seconds
+  (default 60, `0` = always live) and refreshed by every add/delete through the
+  UI. Cache is per process. Dashboard 575 -> 34 ms at 7.4 M accounts.
 * The count is never estimated under an "exact" label. Exact counts grow
-  linearly with the table (50 ms for 880k accounts); see
-  `docs/DATABASE_OPTIMIZATION_REPORT.md` for when to switch the dashboard
-  count to a cached value (needs a product decision on its freshness).
+  linearly with the table (231 ms for 8.27 M accounts); see
+  `docs/DATABASE_OPTIMIZATION_REPORT.md`.
 
 ## Query speed
 
@@ -548,9 +556,29 @@ history; the PostgreSQL numbers above replaced them.
 
 ## Limits
 
-One PostgreSQL server on one machine is a good fit for tens of millions of
-records. At the measured sizes, a billion records would need days of importing
-(speed falls as the data grows) and roughly 1.5 TB of storage. Reaching
-billions takes partitioning or a distributed store, parallel COPY into it,
-enough RAM to keep the indexes hot, and the same fast-mode trick for the
-indexes that cannot stay hot.
+Measured: one PostgreSQL 16 server on a 2-vCPU / 3.9 GB sandbox ingested and
+searched **8.27 M accounts (11.5 GB)** with every correctness check, crash drill
+and point-in-time restore passing (`docs/BENCHMARK_RESULTS.md`). On that host the
+durable ingest rate fell from about 6,000 to about 1,800 accounts/s as the data
+grew 9x, so import time, not search, is what bends first. Exact lookups stayed
+about 9 ms; broad substring and keyword searches grow linearly with the data
+(1-2 s at 8.3 M; the opt-in cap removes the count cost, not the keyword cost).
+
+**Not verified:** anything above 8.3 M accounts, billions of records, more than
+one server, replicas and failover, cold caches, power loss on a lying disk. A
+linear extrapolation gives about 1.5-2 TB and at least days of import time for
+1 B accounts, but that is arithmetic, not a test (`docs/CAPACITY_REPORT.md`).
+Reaching billions needs a design this repository does not contain (a shard key,
+parallel COPY into shards, enough RAM to keep the indexes hot).
+
+## Settings added by the scalability program
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `VAULT_RESULT_COUNT_CAP` | `0` (exact) | cap on search totals |
+| `VAULT_TOTAL_COUNT_TTL` | `60` | seconds a whole-table total is cached (`0` = live) |
+| `VAULT_TOTAL_COUNT_MIN_ROWS` | `1000000` | estimated rows from which totals are cached |
+| `VAULT_IMPORT_METRICS_INTERVAL` | `30` | seconds between import metric log lines (`0` = off) |
+
+See `docs/OPERATIONS_AND_RECOVERY.md` for the full table, the drills and the
+rollback of migrations 0008 and 0009.

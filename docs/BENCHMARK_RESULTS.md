@@ -4,7 +4,10 @@ All numbers were measured on 2026-10-18 in one sandbox: 2 vCPU, 3.9 GB RAM, one
 virtual disk, PostgreSQL 16.2 (Unix socket, `shared_buffers=512MB`,
 `fsync=on`, `synchronous_commit=on`, `wal_compression=off`), Python 3.11.2,
 Django 5.2.18, synthetic data from `perfbench generate`. Reproduction steps:
-`benchmarks/README.md`. Raw JSON/console output: `benchmarks/results/2026-10-18/`.
+`benchmarks/README.md`. Raw JSON/console output: `benchmarks/results/2026-10-18/` (sections 0-11) and
+`benchmarks/results/2026-10-19/` (sections 12-20, taken on a rebuilt sandbox of the
+same size; the 0.88 M numbers were re-measured, so absolute values differ from
+sections 0-11 by up to 30 % because the VM and PostgreSQL build were recreated).
 
 **How to read this.** Each row compares variants inside one run set on the
 same cloned database. Most are single runs on a shared VM; where a variant was
@@ -272,7 +275,309 @@ The pre-change 100k-line tests earlier in this program measured durable 16.8 s
 (`tests_performance.synthetic_line`) and are not comparable with the above.
 The compatibility loader is not durable (`synchronous_commit=off`, no ledger).
 
-## 12. Test status
+## 12. Progressive-scale ladder (0.88 M to 8.27 M accounts, one database)
 
-Full `manage.py test vault --parallel=1` after these changes: see
+Raw data: `benchmarks/results/2026-10-19/` (`s0..s4_*.json`), script
+`benchmarks/scale_ladder.sh`. Data: `perfbench generate`, 10 % duplicate lines,
+2 % invalid lines, distinct seeds per stage. One database loaded cumulatively
+with durable online imports (default settings, 2 parse workers, batch 250 k), then
+`VACUUM (ANALYZE)`, then the query suite. Schema as in this branch (0008 applied;
+0009 applied from stage 3 on). Single runs.
+
+| Stage | Lines loaded | Accounts after | Import time | New accounts/s | Lines/s | WAL | Database |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 1.0 M into empty | 879,519 | 145 s | 6,049 | 6,877 | 5.25 GB (6.0 KB/account) | 1.62 GB |
+| 1 | 2.0 M | 2,639,571 | 396 s | 4,439 | 5,044 | 11.67 GB (6.6 KB) | 4.45 GB |
+| 2 | 3.0 M | 5,455,792 | 850 s | 3,105 | 3,529 | 23.46 GB (8.9 KB) | 8.78 GB |
+| 3-4 | experiments of sections 13-14 and three concurrent runs (about 4.5 M further lines) | 8,271,888 | n/a | 1,714-2,095 (single 200-500 k-line imports at 5.6-8.1 M) | n/a | n/a | 11.53 GB (ledger 9.40 M rows) |
+
+**The ingest rate falls steadily with size** on this host: 6,049 -> 4,439 -> 3,105
+-> about 1,800 accounts/s while the data grew 9x (roughly with the square root of
+size). The importer is database-bound (`db_busy_ratio` 0.88-0.91 in the runs of
+section 20, which were taken at 0 and 0.88 M accounts; it was not recorded at
+larger sizes). The most likely cause, supported by the WAL analysis in section
+14 but **not isolated by a controlled experiment**, is that the random-key unique
+indexes (`fingerprint`, reference `name`, ledger `idempotency_key`) outgrow RAM, so
+most inserts touch cold pages and emit full-page WAL images. This is the most
+important scale fact found: **the ingest curve, not the search curve, is what bends
+first**; on this 3.9 GB host it fell to 30 % of the empty-database rate by 8 M
+accounts. The ladder was not run beyond 8.3 M (21 GB disk).
+
+Query latency, idle, p50 in ms through the real views (7 runs):
+
+| Query | 0.88 M | 2.64 M | 5.46 M | 7.39 M | 8.27 M | Scales as |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| exact email | 8.2 | 9.1 | 8.8 | 9.0 | 9.0 | **flat** |
+| exact domain (prefix range) | 67.9 | 80.1 | 93.0 | 103.8 | 111.3 | slowly with matches |
+| substring URL, rare | 18.9 | 27.5 | 40.0 | 35.6 | 46.5 | slowly |
+| substring URL, common (matches ~all rows) | 129.6 | 328.2 | 583.0 | 958.7 | 1,093 | linear in matches |
+| substring keyword, common | 270.9 | 714.8 | 1,534 | 1,898 | 2,154 | linear in matches |
+| deep page 200 of a common substring | 176.3 | 367.1 | 569.6 | 1,059 | 1,099 | linear (the count) |
+| `count(*)` of all accounts (ORM) | 20.8 | 57.9 | 163.3 | 202.7 | 231.0 | linear |
+| `OFFSET` page at 50 % (SQL, ms) | 44.2 | 145.0 | 301.4 | 415.6 | 490.0 | linear |
+| keyset page at 50 % (SQL, ms) | 0.4 | 0.1 | 0.1 | 0.0 | 0.1 | **flat** |
+
+Storage per account (all tables, indexes and ledger): 1,968 B at 0.88 M, 1,806 B at
+2.64 M, 1,726 B at 5.46 M, 1,495 B at 8.27 M. The decrease is a property of the
+synthetic generator (reference values repeat more at larger sizes), **not**
+a storage saving to extrapolate. At 8.27 M: ledger 4.59 GB (1.90 GB of it indexes),
+accounts 3.43 GB, passwords 1.91 GB, emails 1.19 GB.
+
+Searches during an import (`perfbench concurrent`, 2 query workers, 50 ms think
+time, a 175 k-account import of 200 k lines):
+
+| Accounts before | Import accounts/s | exact email p50/p95 | broad domain p50/p95/p99 | broad URL substring p50/p95 | keyword p50/p95 |
+| ---: | ---: | --- | --- | --- | --- |
+| 0.88 M (online) | 4,435 | 10.8 / 36.7 | 194.8 / 295.4 / n.a. | 183.2 / 322.7 | 265.4 / 466.4 |
+| 2.64 M | 1,753 | 11.4 / 35.9 | 248.7 / 363.0 / 463.5 | 267.6 / 391.6 | 334.0 / 565.4 |
+| 5.46 M | 1,019 | 12.3 / 35.0 | 360.6 / 533.5 / 660.7 | 394.3 / 509.5 | 1,339 / 1,694 |
+| 7.39 M, `VAULT_RESULT_COUNT_CAP=100000` | 870 | 11.7 / 20.1 | 99.4 / 146.9 / 287.5 | 107.5 / 193.6 | 831.5 / 1,281 |
+
+Exact lookups stay interactive at every size. The query load roughly halves the
+import rate (compare 1,714-1,835 accounts/s without queries at 7.6-8.1 M). Zero query
+errors in all runs. The 7.39 M row used the cap and a larger table than the 5.46 M
+row, which is conservative against the cap.
+
+## 13. Index usage audit at 5.5 M accounts and migration 0009
+
+`pg_stat_user_indexes` after loading 5.5 M accounts and running the suite:
+
+| Index | Size | Scans | Decision |
+| --- | ---: | ---: | --- |
+| `vault_pass/email/ip/user/url_name_*_like` (varchar_pattern_ops) | 286/238/74/16/37 MB | 25,359 (pass, equality probes the planner can serve from `name_key`), 0, 0, 0, 0 | **dropped (0009)** |
+| `vault_importrecord_status_*` and `_status_*_like` | 43 MB each | 0 | **dropped (0009)**; every status query is per job and uses `(import_job, status)` |
+| `vault_*_name_lower_idx` | 286/238/74/16/37 MB | 0 (pass/ip/user, no exact search ran), 639 (email), 3,666 (url) | **kept**: `_match_exact_ids` filters on `lower(name)`; without them exact search is a sequential scan |
+| `vault_importrecord_account_id_*` | 163 MB | 0 | **kept**: `ON DELETE SET NULL` needs it when an account is deleted |
+| `vault_importrecord_idempotency_key_key`, `vault_account_fingerprint_*_uniq` | 760 / 670 MB | 0 / 6.1 M | unique constraints, untouchable |
+
+Effect (three runs; every row a 440 k-account import of four 125 k-line files on
+the same growing database, no queries):
+
+| Run | Setting | Database before | Accounts/s | WAL |
+| --- | --- | ---: | ---: | ---: |
+| e1 | baseline, `shared_buffers=512MB`, `_like` indexes present | 5.63 M | 2,095 | 5.71 GB |
+| e3 | the same again | 6.51 M | 1,934 | 6.73 GB |
+| e4 | `_like` indexes dropped | 6.95 M | 2,005 | 6.52 GB |
+
+Dropping the five reference `_like` indexes: **+3.7 % rate versus the nearest
+baseline (within the 8 % run-to-run spread seen here), -3 % WAL, -651 MB (6 %
+of the database) at 7.4 M accounts**; with the ledger `status` indexes the saving
+is 737 MB (7 %). The case for migration 0009 is storage and write
+amplification, not a speed claim. Forward on the 8.3 M-account database: 0.4 s
+(indexes already dropped by hand) and the status drop is instantaneous; reverse
+(recreating all seven indexes) **30.6 s**. `makemigrations --check` is clean.
+
+## 14. Why WAL grows, and the tuning levers that did not help here
+
+`pg_waldump --stats` over 667 MB of WAL written by one import at 7.6 M accounts:
+**84 % of WAL bytes are full-page images (FPI)**, 69 % of all WAL is B-tree page
+images alone, 32 % heap, 3 % GIN. The random hex keys touch cold index pages, and
+each page's first change after a checkpoint is logged as a whole 8 KB page.
+WAL per imported account therefore grows with size (6.0 KB at stage 0, 8.9 KB at
+stage 2, 17-21 KB per account in 176 k-account imports at 8 M).
+
+| Experiment (176 k-account import into 7.6-8.1 M accounts, no queries) | Accounts/s | WAL | Verdict |
+| --- | ---: | ---: | --- |
+| baseline `wal_compression=off` (f1) | 1,714 | 3.01 GB | reference |
+| baseline again (f3) | 1,835 | 3.65 GB | spread among identical runs: 7 % rate, 10-20 % WAL |
+| `wal_compression=pglz` (f2) | 893 | 2.25 GB | WAL -25 %, **rate -50 %**: CPU-bound on 2 vCPU. Do not enable here |
+| `checkpoint_timeout=30min` (f4) | 1,841 | 3.42 GB | no effect (checkpoints are triggered by `max_wal_size`, 13 requested checkpoints) |
+| `shared_buffers=2GB` after restart (e2, 440 k accounts) | 1,716 | 6.60 GB | **-18 %** versus the surrounding 512 MB runs (2,095 and 1,934): cold buffers, and on a 3.9 GB host less OS page cache |
+
+Not tested (disk limit 21 GB in this sandbox): `max_wal_size` above 4 GB, which
+would reduce FPI volume by checkpointing less often. `lz4` WAL compression is
+not compiled into this PostgreSQL build, so it could not be tried; on a
+multi-core host it is the first experiment to run.
+
+## 15. Search totals: exact versus capped, and cached whole-table totals
+
+Why: `EXPLAIN (ANALYZE)` of a broad search on 7.4 M accounts shows the page
+query (`ORDER BY created_at LIMIT 100`) takes **0.5-2 ms** and the exact
+`COUNT(*)` takes **1.0-2.1 s** (a parallel hash join over the whole foreign-key
+index). The count is the entire cost of a broad search.
+
+`manage.py perfbench counts` (raw: `counts_7m.json`, `counts_8m.json`). URL substring searches at **8.27 M accounts**, p50 of 3 runs, ms:
+
+| Pattern | Matches | Exact count | Capped count, cap 10 k | cap 100 k | Whole view exact | Whole view, cap 100 k |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `example` | 8,271,888 | 1,016.7 | 2.1 | 9.8 | 1,094.9 | **45.1** |
+| `host1.example` | 4,415,014 | 157.1 | 10.7 | 16.0 | 215.4 | 66.0 |
+| `login/1` | 4,590,837 | 661.8 | 2.0 | 12.7 | 657.9 | 44.0 |
+| `login/12` | 459,311 | 82.3 | 2.6 | 26.2 | 200.8 | 123.5 |
+| `login/123` | 45,927 | 19.9 | 13.1 | 20.8 | 78.4 | 81.9 |
+| `login/1234` | 4,557 | 2.7 | 2.5 | 3.1 | 70.0 | 66.8 |
+| `login/12345` | 424 | 0.9 | 0.8 | 1.1 | 38.0 | 37.3 |
+| no match | 0 | 0.1 | 0.2 | 0.2 | 46.0 | 44.8 |
+
+The bounded count (`SELECT COUNT(*) FROM (... LIMIT cap+1)`) is at most 26 ms
+for every selectivity tested, never slower than the exact count by more than
+noise, and **exact for any search with at most `cap` matches**. A broad search
+page drops from 1.1 s to 45 ms. It is **opt-in** (`VAULT_RESULT_COUNT_CAP`,
+default 0 = exact), the page then shows `100,000+` and a note, exports and
+cursor paging still reach every match. Planner risk: a bounded count could pick a
+poor plan for a sparse match set; none appeared in the eight selectivities
+above on this data's skew, which is only one distribution.
+
+It does **not** help the keyword search (`substring_keyword`, 5 reference
+tables): its cost is resolving matching reference ids through a broad trigram
+bitmap (about 0.5 s at 7.4 M with the cap on), which this change does not touch.
+
+Whole-table totals (`dashboard`, `Records`, `References`, 7.4 M accounts, view
+time p50 of 5 calls): dashboard **575 -> 34 ms**, Records without a query
+**189 -> 3.5 ms**, References index **545 -> 32 ms**, one reference list **150 ->
+26 ms** with the default 60 s cached total (`table_total`), versus
+`VAULT_TOTAL_COUNT_TTL=0`. The count is still exact when taken: tables below 1 M
+estimated rows are counted live.
+
+## 16. Fast mode re-test with captured errors (880 k accounts, 200 k-line import, 2 query workers)
+
+Each variant on its own clone of the same database (`raw: online_880k.json,
+fast_search_880k.json, fast_all_880k.json`):
+
+| Variant | Import time | Accounts/s | WAL | Broad URL substring p50/p95 during | Exact email p50 during | Query errors |
+| --- | ---: | ---: | ---: | --- | --- | ---: |
+| online (default) | 39.7 s | 4,435 | 685 MB | 183 / 323 ms | 10.8 ms | 0 |
+| `--fast`, scope `search` (trigram indexes suspended) | 72.0 s | 2,449 | 744 MB | **951 / 1,298 ms** | 9.7 ms | 0 |
+| `--fast`, scope `all` | 79.9 s | 2,206 | 706 MB | 730 / 971 ms | **505.5 ms** (52x) | 0 |
+
+Fast mode is **1.8-2.0x slower than the default** here and degrades reads, so
+the earlier recommendation stands: do not use it for incremental loads. The
+`OperationalError` seen once in the first fast run was **not reproduced** in
+these three runs with the exception text now captured (400 characters); its cause
+remains unexplained.
+
+## 17. PostgreSQL server crash drill
+
+`benchmarks/pg_crash_drill.sh`: a durable import of the 1 M-line / 8-file
+folder into an empty database; at 35 s `pg_ctl stop -m immediate` (no shutdown
+checkpoint, connections cut), restart, `pg_amcheck --heapallindexed`, then
+`manage.py recoverimports --run`. Two runs (kill at 60 s and 35 s):
+
+| | Run 1 | Run 2 |
+| --- | ---: | ---: |
+| Durable at the crash | 306,262 accounts / 348,110 ledger rows | 153,079 accounts / 174,119 ledger rows |
+| Server restart with WAL redo | 14.9 s (redo 13.4 s) | 9.6 s (redo 5.6 s) |
+| `pg_amcheck` before recovery | clean | clean |
+| `recoverimports --run` (replays the remaining positions) | 91 s | 120.5 s |
+| Final accounts / ledger | 879,519 / 1,000,000 (committed 879,519, skipped 120,481) | the same |
+| Duplicate fingerprints; committed rows without an account | 0; 0 | 0; 0 |
+| Final `pg_amcheck` | clean | clean |
+| Second `recoverimports` | n/a | "No recoverable import jobs." |
+
+Counts equal an uninterrupted run exactly (879,519 / 120,481). Re-running
+`importfolder` after recovery was shown to be unnecessary and wasteful (it
+re-reads all 1 M lines as duplicates, 100 s, and adds 1 M `skipped` ledger rows); the
+drill script no longer does it. **Not covered:** power loss with an OS or disk that
+loses acknowledged writes, a full filesystem, torn pages on failing hardware.
+
+## 18. Physical backup and point-in-time recovery drill
+
+`benchmarks/backup_restore_drill.sh` on a cluster with WAL archiving:
+`pg_basebackup` (1.8 GB, 5.5 s), then a 200 k-line durable import, then the time
+`T_good`, then a simulated operator error (50,000 accounts and their ledger rows
+deleted), then restore the backup into a new directory, replay archived WAL to
+`T_good`, promote.
+
+| | Result |
+| --- | --- |
+| Restored copy at `T_good` | 1,181,661 accounts / 1,317,165 ledger rows, **equal to the values recorded at `T_good`** |
+| Duplicate fingerprints | 0 |
+| `pg_amcheck --heapallindexed` | clean |
+| Restore + WAL replay + promote | 15.1 s |
+
+A first attempt reported the pre-import counts only because the script read the
+restored cluster while it was still replaying WAL (read-only connections open
+before recovery ends); the script now waits for `pg_is_in_recovery()` to be false.
+One run, small data; restore time at terabytes is not measured.
+
+## 19. Partitioning prototype (scratch schema, 1 M rows per table)
+
+`benchmarks/sql/partition_prototype.sql` (output `partition_prototype.txt`). The
+ledger and the account table copied from real rows into plain and 16-way hash
+partitioned tables with the same indexes, then +500 k ledger rows. Everything fits
+in cache at 1 M rows, so this shows the **cost** of partitioning on one node, not
+the large-scale benefit it is meant to give.
+
+| Measure | Plain | Hash partitioned x16 |
+| --- | ---: | ---: |
+| Ledger 1 M rows load | 12.8 s | 12.5 s |
+| +500 k ledger rows | 7.9 s | 8.6 s (+9 %) |
+| 20,000 key lookups, key only | 365 ms | **1,026 ms** (2.8x; all 16 partitions probed) |
+| 20,000 key lookups with the job id | n/a | 107 ms (pruned) |
+| Per-job status aggregate (1.5 M rows) | 499 ms | 541 ms |
+| `VACUUM (FREEZE)` | 2.4 s | 2.3 s |
+| `REINDEX` unique key | 1.4 s | 2.2 s |
+| Ledger size | 495 MB | 518 MB (+5 %) |
+| Account table size | 303 MB | 382 MB (+26 %; composite primary key) |
+| `count(*)` of 1 M accounts | 66.8 ms | 55.1 ms |
+| `UNIQUE (id)` on accounts partitioned by `fingerprint` | allowed | **refused by PostgreSQL** (unique constraints must contain the partition key), so the ledger's `account_id` foreign key cannot reference it |
+
+Conclusion (R8): no gain on one node at this size; partitioning the account
+table would break the existing foreign key; the ledger could be partitioned
+with a `(import_job_id, idempotency_key)` unique key, but only an archive/drop
+benefit (per-job partitions) would justify it, which needs a retention policy
+(R6). Nothing was applied to the schema.
+
+## 20. Import metrics (new)
+
+`vault/import_metrics.py`, wired into `DurableImportSession`: per job batches,
+items, valid rows, items/s, database seconds, `db_busy_ratio`, batch time
+p50/p95/max, batch bytes and the parse-queue backlog (current and peak), logged
+as one `vault.import.metrics` line every `VAULT_IMPORT_METRICS_INTERVAL` seconds
+(30; 0 disables) plus a summary. Sample from the 200 k-line import into an empty
+database (batch 50 k): 8,543 items/s, `db_busy_ratio` 0.909, batch p50 5.4 s, parse
+backlog 10.4 MB (bounded), i.e. database-bound; a stall of the parser would show as
+a low `db_busy_ratio`. A test asserts that the log contains no source value,
+host, email, IP or password.
+
+## 21. Test status
+
+Full `manage.py test vault --parallel=1` after these changes: 259 tests OK,
+5 skipped (the opt-in performance tests, run separately). See
 `docs/IMPLEMENTATION_AUDIT.md`.
+
+## 22. Defects found by re-running the opt-in performance tests
+
+Re-running `ConcurrentImportSearchTests` followed by `FileConcurrencyBenchmarkTests`
+(`VAULT_PERF_LINES=50000`) in one process, as the README documents, exposed two
+defects in the importer that the 259-test default suite did not.
+
+**22.1 Deadlock between parallel file imports.** PostgreSQL logged `deadlock
+detected` on `INSERT INTO vault_ip ... SELECT DISTINCT ip ... ON CONFLICT (name) DO
+NOTHING`, run by two of the four `--parallel-files 4` jobs; one job failed with
+`OperationalError` (recoverable with `recoverimports`; no data lost). Cause: each
+transaction inserts the same unique names in the planner's `DISTINCT` order (hash
+order), so two transactions can each hold a name the other waits for. Fix: every
+reference and account `INSERT ... SELECT` is now `ORDER BY` the unique key, so waits
+always point the same way. Evidence: 2 of 2 failing runs before (7 `deadlock
+detected` entries in the server log while the experiments ran), none in the 4 runs
+after. The unit-level reproduction attempt (3 further runs, ordering removed)
+did produce server-side deadlocks but did not fail the smoke test reliably, so the
+automated guard is structural (`InsertOrderTests`, SQL contains `ORDER BY ... ON
+CONFLICT`), not behavioural. Cost, measured: on a 1.13 M-account database, a 500,000-line (439,862-account)
+durable import took 79.5 s and 79.0 s with ordering versus 81.2 s and 81.4 s without
+(5,550 versus 5,410 accounts/s, about 3 % faster; WAL 2.178 versus 2.185 GB, -0.3 %;
+two alternating runs each on clones of the same database,
+`results/2026-10-19/ordering_ab_import.txt`). The effect at 5-8 M accounts, where
+the index working set exceeds RAM, was not measured. Also no cost visible in the 50 k-line runs (parallel-files
+2: 10.0-10.6 s before and after; 7.6-8.0 k lines/s at 1 file).
+
+**22.2 Runaway account INSERT.** In one run the account `INSERT ... SELECT` ran for
+25 minutes at 100 % CPU on a 50,000-line batch (cancelled manually). A reproduction
+captured the plan: `vault_url` and `vault_pass` were estimated at 1 row, so the join
+was a nested loop that rescanned the 50,000-row `vault_url` for every staged row
+(O(n^2)). Cause (reproduced in a scratch database): a table analyzed while empty
+(1 page, `reltuples = 0`) keeps estimating one row however large it later grows, and
+ANALYZE cannot see rows inside an open transaction. Fix:
+`refresh_stale_reference_stats` runs `ANALYZE` on the joined reference tables only
+when `reltuples <= 0` and the table is at least 16 pages, inside the batch
+transaction; healthy tables are never touched, so large databases pay nothing. After
+the fix, 4 of 4 runs of the failing sequence completed (1 file: 12.5-12.8 s; 2 files:
+10.0-10.6 s; 4 files: 9.7-11.2 s for 100,000 lines). With the ordering fix already in place, the hang occurred in 2 of 4 combined runs
+before this fix and in 0 of 4 after: that is evidence, not a proof;
+the plan-shape cause was captured directly and confirmed in isolation. The same
+state can occur in production after a purge followed by an autovacuum analyze of the
+emptied tables, so this was a real, not only a test-harness, risk.
+
+Raw: `results/2026-10-19/perftest_file_concurrency_before_fix.log`,
+`perftest_after_fix_run4.log`.

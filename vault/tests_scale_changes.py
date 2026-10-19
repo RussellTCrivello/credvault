@@ -27,12 +27,28 @@ class LedgerIndexTests(TransactionTestCase):
         self.assertFalse([n for n in ledger if n.startswith(
             'vault_importrecord_idempotency_key') and n.endswith('_like')])
         self.assertFalse([n for n in ledger if 'import_job_id' in n])
+        self.assertFalse([n for n in ledger if '_status_bd22bf2d' in n])
         self.assertIn('vault_importrecord_idempotency_key_key', ledger)
         self.assertIn('vault_importrec_job_pos_idx', ledger)
         self.assertIn('vault_importrec_job_status_idx', ledger)
         accounts = index_names('vault_account')
         self.assertFalse([n for n in accounts if n.endswith('fingerprint_5bceda5e_like')])
         self.assertIn('vault_account_fingerprint_5bceda5e_uniq', accounts)
+
+    def test_reference_like_indexes_are_gone_and_search_indexes_stay(self):
+        for table in ('vault_url', 'vault_email', 'vault_user', 'vault_pass',
+                      'vault_ip'):
+            names = index_names(table)
+            self.assertFalse([n for n in names if n.endswith('_like')], table)
+            self.assertIn(f'{table}_name_key', names)
+            self.assertIn(f'{table}_name_lower_idx', names)
+            self.assertIn(f'{table}_name_trgm', names)
+        self.assertIn('vault_url_name_lower_c_idx', index_names('vault_url'))
+
+    def test_fast_mode_never_recreates_dropped_indexes(self):
+        recreated = [name for name, _ in importer._FAST_MODE_INDEXES
+                     if name.endswith('_like')]
+        self.assertEqual(recreated, [])
 
     def test_uniqueness_is_still_enforced(self):
         url = Url.objects.create(name='https://uniq.example.com')
@@ -178,3 +194,101 @@ class ReferenceCacheImportTests(TransactionTestCase):
                     pass
         self.assertEqual(captured['seen']['url'], set())
         self.assertIs(import_engine._durable_flush_batch, real_flush)
+
+
+class InsertOrderTests(TransactionTestCase):
+    """Concurrent imports must insert unique keys in one global order.
+
+    Two transactions that insert the same unique keys in different orders can
+    deadlock on each other's uncommitted index entries (observed with
+    ``--parallel-files 4``: ``deadlock detected`` on ``vault_ip``).  Sorting the
+    ``INSERT ... SELECT`` makes every transaction acquire the waits in the same
+    direction, so no cycle can form.
+    """
+
+    def test_reference_and_account_inserts_are_ordered(self):
+        import re
+        from . import import_engine
+        statements = [sql for _table, sql in importer._REFERENCE_INSERTS]
+        statements += [importer._ACCOUNT_INSERT,
+                       import_engine._ACCOUNT_INSERT_RETURNING]
+        for sql in statements:
+            self.assertRegex(sql, r'ORDER BY .* ON CONFLICT',
+                             sql[:60])
+        source = open(import_engine.__file__, encoding='utf-8').read()
+        inserts = re.findall(
+            r"INSERT INTO vault_(?:url|pass|email|user|ip) \(name[^\n]*", source)
+        self.assertGreaterEqual(len(inserts), 10)
+        for line in inserts:
+            self.assertIn('ORDER BY', line, line[:80])
+
+    def test_overlapping_parallel_file_imports_do_not_deadlock(self):
+        """Smoke test through the real ``--parallel-files`` path.
+
+        Deadlocks depend on timing and data size. This case did NOT reproduce
+        the bug when the ordering was removed (3 of 3 runs passed), so it only
+        guards the path; the structural test above is the real guard. The bug
+        itself was reproduced by the opt-in ``FileConcurrencyBenchmarkTests``
+        (``--parallel-files 4`` on four distinct 50k-line files).
+        """
+        import io
+        import random
+        import tempfile
+        from django.core.management import call_command
+
+        rng = random.Random(7)
+        shared = [(f'https://h{i}.example.com/p', f'user{i}@x.example',
+                   f'pw{i}', f'10.0.{i // 250}.{i % 250}') for i in range(30000)]
+        with tempfile.TemporaryDirectory() as directory:
+            for n in range(4):
+                rows = rng.sample(shared, 20000)
+                with open(os.path.join(directory, f'f{n}.txt'), 'w') as handle:
+                    handle.write('\n'.join('|'.join(r) for r in rows) + '\n')
+            call_command('importfolder', directory, parallel_files=4,
+                         quiet=True, stdout=io.StringIO(), stderr=io.StringIO())
+        jobs = list(ImportJob.objects.all())
+        self.assertEqual(len(jobs), 4)
+        self.assertTrue(all(job.status == 'completed' for job in jobs))
+        self.assertEqual(Account.objects.count(), Ip.objects.count())
+        self.assertGreater(Account.objects.count(), 25000)
+
+
+class StaleStatisticsTests(TransactionTestCase):
+    """Tables analyzed while empty must not wreck the account INSERT's plan."""
+
+    def test_empty_table_statistics_are_refreshed_once_the_table_grows(self):
+        with connection.cursor() as cursor:
+            # Reproduce: analyzed with zero live tuples, then grown.
+            cursor.execute(
+                "INSERT INTO vault_ip (name, created_at, updated_at)"
+                " SELECT 'old' || i, now(), now() FROM generate_series(1, 20) i")
+            cursor.execute('DELETE FROM vault_ip')
+            cursor.execute('ANALYZE vault_ip')  # 1 page, 0 live tuples
+            cursor.execute(
+                "SELECT reltuples FROM pg_class WHERE relname = 'vault_ip'")
+            self.assertEqual(cursor.fetchone()[0], 0)
+            with transaction.atomic():
+                cursor.execute(
+                    "INSERT INTO vault_ip (name, created_at, updated_at)"
+                    " SELECT 'ip' || i, now(), now()"
+                    " FROM generate_series(1, 30000) i")
+                cursor.execute('EXPLAIN SELECT * FROM vault_ip')
+                before = cursor.fetchone()[0]
+                stale = importer.refresh_stale_reference_stats(cursor)
+                cursor.execute('EXPLAIN SELECT * FROM vault_ip')
+                after = cursor.fetchone()[0]
+            self.assertIn('vault_ip', stale)
+            self.assertIn('rows=1 ', before)
+            self.assertNotIn('rows=1 ', after)
+
+    def test_healthy_tables_are_left_alone(self):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO vault_url (name, created_at, updated_at)"
+                " SELECT 'https://h' || i || '.example', now(), now()"
+                " FROM generate_series(1, 30000) i")
+            cursor.execute('VACUUM (ANALYZE) vault_url')
+            with transaction.atomic():
+                stale = importer.refresh_stale_reference_stats(cursor)
+            self.assertNotIn('vault_url', stale)
+            self.assertEqual(stale, [])

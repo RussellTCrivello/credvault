@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 from django.utils.translation import gettext_lazy as _
 
@@ -169,3 +170,29 @@ LOGOUT_REDIRECT_URL = 'vault:login'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# Import metrics (vault/import_metrics.py): one structured line every
+# VAULT_IMPORT_METRICS_INTERVAL seconds plus a summary per import. Counts,
+# byte totals and timings only -- never source lines or parsed values.
+# Silenced while running the test suite to keep its output readable.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'metrics': {'format': '%(asctime)s %(name)s %(message)s'},
+    },
+    'handlers': {
+        'import_metrics': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'metrics',
+        },
+    },
+    'loggers': {
+        'vault.import.metrics': {
+            'handlers': [] if 'test' in sys.argv else ['import_metrics'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}

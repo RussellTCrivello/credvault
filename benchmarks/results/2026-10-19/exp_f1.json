@@ -1,0 +1,1 @@
+{"name": "wal_off_baseline", "rc": 0, "seconds": 102.8, "accounts_before": 7567450, "accounts_added": 176156, "accounts_per_second": 1713.6, "wal_bytes": 3013476128, "shared_buffers": "512MB"}

@@ -1,0 +1,25 @@
+Creating test database for alias 'default'...
+.Found 2 test(s).
+System check identified no issues (0 silenced).
+
+Concurrent benchmark: 100,000 durable records in 13.8s (7,237 records/s), 100,000 committed across 10 batches; database size delta 230,928,428 bytes; WAL delta 584,362,713 bytes; test-process peak RSS 133.0 MiB
+  storage vault_account: 47,972,352 bytes
+  storage vault_email: 31,490,048 bytes
+  storage vault_importrecord: 52,240,384 bytes
+  storage vault_ip: 17,539,072 bytes
+  storage vault_pass: 26,304,512 bytes
+  storage vault_url: 55,918,592 bytes
+  storage vault_user: 40,960 bytes
+  exact email: baseline n=5 p50=11.6ms p95=36.6ms; during n=85 p50=12.5ms p95=155.7ms max=206.6ms
+  substring URL: baseline n=5 p50=12.7ms p95=15.3ms; during n=85 p50=23.5ms p95=71.7ms max=222.2ms
+.
+----------------------------------------------------------------------
+Ran 2 tests in 82.754s
+
+OK
+Destroying test database for alias 'default'...
+
+File-level durable import benchmark: 100,000 records
+  --parallel-files=1: 12.5s (7,976 records/s)
+  --parallel-files=2: 10.0s (9,958 records/s)
+  --parallel-files=4: 10.4s (9,638 records/s)

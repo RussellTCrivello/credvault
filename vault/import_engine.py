@@ -31,8 +31,9 @@ from typing import NamedTuple
 from django.db import connection, models as dj_models, transaction
 from django.utils import timezone
 
+from .import_metrics import ImportMetrics
 from .importer import (
-    _REFERENCE_INSERTS, _STAGE_DDL,
+    _REFERENCE_INSERTS, _STAGE_DDL, refresh_stale_reference_stats,
     MAX_IMPORT_BUFFER_BYTES, MAX_IN_FLIGHT_PARSE_BYTES, MAX_PARSE_TASK_BYTES,
     _parse_context,
     bounded_batch_rows, bounded_worker_count, collect_files_from_path,
@@ -197,6 +198,7 @@ _ACCOUNT_INSERT_RETURNING = (
     " ) AS k"
     " WHERE (k.account_type = 'email' AND k.email_id IS NOT NULL)"
     "    OR (k.account_type <> 'email' AND k.user_id IS NOT NULL)"
+    " ORDER BY " + _FINGERPRINT_SQL +
     " ON CONFLICT (fingerprint) DO NOTHING"
     " RETURNING fingerprint, id"
 )
@@ -1021,14 +1023,14 @@ def _durable_flush_batch(
                     if new_urls:
                         if len(new_urls) == len(distinct_urls):
                             _insert_new_ref_direct(
-                                "INSERT INTO vault_url (name, created_at, updated_at) SELECT DISTINCT url, %s, %s FROM vault_import_stage ON CONFLICT (name) DO NOTHING"
+                                "INSERT INTO vault_url (name, created_at, updated_at) SELECT DISTINCT url, %s, %s FROM vault_import_stage ORDER BY url ON CONFLICT (name) DO NOTHING"
                             )
                         else:
                             _insert_new_ref_temp(
                                 'vault_import_url_stage',
                                 'CREATE TEMP TABLE IF NOT EXISTS vault_import_url_stage (name text)',
                                 'COPY vault_import_url_stage (name) FROM STDIN',
-                                'INSERT INTO vault_url (name, created_at, updated_at) SELECT name, %s, %s FROM vault_import_url_stage ON CONFLICT (name) DO NOTHING',
+                                'INSERT INTO vault_url (name, created_at, updated_at) SELECT name, %s, %s FROM vault_import_url_stage ORDER BY name ON CONFLICT (name) DO NOTHING',
                                 new_urls,
                             )
                         seen.setdefault('url', set()).update(new_urls)
@@ -1038,14 +1040,14 @@ def _durable_flush_batch(
                     if new_pass:
                         if len(new_pass) == len(distinct_pass):
                             _insert_new_ref_direct(
-                                "INSERT INTO vault_pass (name, created_at, updated_at) SELECT DISTINCT secret, %s, %s FROM vault_import_stage ON CONFLICT (name) DO NOTHING"
+                                "INSERT INTO vault_pass (name, created_at, updated_at) SELECT DISTINCT secret, %s, %s FROM vault_import_stage ORDER BY secret ON CONFLICT (name) DO NOTHING"
                             )
                         else:
                             _insert_new_ref_temp(
                                 'vault_import_pass_stage',
                                 'CREATE TEMP TABLE IF NOT EXISTS vault_import_pass_stage (name text)',
                                 'COPY vault_import_pass_stage (name) FROM STDIN',
-                                'INSERT INTO vault_pass (name, created_at, updated_at) SELECT name, %s, %s FROM vault_import_pass_stage ON CONFLICT (name) DO NOTHING',
+                                'INSERT INTO vault_pass (name, created_at, updated_at) SELECT name, %s, %s FROM vault_import_pass_stage ORDER BY name ON CONFLICT (name) DO NOTHING',
                                 new_pass,
                             )
                         seen.setdefault('pass', set()).update(new_pass)
@@ -1055,14 +1057,14 @@ def _durable_flush_batch(
                     if new_email:
                         if len(new_email) == len(distinct_email):
                             _insert_new_ref_direct(
-                                "INSERT INTO vault_email (name, created_at, updated_at) SELECT DISTINCT ident, %s, %s FROM vault_import_stage WHERE account_type='email' ON CONFLICT (name) DO NOTHING"
+                                "INSERT INTO vault_email (name, created_at, updated_at) SELECT DISTINCT ident, %s, %s FROM vault_import_stage WHERE account_type='email' ORDER BY ident ON CONFLICT (name) DO NOTHING"
                             )
                         else:
                             _insert_new_ref_temp(
                                 'vault_import_email_stage',
                                 'CREATE TEMP TABLE IF NOT EXISTS vault_import_email_stage (name text)',
                                 'COPY vault_import_email_stage (name) FROM STDIN',
-                                'INSERT INTO vault_email (name, created_at, updated_at) SELECT name, %s, %s FROM vault_import_email_stage ON CONFLICT (name) DO NOTHING',
+                                'INSERT INTO vault_email (name, created_at, updated_at) SELECT name, %s, %s FROM vault_import_email_stage ORDER BY name ON CONFLICT (name) DO NOTHING',
                                 new_email,
                             )
                         seen.setdefault('email', set()).update(new_email)
@@ -1072,14 +1074,14 @@ def _durable_flush_batch(
                     if new_user:
                         if len(new_user) == len(distinct_user):
                             _insert_new_ref_direct(
-                                "INSERT INTO vault_user (name, created_at, updated_at) SELECT DISTINCT ident, %s, %s FROM vault_import_stage WHERE account_type<>'email' ON CONFLICT (name) DO NOTHING"
+                                "INSERT INTO vault_user (name, created_at, updated_at) SELECT DISTINCT ident, %s, %s FROM vault_import_stage WHERE account_type<>'email' ORDER BY ident ON CONFLICT (name) DO NOTHING"
                             )
                         else:
                             _insert_new_ref_temp(
                                 'vault_import_user_stage',
                                 'CREATE TEMP TABLE IF NOT EXISTS vault_import_user_stage (name text)',
                                 'COPY vault_import_user_stage (name) FROM STDIN',
-                                'INSERT INTO vault_user (name, created_at, updated_at) SELECT name, %s, %s FROM vault_import_user_stage ON CONFLICT (name) DO NOTHING',
+                                'INSERT INTO vault_user (name, created_at, updated_at) SELECT name, %s, %s FROM vault_import_user_stage ORDER BY name ON CONFLICT (name) DO NOTHING',
                                 new_user,
                             )
                         seen.setdefault('user', set()).update(new_user)
@@ -1089,20 +1091,21 @@ def _durable_flush_batch(
                     if new_ip:
                         if len(new_ip) == len(distinct_ip):
                             _insert_new_ref_direct(
-                                "INSERT INTO vault_ip (name, created_at, updated_at) SELECT DISTINCT ip, %s, %s FROM vault_import_stage WHERE ip IS NOT NULL ON CONFLICT (name) DO NOTHING"
+                                "INSERT INTO vault_ip (name, created_at, updated_at) SELECT DISTINCT ip, %s, %s FROM vault_import_stage WHERE ip IS NOT NULL ORDER BY ip ON CONFLICT (name) DO NOTHING"
                             )
                         else:
                             _insert_new_ref_temp(
                                 'vault_import_ip_stage',
                                 'CREATE TEMP TABLE IF NOT EXISTS vault_import_ip_stage (name text)',
                                 'COPY vault_import_ip_stage (name) FROM STDIN',
-                                'INSERT INTO vault_ip (name, created_at, updated_at) SELECT name, %s, %s FROM vault_import_ip_stage ON CONFLICT (name) DO NOTHING',
+                                'INSERT INTO vault_ip (name, created_at, updated_at) SELECT name, %s, %s FROM vault_import_ip_stage ORDER BY name ON CONFLICT (name) DO NOTHING',
                                 new_ip,
                             )
                         seen.setdefault('ip', set()).update(new_ip)
 
                 _log_section("reference INSERTs")
 
+                refresh_stale_reference_stats(cursor)
                 cursor.execute(_ACCOUNT_INSERT_RETURNING, (now, now))
                 newly_created = {
                     fp: acc_id for fp, acc_id in cursor.fetchall()
@@ -1687,6 +1690,8 @@ class DurableImportSession:
         self._worker_id = worker_id or _current_worker_id()
         self._original_sigterm = None
         self._original_sigint = None
+        #: ImportMetrics of the latest run (counts and timings only).
+        self.metrics = None
 
     def _install_signal_handlers(self):
         """Install SIGTERM/SIGINT handlers for graceful shutdown."""
@@ -1837,6 +1842,8 @@ class DurableImportSession:
             'ip': set(),
         }
 
+        metrics = self.metrics = ImportMetrics(job.job_id)
+
         def flush_batch():
             nonlocal batch_valid_count, batch_outcome_count
             nonlocal batch_buffer_bytes, batch_items
@@ -1849,6 +1856,7 @@ class DurableImportSession:
             # in memory and cannot be committed under the old manifest.
             if callable(source_check):
                 source_check()
+            batch_started = time.monotonic()
             try:
                 _durable_flush_batch(
                     batch_rows, batch_metas, job.pk, seen=reference_seen,
@@ -1859,6 +1867,10 @@ class DurableImportSession:
                 # retry would skip inserting them and lose the accounts.
                 _bound_reference_cache(reference_seen, 0)
                 raise
+            metrics.record_batch(
+                len(batch_metas), batch_valid_count,
+                time.monotonic() - batch_started, batch_buffer_bytes,
+            )
             _bound_reference_cache(reference_seen, MAX_REFERENCE_CACHE_VALUES)
             batch_rows.clear()
             batch_metas.clear()
@@ -1931,6 +1943,7 @@ class DurableImportSession:
                             pending_bytes -= task_bytes
                             for row, meta in task.get():
                                 append_batch_item(row, meta)
+                        metrics.set_parse_backlog(pending_bytes)
 
                     def _submit_parse_chunk():
                         nonlocal chunk_buf, chunk_buf_bytes, pending_bytes
@@ -1945,6 +1958,7 @@ class DurableImportSession:
                             task_bytes,
                         ))
                         pending_bytes += task_bytes
+                        metrics.set_parse_backlog(pending_bytes)
                         chunk_buf = []
                         chunk_buf_bytes = 0
                         _drain_pending(block=False)
@@ -2207,6 +2221,7 @@ class DurableImportSession:
             except Exception:
                 pass
         finally:
+            metrics.log_summary()
             close_source()
             if getattr(_lease_context, 'worker_id', None) == self._worker_id:
                 del _lease_context.worker_id

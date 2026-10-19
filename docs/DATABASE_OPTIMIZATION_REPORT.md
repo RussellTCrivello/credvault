@@ -31,6 +31,12 @@ index depth and value cardinality. See `docs/CAPACITY_REPORT.md`.
 
 ## 2. Index audit (every index on the ledger, account and reference tables, 880k accounts)
 
+*Update:* the same audit was repeated at 5.5 M accounts
+(`docs/BENCHMARK_RESULTS.md` section 13). It confirmed 0008, found seven more
+unread indexes (five reference `*_like`, two ledger `status`), which migration
+0009 drops, and showed the `lower(name)` indexes are read by `_match_exact_ids` and
+must stay. The table below is the original 880 k audit.
+
 Index sizes in MB; "scans" are `pg_stat_user_indexes` counts accumulated during
 the benchmark workload and are only a hint.
 
@@ -101,6 +107,15 @@ Contract (implemented and tested in `vault/tests_pagination.py`; README section
   cost per page, stable under concurrent inserts (no repeats or skips behind the
   cursor), measured 140-600x cheaper at 50 % depth.
 * No estimate is ever shown as exact.
+* Search totals: exact by default. `VAULT_RESULT_COUNT_CAP=N` computes a total from
+  at most N+1 rows, shows `N+` and a note when exceeded, and is exact for any search
+  with at most N matches (`vault/counts.py`, `vault/tests_counts.py`). Measured
+  45 ms versus 1,095 ms for a whole broad search at 8.27 M accounts.
+* Whole-table totals (dashboard, Records, References): exact below 1 M estimated
+  rows; above, an exact count cached for `VAULT_TOTAL_COUNT_TTL` (60 s) and refreshed
+  by every UI add/delete. Dashboard 575 -> 34 ms at 7.4 M accounts.
+* Not covered: the keyword search over five reference tables, whose cost is the
+  trigram bitmap on a broad pattern (about 2 s idle at 8.3 M), not the count.
 
 ## 5. Batch writes and transactions
 
@@ -126,30 +141,47 @@ Contract (implemented and tested in `vault/tests_pagination.py`; README section
   runs. Vacuum and checkpoint behaviour under sustained load were not
   characterized.
 
+## 5b. Importer SQL changes from the second pass
+
+* Every `INSERT ... SELECT ... ON CONFLICT` into a table with a unique key
+  (five reference tables, the account table) now has `ORDER BY` that key, so
+  concurrent transactions wait on one another in one direction only (deadlock
+  fix, `docs/BENCHMARK_RESULTS.md` 22.1). Measured +3 % throughput at 1.13 M
+  accounts (sorted index inserts); not measured at 8 M.
+* `refresh_stale_reference_stats` analyzes a joined reference table inside the batch
+  transaction only when its `reltuples` is 0 and it has at least 16 pages. A table
+  analyzed while empty otherwise stays at "1 row" and the account INSERT degrades
+  into a nested loop (22.2). Healthy tables are never analyzed per batch.
+
 ## 6. Partitioning and sharding assessment
 
-* The single PostgreSQL primary **has not been shown** to meet any target above
-  1.8 M accounts. Beyond that, nothing is measured.
-* Uniqueness constraints that are global: reference names, account fingerprint,
-  ledger idempotency key. PostgreSQL partitioned tables require the partition
-  key in every unique constraint, so range- or hash-partitioning `vault_account`
-  by anything other than the fingerprint itself would permit the same
-  fingerprint in two partitions. Hash partitioning *by fingerprint* keeps
-  uniqueness enforceable (the fingerprint is the key), prunes exact lookups by
-  fingerprint, but the search paths query by reference ids, so they would fan
-  out to all partitions. This design was **not built or benchmarked**.
-* The product has no tenant or workspace key; none was invented. A sharded
-  design would need global dedup by fingerprint routing (a shard per fingerprint
-  hash, reference tables replicated or sharded by value hash, scatter-gather
-  for substring search). It is an architectural estimate only.
-* Ledger partitioning by time/job is the least risky first use of partitioning
-  (no global unique constraint on the retained columns except the idempotency
-  key, which would need to include the partition key or be enforced per job).
+Prototype measured (`benchmarks/sql/partition_prototype.sql`, results in
+`docs/BENCHMARK_RESULTS.md` section 19, 1 M rows per table, everything cached):
+
+* Hash partitioning the **ledger** by `import_job_id` (16 partitions) with
+  `UNIQUE (import_job_id, idempotency_key)`: insert +9 %, key-only lookup 2.8x
+  slower (all partitions probed), same lookup with the job id 107 ms for 20,000
+  probes (pruned), per-job aggregate +8 %, `REINDEX` +57 %, size +5 %. No gain on
+  one node at this size.
+* Hash partitioning the **account** table by `fingerprint` keeps
+  `UNIQUE (fingerprint)` valid, but PostgreSQL then refuses `UNIQUE (id)` ("unique
+  constraint on partitioned table must include all partitioning columns"), so the
+  ledger's `account_id` foreign key cannot be kept; the composite primary key
+  `(id, fingerprint)` also made the table 26 % larger. Not adopted.
+* The product has no tenant or workspace key; none was invented. A sharded design
+  would need global dedup by fingerprint routing, reference tables sharded by value
+  hash and scatter-gather for substring search. Architectural estimate only.
+* What partitioning is *for* (per-partition `VACUUM`, `REINDEX CONCURRENTLY`, dropping
+  or archiving a job's ledger) could not show up at 1 M cached rows. Revisit with the
+  triggers in `docs/PERFORMANCE_TARGETS.md` R8, and only together with a retention
+  policy (R6) because the ledger is the audit trail.
 
 ## 7. Migration and rollback summary
 
 | Migration | Effect | Safety |
 | --- | --- | --- |
 | `0008_ledger_index_cleanup` | drops 4 redundant indexes (see section 2) | 0.8 s forward on 1 M ledger rows; reverse recreates all indexes in 5.4 s (full table scans; seconds-minutes at scale); `DROP INDEX` takes a brief exclusive lock; take a backup before running on a large database; no data changes; unique constraints untouched |
+
+| `0009_drop_reference_like_indexes` | drops the five reference `*_like` (varchar_pattern_ops) indexes and the two ledger `status` indexes (737 MB, 7 % at 7.4 M accounts; zero reads) | forward 0.4 s on 8.3 M accounts; reverse recreates seven indexes in 30.6 s (table scans); brief exclusive lock per `DROP INDEX`; take a backup first on a large database; no data change; unique constraints untouched; `ImportRecord.status` loses `db_index` (Django state updated, `makemigrations --check` clean) |
 
 `makemigrations --check` reports no drift.

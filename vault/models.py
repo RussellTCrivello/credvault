@@ -899,9 +899,12 @@ class ImportRecord(models.Model):
         ),
     )
 
+    # No standalone status index: every status query is scoped to a job and
+    # served by (import_job, status). The two single-column indexes had zero
+    # scans after 7.4 M accounts and cost a write on every ledger row.
     status = models.CharField(
         _('Status'), max_length=20, choices=STATUS_CHOICES,
-        default='pending', db_index=True,
+        default='pending',
     )
 
     # Reference to the created Account (if committed)

@@ -1,0 +1,1 @@
+{"name": "sb2g_all_indexes", "rc": 0, "seconds": 256.3, "accounts_before": 6071572, "accounts_added": 439745, "accounts_per_second": 1716.0, "wal_bytes": 6603980744, "shared_buffers": "2GB"}

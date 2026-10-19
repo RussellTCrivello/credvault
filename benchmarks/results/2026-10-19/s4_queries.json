@@ -1,0 +1,98 @@
+{
+  "accounts": 8271888,
+  "cases": {
+    "exact_email": {
+      "runs": 7,
+      "p50_ms": 9.0,
+      "p95_ms": 11.8,
+      "max_ms": 11.8
+    },
+    "exact_domain": {
+      "runs": 7,
+      "p50_ms": 111.3,
+      "p95_ms": 121.0,
+      "max_ms": 121.0
+    },
+    "substring_url_rare": {
+      "runs": 7,
+      "p50_ms": 46.5,
+      "p95_ms": 48.8,
+      "max_ms": 48.8
+    },
+    "substring_url_common": {
+      "runs": 7,
+      "p50_ms": 1093.3,
+      "p95_ms": 1258.1,
+      "max_ms": 1258.1
+    },
+    "substring_keyword_common": {
+      "runs": 7,
+      "p50_ms": 2154.3,
+      "p95_ms": 2210.7,
+      "max_ms": 2210.7
+    },
+    "deep_page_common_substring": {
+      "runs": 7,
+      "p50_ms": 1098.6,
+      "p95_ms": 1181.6,
+      "max_ms": 1181.6
+    },
+    "count_all_accounts": {
+      "runs": 7,
+      "p50_ms": 231.0,
+      "p95_ms": 234.5,
+      "max_ms": 234.5
+    }
+  },
+  "plans": {
+    "count_all": {
+      "execution_ms": 548.248,
+      "planning_ms": 0.095,
+      "shared_hit": 693318,
+      "shared_read": 0,
+      "node": "Aggregate"
+    },
+    "substring_common_url_ids": {
+      "execution_ms": 153.045,
+      "planning_ms": 0.116,
+      "shared_hit": 6877,
+      "shared_read": 0,
+      "node": "Seq Scan"
+    },
+    "substring_rare_url_ids": {
+      "execution_ms": 36.395,
+      "planning_ms": 0.116,
+      "shared_hit": 4307,
+      "shared_read": 21,
+      "node": "Bitmap Heap Scan"
+    },
+    "accounts_by_exact_email": {
+      "execution_ms": 0.087,
+      "planning_ms": 0.243,
+      "shared_hit": 3,
+      "shared_read": 7,
+      "node": "Limit"
+    },
+    "keyset_first_page": {
+      "execution_ms": 0.042,
+      "planning_ms": 0.04,
+      "shared_hit": 3,
+      "shared_read": 1,
+      "node": "Limit"
+    },
+    "keyset_page_at_50pct": {
+      "execution_ms": 0.06,
+      "planning_ms": 0.089,
+      "shared_hit": 6,
+      "shared_read": 1,
+      "node": "Limit"
+    },
+    "offset_page_at_50pct": {
+      "execution_ms": 489.992,
+      "planning_ms": 0.036,
+      "shared_hit": 1313,
+      "shared_read": 9993,
+      "node": "Limit"
+    }
+  }
+}

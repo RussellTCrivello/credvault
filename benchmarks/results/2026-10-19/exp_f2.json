@@ -1,0 +1,1 @@
+{"name": "wal_pglz", "rc": 0, "seconds": 197.0, "accounts_before": 7743606, "accounts_added": 175986, "accounts_per_second": 893.2, "wal_bytes": 2247524440, "shared_buffers": "512MB"}

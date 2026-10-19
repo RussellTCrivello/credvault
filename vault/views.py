@@ -20,7 +20,10 @@ from django.utils.dateparse import parse_date
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy as _lazy, ngettext
 
-from .counts import count_label, exact_count
+from .counts import (
+    CachedTotalPaginator, count_label, invalidate_table_totals,
+    make_search_paginator, paginator_total, table_total,
+)
 from .forms import (
     AccountForm, AdvancedSearchForm, ImportFileForm, QuickSearchForm,
     ReferenceForm,
@@ -490,10 +493,22 @@ def _paginate_accounts_keyset(queryset, keyset, per_page):
 
 
 def _page_total(page_obj):
-    """Exact total for a numbered page; None for a cursor page."""
+    """Total for a numbered page; None for a cursor page.
+
+    Exact unless ``VAULT_RESULT_COUNT_CAP`` is set and exceeded, in which case
+    it is the cap (see ``_page_total_label`` for the displayed ``N+``).
+    """
     if page_obj.paginator is None:
         return None
-    return page_obj.paginator.count
+    return paginator_total(page_obj.paginator)[0]
+
+
+def _page_total_label(page_obj):
+    """Display label for a page's total; None for a cursor page."""
+    if page_obj.paginator is None:
+        return None
+    total, capped = paginator_total(page_obj.paginator)
+    return count_label(total, capped)
 
 
 def _paginate_accounts(request, queryset, per_page=100):
@@ -509,7 +524,9 @@ def _paginate_accounts(request, queryset, per_page=100):
     keyset = _keyset_request(request)
     if keyset is not None:
         return _paginate_accounts_keyset(queryset, keyset, per_page)
-    paginator = Paginator(queryset.values_list('pk', flat=True), per_page)
+    paginator = make_search_paginator(
+        queryset.values_list('pk', flat=True), per_page,
+    )
     page_obj = paginator.get_page(request.GET.get('page', '1'))
     ids = list(page_obj.object_list)
     loaded = Account.objects.select_related(
@@ -554,8 +571,8 @@ def _attach_usage(kind, entities):
 
 
 def _records_total_context():
-    """Exact number and readable label for the Records page."""
-    total_records = exact_count(Account.objects.all())
+    """Number and readable label for the Records page (see vault.counts)."""
+    total_records = table_total(Account)
     return {
         'total_records': total_records,
         'total_records_label': count_label(total_records),
@@ -570,9 +587,9 @@ def _reference_choices(kind):
 
 def dashboard(request):
     """Replaces: main_menu() -- the landing page with workspace stats."""
-    total_accounts = exact_count(Account.objects.all())
+    total_accounts = table_total(Account)
     reference_counts = {
-        kind: exact_count(REFERENCE_REGISTRY[kind]['model'].objects.all())
+        kind: table_total(REFERENCE_REGISTRY[kind]['model'])
         for kind in REFERENCE_REGISTRY
     }
     reference_rows = [
@@ -613,7 +630,10 @@ def browse_all(request):
         'records': records,
         'page_obj': page_obj,
         'total': total,
-        'total_label': count_label(total) if total is not None else None,
+        'total_label': (
+            _page_total_label(page_obj) if page_obj is not None
+            else count_label(0)
+        ),
         **_records_total_context(),
         'query_string': _clean_query_string(request.GET),
     })
@@ -643,7 +663,10 @@ def search_records(request):
         'records': records,
         'page_obj': page_obj,
         'total': total,
-        'total_label': count_label(total) if total is not None else None,
+        'total_label': (
+            _page_total_label(page_obj) if page_obj is not None
+            else count_label(0)
+        ),
         'query_string': _clean_query_string(request.GET),
     })
 
@@ -672,7 +695,10 @@ def advanced_search(request):
         'records': records,
         'page_obj': page_obj,
         'total': total,
-        'total_label': count_label(total) if total is not None else None,
+        'total_label': (
+            _page_total_label(page_obj) if page_obj is not None
+            else count_label(0)
+        ),
         'query_string': _clean_query_string(request.GET),
     })
 
@@ -741,6 +767,7 @@ def add_account(request):
         if form.is_valid():
             try:
                 account = form.save()
+                invalidate_table_totals()
             except ValidationError as error:
                 form.add_error(None, error)
                 return _render_account_form(request, form, 'vault/add.html')
@@ -765,6 +792,7 @@ def update_account(request, pk):
         if form.is_valid():
             try:
                 account = form.save()
+                invalidate_table_totals()
             except ValidationError as error:
                 form.add_error(None, error)
                 return _render_account_form(
@@ -791,6 +819,7 @@ def delete_account(request, pk):
 
     if request.method == 'POST':
         record.delete()
+        invalidate_table_totals()
         messages.success(
             request,
             _('Record #%(record_id)s deleted successfully.')
@@ -810,7 +839,7 @@ def delete_account(request, pk):
 def references_index(request):
     """Overview of the five reference tables and how many values each holds."""
     reference_counts = {
-        kind: exact_count(REFERENCE_REGISTRY[kind]['model'].objects.all())
+        kind: table_total(REFERENCE_REGISTRY[kind]['model'])
         for kind in REFERENCE_REGISTRY
     }
     reference_rows = [
@@ -822,7 +851,7 @@ def references_index(request):
         }
         for kind in REFERENCE_REGISTRY
     ]
-    total_records = exact_count(Account.objects.all())
+    total_records = table_total(Account)
     return render(request, 'vault/references_index.html', {
         'reference_rows': reference_rows,
         'total_records': total_records,
@@ -845,6 +874,8 @@ def reference_list(request, kind):
             name = form.cleaned_data['name']
             entity, created = model.objects.get_or_create(name=name)
             if created:
+                invalidate_table_totals()
+            if created:
                 messages.success(
                     request,
                     _('%(label)s added successfully.')
@@ -861,7 +892,9 @@ def reference_list(request, kind):
         form = ReferenceForm(kind=kind)
 
     qs = model.objects.order_by('name')
-    page_obj = _paginate(request, qs, per_page=100)
+    page_obj = CachedTotalPaginator(qs, 100, model).get_page(
+        request.GET.get('page', '1'),
+    )
     total_values = page_obj.paginator.count
     entities = list(page_obj.object_list)
     _attach_usage(kind, entities)
@@ -892,6 +925,7 @@ def reference_delete(request, kind, pk):
         usage = entity.accounts.count()
         try:
             entity.delete()
+            invalidate_table_totals()
             messages.success(
                 request,
                 _('%(label)s deleted successfully.') % {'label': registry['label']}

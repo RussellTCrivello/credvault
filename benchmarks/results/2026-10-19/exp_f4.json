@@ -1,0 +1,1 @@
+{"name": "checkpoint_timeout_30min", "rc": 0, "seconds": 95.6, "accounts_before": 8095925, "accounts_added": 175963, "accounts_per_second": 1841.2, "wal_bytes": 3419531688, "shared_buffers": "512MB"}

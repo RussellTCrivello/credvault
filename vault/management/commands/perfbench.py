@@ -276,6 +276,57 @@ def query_suite(runs, explain):
     return report
 
 
+def count_suite(patterns, caps, runs):
+    """Exact versus capped search totals through the real search code path.
+
+    For each url substring: exact count and its time, then the time of the
+    bounded count for each cap, plus the whole advanced-search view with the
+    cap off and on. Shows where a cap helps (broad matches) and that it costs
+    nothing when matches are fewer than the cap.
+    """
+    from django.http import QueryDict
+    from django.test import RequestFactory
+
+    from vault import views
+    from vault.counts import bounded_count
+
+    def queryset(pattern):
+        params = QueryDict('', mutable=True)
+        params.update({'url': pattern, 'adv': '1'})
+        return views.filter_accounts(params).values_list('pk', flat=True)
+
+    def view_runner(pattern):
+        run = _request_factory_view(views.advanced_search, {'url': pattern})
+        return run
+
+    report = {'accounts': 0, 'patterns': []}
+    from vault.models import Account
+    report['accounts'] = Account.objects.count()
+    for pattern in patterns:
+        qs = queryset(pattern)
+        qs.order_by().count()  # warm
+        exact = _timed(lambda: qs.order_by().count(), runs)
+        matches = qs.order_by().count()
+        entry = {'pattern': pattern, 'matches': matches, 'exact_count': exact,
+                 'capped': {}}
+        for cap in caps:
+            entry['capped'][str(cap)] = _timed(
+                lambda: bounded_count(qs, cap), runs)
+        old = os.environ.get('VAULT_RESULT_COUNT_CAP')
+        try:
+            os.environ.pop('VAULT_RESULT_COUNT_CAP', None)
+            entry['view_exact'] = _timed(view_runner(pattern), runs)
+            os.environ['VAULT_RESULT_COUNT_CAP'] = str(caps[-1])
+            entry['view_capped_%d' % caps[-1]] = _timed(view_runner(pattern), runs)
+        finally:
+            if old is None:
+                os.environ.pop('VAULT_RESULT_COUNT_CAP', None)
+            else:
+                os.environ['VAULT_RESULT_COUNT_CAP'] = old
+        report['patterns'].append(entry)
+    return report
+
+
 def _request_factory_view(view, params):
     from django.contrib.messages.storage.fallback import FallbackStorage
     from django.test import RequestFactory
@@ -363,7 +414,7 @@ def concurrent_suite(path, fast, query_workers, baseline_runs, think_s):
         try:
             sample(sink, stop=stop)
         except Exception as exc:  # pragma: no cover - reported, not hidden
-            errors.append(f'{type(exc).__name__}: {str(exc)[:160]}')
+            errors.append(f'{type(exc).__name__}: {str(exc)[:400]}')
         finally:
             connections.close_all()
 
@@ -479,6 +530,13 @@ class Command(BaseCommand):
         queries = sub.add_parser('queries')
         queries.add_argument('--runs', type=int, default=7)
         queries.add_argument('--explain', action='store_true')
+        counts = sub.add_parser('counts')
+        counts.add_argument('--patterns', nargs='+', default=[
+            'example', 'host1.example', 'login/1', 'login/12', 'login/123',
+            'login/1234', 'login/12345', 'host12345.example.com/login/1'])
+        counts.add_argument('--caps', type=int, nargs='+',
+                            default=[10000, 100000])
+        counts.add_argument('--runs', type=int, default=5)
         sub.add_parser('storage')
         conc = sub.add_parser('concurrent')
         conc.add_argument('path')
@@ -501,6 +559,9 @@ class Command(BaseCommand):
                       for size in options['chunk_bytes']]
         elif action == 'queries':
             result = query_suite(options['runs'], options['explain'])
+        elif action == 'counts':
+            result = count_suite(options['patterns'], options['caps'],
+                                 options['runs'])
         elif action == 'concurrent':
             result = concurrent_suite(
                 options['path'], options['fast'], options['query_workers'],

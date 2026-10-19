@@ -10,11 +10,14 @@
 | `VAULT_MAINTENANCE_WORK_MEM` | 1024MB | trigram index rebuild after `--fast` | |
 | `VAULT_FAST_MODE_SCOPE` | `search` | `search`: only the five trigram indexes are suspended; `all`: every non-unique btree index too | `--fast` was slower than online mode and degraded reads in the measured regime; `all` made exact lookups 65x slower |
 | `importfolder --parallel-files N` | 1 (max 8) | independent file jobs, one parser process each | +29 % into an empty database, -4 to -11 % into a populated one on 2 vCPU; measure on your workload first |
+| `VAULT_IMPORT_METRICS_INTERVAL` | 30 s (0 disables) | seconds between `vault.import.metrics` log lines | counts and timings only; `db_busy_ratio` near 1 means database-bound, low means the parser or reader starves it |
+| `VAULT_RESULT_COUNT_CAP` | 0 (exact) | cap on search totals (`N+` shown) | measured 1,095 -> 45 ms for a broad search at 8.27 M; recommended above about 5 M accounts if exact totals are not required |
+| `VAULT_TOTAL_COUNT_TTL` | 60 s (0 = live) | cache of whole-table totals for tables of at least `VAULT_TOTAL_COUNT_MIN_ROWS` (1,000,000) estimated rows | exact when counted, at most TTL old; per process (use a shared Django cache for several workers) |
 | `importfolder --fast` | off | see above | prefer the default online mode for incremental loads |
 
 Also set at the PostgreSQL level (not changed by the code): `shared_buffers`,
 `effective_cache_size`, `max_wal_size`, `checkpoint_timeout`,
-`wal_compression` (-32 % WAL, +11 % time measured on 2 vCPU), `autovacuum`.
+`wal_compression` (`pglz`: -32 % WAL and +11 % time at 0.88 M, but -25 % WAL and **-50 % rate** at 8 M on 2 vCPU: do not enable on a 2-core host), `autovacuum`.
 Do **not** copy a 1 GB `work_mem` from any local setup.
 
 ## 2. Running and watching an import
@@ -109,3 +112,36 @@ the full ledger. Legacy rows may still hold plaintext `source_line` /
 (about 5 s per million ledger lines; full scans). Back up first on a large
 database. Code compatibility: the code works with or without 0008 (the
 indexes are only an optimization).
+
+## 9. Drills (run them before relying on this)
+
+All drills are scripts in `benchmarks/`, run against a disposable cluster; results in
+`docs/BENCHMARK_RESULTS.md` sections 9, 17 and 18.
+
+| Drill | Script | What it proves | What it does not prove |
+| --- | --- | --- | --- |
+| Importer killed (SIGKILL) | `kill_recover.sh` | only uncommitted positions replay; counts equal an uninterrupted run | |
+| PostgreSQL stopped with `-m immediate` mid-import | `pg_crash_drill.sh DIR EXPECTED_ACCOUNTS EXPECTED_LINES` | server WAL redo, `pg_amcheck --heapallindexed` clean, `recoverimports --run` completes the job exactly | power loss with a disk that loses acknowledged writes |
+| Physical backup, accidental delete, PITR | `backup_restore_drill.sh MORE_DATA_DIR` | `pg_basebackup` + WAL archive restores to the second before the error with exact counts and clean `amcheck` | restore time at terabytes, off-site copies, encryption of the backup |
+
+Restore procedure for production: take the backup with `pg_basebackup -X stream`,
+archive WAL (`archive_mode=on`), restore into a **new** directory with
+`recovery.signal`, `restore_command` and `recovery_target_time`, and **wait for
+`pg_is_in_recovery()` to be false** (read-only connections open while WAL is still
+being replayed). Backups and the WAL archive contain every credential: protect
+them like the database (R7).
+
+## 10. Reading the import metrics
+
+`grep import_metrics` the application log. Interpretation, from measured runs: an
+empty-database import shows `db_busy_ratio` about 0.9 and a parse backlog of about
+10 MB (the bound); a falling `items_per_second` with `db_busy_ratio` near 1 is the
+database (index size, WAL); a low `db_busy_ratio` with an empty backlog is the
+reader; a low ratio with a full backlog would be the commit path. Metrics are
+in-process and not exported to a monitoring system.
+
+## 11. Rollback of migration 0009
+
+`manage.py migrate vault 0008` recreates the seven indexes (30.6 s at 8.3 M accounts,
+table scans). The five reference `_like` indexes and the two ledger `status` indexes
+have no reader in the code; nothing else changes.

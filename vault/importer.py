@@ -96,25 +96,30 @@ _REFERENCE_INSERTS = (
     ("vault_url",
      "INSERT INTO vault_url (name, created_at, updated_at)"
      " SELECT DISTINCT url, %s, %s FROM vault_import_stage"
+     " ORDER BY url"
      " ON CONFLICT (name) DO NOTHING"),
     ("vault_pass",
      "INSERT INTO vault_pass (name, created_at, updated_at)"
      " SELECT DISTINCT secret, %s, %s FROM vault_import_stage"
+     " ORDER BY secret"
      " ON CONFLICT (name) DO NOTHING"),
     ("vault_email",
      "INSERT INTO vault_email (name, created_at, updated_at)"
      " SELECT DISTINCT ident, %s, %s FROM vault_import_stage"
      " WHERE account_type = 'email'"
+     " ORDER BY ident"
      " ON CONFLICT (name) DO NOTHING"),
     ("vault_user",
      "INSERT INTO vault_user (name, created_at, updated_at)"
      " SELECT DISTINCT ident, %s, %s FROM vault_import_stage"
      " WHERE account_type <> 'email'"
+     " ORDER BY ident"
      " ON CONFLICT (name) DO NOTHING"),
     ("vault_ip",
      "INSERT INTO vault_ip (name, created_at, updated_at)"
      " SELECT DISTINCT ip, %s, %s FROM vault_import_stage"
      " WHERE ip IS NOT NULL"
+     " ORDER BY ip"
      " ON CONFLICT (name) DO NOTHING"),
 )
 
@@ -153,8 +158,45 @@ _ACCOUNT_INSERT = (
     " ) AS k"
     " WHERE (k.account_type = 'email' AND k.email_id IS NOT NULL)"
     "    OR (k.account_type <> 'email' AND k.user_id IS NOT NULL)"
+    " ORDER BY " + _FINGERPRINT_SQL +
     " ON CONFLICT (fingerprint) DO NOTHING"
 )
+
+
+#: Reference tables the account INSERT joins to, in a fixed order (the order
+#: matters: ANALYZE takes a lock that lasts until the batch commits).
+_JOINED_REFERENCE_TABLES = (
+    'vault_email', 'vault_ip', 'vault_pass', 'vault_url', 'vault_user',
+)
+_STALE_STATS_MIN_PAGES = 16
+
+
+def refresh_stale_reference_stats(cursor):
+    """ANALYZE reference tables whose planner statistics say "empty".
+
+    A table that was analyzed while empty (after a purge, a restore of an empty
+    table, a test flush) keeps ``reltuples = 0``.  PostgreSQL then estimates
+    ONE row no matter how large the table has since become, and the account
+    INSERT's joins degrade to a nested loop that rescans a 50,000-row table for
+    every staged row: one backend ran at 100 % CPU for 25 minutes on a
+    50,000-line batch.  ANALYZE inside the batch transaction sees the rows this
+    batch just inserted.  Healthy tables (``reltuples > 0``) are never touched,
+    so a large database pays nothing per batch.
+
+    Returns the tables analyzed (for tests and logs).
+    """
+    cursor.execute(
+        "SELECT c.relname FROM pg_class c"
+        " WHERE c.oid = ANY(ARRAY["
+        + ", ".join(f"to_regclass('{t}')" for t in _JOINED_REFERENCE_TABLES)
+        + "]) AND c.reltuples <= 0"
+        " AND pg_relation_size(c.oid) >= %s ORDER BY c.relname",
+        (_STALE_STATS_MIN_PAGES * 8192,))
+    stale = [row[0] for row in cursor.fetchall()]
+    for table in stale:
+        if table in _JOINED_REFERENCE_TABLES:  # names are constants, never input
+            cursor.execute(f'ANALYZE {table}')
+    return stale
 
 #: Rows per COPY batch; one transaction per batch keeps memory bounded. The
 #: measured default is 250,000; very large batches add memory and commit cost.
@@ -456,6 +498,7 @@ def _flush_batch(rows):
         cursor.execute('ANALYZE vault_import_stage')
         for _table, sql in _REFERENCE_INSERTS:
             cursor.execute(sql, (now, now))
+        refresh_stale_reference_stats(cursor)
         cursor.execute(_ACCOUNT_INSERT, (now, now))
         created = cursor.rowcount
     return max(created, 0)
@@ -726,9 +769,8 @@ _TRIGRAM_INDEXES = (
 # All non-unique search indexes that fast mode suspends. Unique indexes
 # (pkey, name_key, fingerprint_uniq) are never dropped.
 _FAST_MODE_INDEXES = (
-    # reference tables: pattern_ops + lower() + C collation + trgm
-    ("vault_url_name_7d57bf4b_like",
-     "CREATE INDEX vault_url_name_7d57bf4b_like ON vault_url USING btree (name varchar_pattern_ops)"),
+    # reference tables: lower() + C collation + trgm (the varchar_pattern_ops
+    # companions were dropped by migration 0009: nothing reads them)
     ("vault_url_name_lower_idx",
      "CREATE INDEX vault_url_name_lower_idx ON vault_url USING btree (lower((name)::text))"),
     ("vault_url_name_lower_c_idx",
@@ -736,29 +778,21 @@ _FAST_MODE_INDEXES = (
     ("vault_url_name_trgm",
      "CREATE INDEX vault_url_name_trgm ON vault_url USING gin (UPPER(name::text) gin_trgm_ops)"),
 
-    ("vault_email_name_1c4a6f40_like",
-     "CREATE INDEX vault_email_name_1c4a6f40_like ON public.vault_email USING btree (name varchar_pattern_ops)"),
     ("vault_email_name_lower_idx",
      "CREATE INDEX vault_email_name_lower_idx ON public.vault_email USING btree (lower((name)::text))"),
     ("vault_email_name_trgm",
      "CREATE INDEX vault_email_name_trgm ON public.vault_email USING gin (upper((name)::text) gin_trgm_ops)"),
 
-    ("vault_user_name_34073d8b_like",
-     "CREATE INDEX vault_user_name_34073d8b_like ON public.vault_user USING btree (name varchar_pattern_ops)"),
     ("vault_user_name_lower_idx",
      "CREATE INDEX vault_user_name_lower_idx ON public.vault_user USING btree (lower((name)::text))"),
     ("vault_user_name_trgm",
      "CREATE INDEX vault_user_name_trgm ON public.vault_user USING gin (upper((name)::text) gin_trgm_ops)"),
 
-    ("vault_pass_name_2ae36d82_like",
-     "CREATE INDEX vault_pass_name_2ae36d82_like ON public.vault_pass USING btree (name varchar_pattern_ops)"),
     ("vault_pass_name_lower_idx",
      "CREATE INDEX vault_pass_name_lower_idx ON public.vault_pass USING btree (lower((name)::text))"),
     ("vault_pass_name_trgm",
      "CREATE INDEX vault_pass_name_trgm ON public.vault_pass USING gin (upper((name)::text) gin_trgm_ops)"),
 
-    ("vault_ip_name_09e37067_like",
-     "CREATE INDEX vault_ip_name_09e37067_like ON public.vault_ip USING btree (name varchar_pattern_ops)"),
     ("vault_ip_name_lower_idx",
      "CREATE INDEX vault_ip_name_lower_idx ON public.vault_ip USING btree (lower((name)::text))"),
     ("vault_ip_name_trgm",
@@ -787,10 +821,6 @@ _FAST_MODE_INDEXES = (
      "CREATE INDEX vault_importrec_job_status_idx ON public.vault_importrecord USING btree (import_job_id, status)"),
     ("vault_importrecord_account_id_95a8ecc3",
      "CREATE INDEX vault_importrecord_account_id_95a8ecc3 ON public.vault_importrecord USING btree (account_id)"),
-    ("vault_importrecord_status_bd22bf2d",
-     "CREATE INDEX vault_importrecord_status_bd22bf2d ON public.vault_importrecord USING btree (status)"),
-    ("vault_importrecord_status_bd22bf2d_like",
-     "CREATE INDEX vault_importrecord_status_bd22bf2d_like ON public.vault_importrecord USING btree (status varchar_pattern_ops)"),
 )
 
 

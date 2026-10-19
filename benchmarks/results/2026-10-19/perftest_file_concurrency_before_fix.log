@@ -1,0 +1,26 @@
+Creating test database for alias 'default'...
+Found 1 test(s).
+System check identified no issues (0 silenced).
+Import job a95e6bd9-1bde-4b2e-81da-4e4178f5a51b failed (OperationalError).
+E
+======================================================================
+ERROR: test_file_concurrency_scaling (vault.tests_performance.FileConcurrencyBenchmarkTests.test_file_concurrency_scaling)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/credvault/vault/tests_performance.py", line 615, in test_file_concurrency_scaling
+    call_command(
+  File "/home/user/credvault/.venv/lib/python3.11/site-packages/django/core/management/__init__.py", line 194, in call_command
+    return command.execute(*args, **defaults)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/credvault/.venv/lib/python3.11/site-packages/django/core/management/base.py", line 464, in execute
+    output = self.handle(*args, **options)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/credvault/vault/management/commands/importfolder.py", line 162, in handle
+    raise CommandError(
+django.core.management.base.CommandError: 1 of 4 import job(s) did not complete.
+
+----------------------------------------------------------------------
+Ran 1 test in 69.107s
+
+FAILED (errors=1)
+Destroying test database for alias 'default'...
