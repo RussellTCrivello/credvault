@@ -31,6 +31,7 @@ from typing import NamedTuple
 from django.db import connection, models as dj_models, transaction
 from django.utils import timezone
 
+from . import db_advisor
 from .import_metrics import ImportMetrics
 from .importer import (
     _REFERENCE_INSERTS, _STAGE_DDL, refresh_stale_reference_stats,
@@ -1843,6 +1844,9 @@ class DurableImportSession:
         }
 
         metrics = self.metrics = ImportMetrics(job.job_id)
+        # Read-only, once per process, never raises: reports the PostgreSQL
+        # settings that were measured to limit import speed.
+        db_advisor.report_once()
 
         def flush_batch():
             nonlocal batch_valid_count, batch_outcome_count

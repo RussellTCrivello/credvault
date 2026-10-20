@@ -11,6 +11,7 @@
 | `VAULT_FAST_MODE_SCOPE` | `search` | `search`: only the five trigram indexes are suspended; `all`: every non-unique btree index too | `--fast` was slower than online mode and degraded reads in the measured regime; `all` made exact lookups 65x slower |
 | `importfolder --parallel-files N` | 1 (max 8) | independent file jobs, one parser process each | +29 % into an empty database, -4 to -11 % into a populated one on 2 vCPU; measure on your workload first |
 | `VAULT_IMPORT_METRICS_INTERVAL` | 30 s (0 disables) | seconds between `vault.import.metrics` log lines | counts and timings only; `db_busy_ratio` near 1 means database-bound, low means the parser or reader starves it |
+| `VAULT_PG_ADVISORY` | 1 (`0` silences) | once per process at the start of an import, logs `pg_settings ...` and, when `shared_buffers` <= 128 MB or `max_wal_size` <= 1 GB (the stock defaults), a `pg_advisory` warning | reads server settings only (no data, no credentials); never changes a setting or blocks an import |
 | `VAULT_RESULT_COUNT_CAP` | 0 (exact) | cap on search totals (`N+` shown) | measured 1,095 -> 45 ms for a broad search at 8.27 M; recommended above about 5 M accounts if exact totals are not required |
 | `VAULT_TOTAL_COUNT_TTL` | 60 s (0 = live) | cache of whole-table totals for tables of at least `VAULT_TOTAL_COUNT_MIN_ROWS` (1,000,000) estimated rows | exact when counted, at most TTL old; per process (use a shared Django cache for several workers) |
 | `importfolder --fast` | off | see above | prefer the default online mode for incremental loads |

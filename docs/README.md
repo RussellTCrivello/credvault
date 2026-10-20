@@ -11,6 +11,7 @@ repository root holds only the project itself (`manage.py`, `admin_LogIntel/`,
 | --- | --- |
 | `docs/README.md` (this file) | data formats, setup, search semantics, import jobs and recovery, performance and tuning |
 | `docs/scalability/` | the scalability program: `SCALABILITY_ASSESSMENT.md` (start here), `PERFORMANCE_TARGETS.md`, `FILE_PROCESSING_ARCHITECTURE.md`, `DATABASE_OPTIMIZATION_REPORT.md`, `BENCHMARK_RESULTS.md`, `CAPACITY_REPORT.md`, `OPERATIONS_AND_RECOVERY.md`, `IMPLEMENTATION_AUDIT.md`, `BENCHMARK_SUITE.md` (how to run `benchmarks/`) |
+| `docs/DECISIONS.md` | decision record, risk register, open tasks and the exact continuation point |
 | `docs/history/` | (see its `README.md`) earlier reports and hand-off notes, kept unchanged as a record (completion matrix, import repair/reliability, performance phases 2-3, verification) |
 
 ## Project status (2026-10-19)
@@ -497,11 +498,15 @@ VACUUM (ANALYZE);
 The importer already runs `ANALYZE` on every staging batch, so the final
 `VACUUM (ANALYZE)` is a one-off cleanup rather than a requirement.
 
-### Windows, 32 GB RAM, 5 cores, SSD (recommendation, not benchmarked)
+### Windows, 32 GB RAM, 5 cores, SSD (one field run; see section 24 of `BENCHMARK_RESULTS.md`)
 
-These values come from the measurements in `docs/scalability/BENCHMARK_RESULTS.md`
-(a 2-vCPU / 3.9 GB sandbox); nothing here was run on this hardware class, so
-treat them as a starting point and measure.
+One real 18.2 M-line import on this hardware class (PostgreSQL 18.6, 3 parse workers,
+empty database) ran at about 6,900 lines/s on PostgreSQL's **stock** settings and
+about 12,000-13,000 lines/s (23.3 min for the whole file) with the settings below,
+roughly 1.7x. It was a single run, and the settings were changed together, so which
+of them mattered is not known. The importer now reports the key settings at the start
+of every import and warns when `shared_buffers` or `max_wal_size` is at or below the
+stock default (`vault.import.metrics` log; `VAULT_PG_ADVISORY=0` silences it).
 
 * **Parse workers.** On Windows the importer defaults to **one** parse worker
   (workers are started with spawn there). A real 18 M-line import showed
@@ -518,21 +523,29 @@ treat them as a starting point and measure.
 * **`postgresql.conf`** (restart the PostgreSQL service afterwards):
 
   ```ini
-  shared_buffers = 8GB            # more rarely pays off on Windows
+  shared_buffers = 4GB            # the value used in the field run; 8GB is untested
   effective_cache_size = 22GB
   maintenance_work_mem = 2GB
-  max_wal_size = 32GB             # fewer checkpoints; needs about 32 GB free SSD space (only 4 GB was tested)
+  max_wal_size = 32GB             # fewer checkpoints; needs free SSD space for the WAL
   checkpoint_timeout = 30min      # no effect in the sandbox; optional
   wal_buffers = 64MB
   random_page_cost = 1.1
   wal_compression = off
   ```
 
+  or, as the `postgres` superuser, `ALTER SYSTEM SET shared_buffers = '4GB';` and so on,
+  followed by a restart of the PostgreSQL service (`shared_buffers` and `wal_buffers`
+  only change on restart). Check with `SHOW shared_buffers;`.
+
 * **Leave alone:** `synchronous_commit` (the durable engine sets it to `on` per batch;
   turning it off would risk losing acknowledged batches), `--fast`, and
   `--parallel-files` (keep 1) and the 250,000-row batch size.
 * **Large files:** use `manage.py importfolder <path>`, not the browser upload. It is
   resumable with `recoverimports` and does not depend on an open browser tab.
+* **Blank lines:** every line, including blank ones, gets a ledger row. In a sandbox
+  test, blank lines made up 64.5 % of the input and added 27 % to the run time. The
+  field file was 64.6 % blank in the part sampled. Removing them first would save
+  roughly a fifth (projection); `manage.py explainrejects <path>` shows the share.
 * **Measure:** import a 1-2 M-line slice three ways (current settings, workers only,
   workers plus the PostgreSQL settings) and compare the `event=summary`
   `vault.import.metrics` lines. Expect the rate to keep falling as the database
@@ -704,6 +717,7 @@ parallel COPY into shards, enough RAM to keep the indexes hot).
 | `VAULT_TOTAL_COUNT_TTL` | `60` | seconds a whole-table total is cached (`0` = live) |
 | `VAULT_TOTAL_COUNT_MIN_ROWS` | `1000000` | estimated rows from which totals are cached |
 | `VAULT_IMPORT_METRICS_INTERVAL` | `30` | seconds between import metric log lines (`0` = off) |
+| `VAULT_PG_ADVISORY` | `1` | `0` silences the once-per-process PostgreSQL settings report/warning at the start of an import |
 
 See `docs/scalability/OPERATIONS_AND_RECOVERY.md` for the full table, the drills and the
 rollback of migrations 0008 and 0009.

@@ -9,7 +9,7 @@ not a project dependency).
 
 | Run | Result |
 | --- | --- |
-| `manage.py test --parallel=1` (final) | **261 tests, OK, 5 skipped** |
+| `manage.py test --noinput` (final, 2026-10-20) | **278 tests, OK, 5 skipped** (264 before the PostgreSQL settings advisory, +14 for it) |
 | Skipped | the five opt-in performance tests (`VAULT_RUN_PERFORMANCE`, `VAULT_RUN_CONCURRENT_PERF`, `VAULT_RUN_FILE_CONCURRENCY_PERF`) |
 | Opt-in performance tests (`VAULT_PERF_LINES=50000`) | all pass after the two fixes of section 6.3: 4 of 4 verification runs of the concurrent + file-concurrency pair (before: 2 of 2 failed with `deadlock detected`, and one hung for 25 minutes) |
 | `manage.py makemigrations --check --dry-run` | no drift |
@@ -74,7 +74,7 @@ running on a very large database.
 ## 4. Configuration added
 
 `VAULT_RESULT_COUNT_CAP`, `VAULT_TOTAL_COUNT_TTL`, `VAULT_TOTAL_COUNT_MIN_ROWS`, `VAULT_IMPORT_METRICS_INTERVAL` (defaults keep previous behaviour except cached totals above 1 M estimated rows), `VAULT_FAST_MODE_SCOPE` (`search` default, `all`), `importfolder --parallel-files`,
-`manage.py recoverimports`, `manage.py perfbench`. Existing variables
+`manage.py recoverimports`, `manage.py perfbench`, `manage.py explainrejects`, `VAULT_PG_ADVISORY` (read-only PostgreSQL settings report/warning at import start, `vault/db_advisor.py`). Existing variables
 (`VAULT_IMPORT_WORKERS`, `VAULT_IMPORT_BATCH_ROWS`, `VAULT_IMPORT_WORK_MEM`,
 `VAULT_MAINTENANCE_WORK_MEM`) are documented in `docs/scalability/OPERATIONS_AND_RECOVERY.md`.
 
@@ -136,9 +136,10 @@ running on a very large database.
     improved.
 14. Single runs only for the ladder, the drills and the experiments; the PITR drill
     used 1.8 GB, far below production sizes.
-15. Windows: parse workers default to one there; the recommended 32 GB / 5-core settings
-    in `docs/README.md` were not benchmarked on that hardware, and the 18 M-line
-    field report is a user log, not a measurement I made.
+15. Windows: parse workers default to one there. One 18.2 M-line field run (user log, not
+    my measurement) ran about 1.7x faster with `shared_buffers=4GB`, `max_wal_size=32GB`
+    and related settings than on stock PostgreSQL; the settings were changed together,
+    so which one mattered is not isolated, and 8 GB was not tried.
 16. Upload imports (browser) are never replayable after a server restart, and closing the
     browser window before the job exists still aborts them; use `importfolder` for
     large files.
