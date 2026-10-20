@@ -620,6 +620,18 @@ Single runs, one machine, run still in progress when reported (6.08 M of 18.2 M 
 1.61 M accounts). The DB is still the limiting stage (parse queue at its cap). Only the
 combination of settings was changed, so the table does not say which one mattered.
 
+**Completed run (user-reported log).** 18,212,968 lines in 1,395 s (23.3 min), 13,054
+lines/s overall, 106 batches, `db_busy_ratio` 0.90. 3,839,951 accounts committed,
+14,373,017 lines skipped, 0 failed (summary event in `vault.import.metrics`; job
+status Completed). Rate by region, computed from consecutive log lines: about
+11,700-13,400 lines/s while valid records were dense; about 20,800-21,600 lines/s
+across a stretch of roughly 5.5 M lines (between ~11.7 M and ~17.7 M lines) that
+produced no valid record at all; 5,400-6,100 lines/s in the last 0.5 M lines, where
+39-49 % of lines were valid. Whether that stretch is blank lines was not checked.
+The earlier run on default PostgreSQL settings was stopped before it finished, so no
+whole-run comparison exists; at its ~6,900 lines/s the same file would have taken
+about 44 min (projection).
+
 **B. Skipped lines (user-reported breakdown + `explainrejects`).** Skipped lines were
 96.1 % `invalid_format`, 3.9 % duplicates, 5 `line_too_large`. Sampling every 10th line
 of the first ~3 M lines of the file: 25.9 % records, **64.6 % blank lines**, ~9 % other
