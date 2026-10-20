@@ -602,3 +602,42 @@ is gone. After the fix the same test completes all 3,000 lines. Not covered: the
 client-side script, a window closed before the job exists, a server restart (uploads
 are never replayable by design); the 18 M-line case itself was not re-run here (it
 needs the user's file). The reported run's 74 % skipped lines were not examined here.
+
+## 24. Field run on Windows after PostgreSQL tuning, and the cost of blank lines
+
+**A. User-reported run (not measured by me).** Same 18,212,968-line source, same
+machine (Windows, 32 GB, 5 cores, SSD, PostgreSQL 18.6, `VAULT_IMPORT_WORKERS=3`,
+empty database both times), copied from the user's `vault.import.metrics` log lines.
+
+| | PostgreSQL defaults (`shared_buffers` 128 MB, `max_wal_size` 1 GB) | After `shared_buffers=4GB`, `max_wal_size=32GB`, `checkpoint_timeout=30min`, `wal_buffers=64MB`, `effective_cache_size=22GB`, `maintenance_work_mem=2GB`, `random_page_cost=1.1` |
+| --- | --- | --- |
+| Lines/s between log lines | 8,531, then ~6,900 | 14,480 early; 10,400-13,400 from 3 M to 6 M lines (11,969 in the last interval) |
+| Median batch time | 10 s rising to 17-25 s | 10.0 s rising slowly to 12.1 s at 6.1 M lines |
+| `db_busy_ratio` | 0.88 to 0.93 | 0.88 to 0.91 |
+| Time to ~2.4 M lines | 259 s | 165 s |
+
+Single runs, one machine, run still in progress when reported (6.08 M of 18.2 M lines,
+1.61 M accounts). The DB is still the limiting stage (parse queue at its cap). Only the
+combination of settings was changed, so the table does not say which one mattered.
+
+**B. Skipped lines (user-reported breakdown + `explainrejects`).** Skipped lines were
+96.1 % `invalid_format`, 3.9 % duplicates, 5 `line_too_large`. Sampling every 10th line
+of the first ~3 M lines of the file: 25.9 % records, **64.6 % blank lines**, ~9 % other
+rejections (mostly `:`-separated lines whose password/IP field or URL fails the format check).
+
+**C. Cost of blank lines (sandbox, measured).** Every line gets a ledger row, including
+blank ones. 300,000 generated lines (4 % duplicates, 9 % invalid), imported into an empty
+database with `VAULT_IMPORT_WORKERS=1`, once as-is and once with blank lines interleaved
+to reach 64.5 % blank lines (545,755 blanks). Same 261,138 accounts both times.
+
+| Input | Lines | Ledger rows | Seconds |
+| --- | ---: | ---: | ---: |
+| No blank lines | 300,000 | 300,000 | 40.7 |
+| 64.5 % blank lines | 845,755 | 845,755 | 51.7 |
+
+Blank lines added 27 % to the run time (~20 us per blank line against ~136 us per
+non-blank line). One run each, 2 vCPU. **Projection, not measured on the user's
+machine:** removing blank lines before import would shorten a file like theirs by
+roughly a fifth. The audit ledger would then hold no row for those lines. Counting
+blank lines without a ledger row inside the importer was not implemented because it
+changes the audit, resume and verify semantics.
