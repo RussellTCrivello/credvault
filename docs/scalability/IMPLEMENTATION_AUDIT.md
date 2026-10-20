@@ -9,14 +9,14 @@ not a project dependency).
 
 | Run | Result |
 | --- | --- |
-| `manage.py test --noinput` (final, 2026-10-20) | **278 tests, OK, 5 skipped** (264 before the PostgreSQL settings advisory, +14 for it) |
+| `manage.py test --noinput` (final, 2026-10-20) | **282 tests, OK, 5 skipped** (264 before this turn: +14 PostgreSQL settings advisory, +4 stale account statistics) |
 | Skipped | the five opt-in performance tests (`VAULT_RUN_PERFORMANCE`, `VAULT_RUN_CONCURRENT_PERF`, `VAULT_RUN_FILE_CONCURRENCY_PERF`) |
 | Opt-in performance tests (`VAULT_PERF_LINES=50000`) | all pass after the two fixes of section 6.3: 4 of 4 verification runs of the concurrent + file-concurrency pair (before: 2 of 2 failed with `deadlock detected`, and one hung for 25 minutes) |
 | `manage.py makemigrations --check --dry-run` | no drift |
 | Baseline at the start of this program | 203 discovered, 200 passed, 3 skipped (before the new tests) |
 
 New automated tests (all in `vault/`): `tests_pagination.py` (6),
-`tests_scale_changes.py` (12 + 2 insert-order + 2 stale-statistics),
+`tests_scale_changes.py` (12 + 2 insert-order + 2 stale-statistics + 4 stale-account-statistics), `tests_db_advisor.py` (14),
 `tests_counts.py` (19: exact below the cap, `N+` above, no estimate labelled
 exact, cached totals, TTL, invalidation on UI add/delete, cap=0 default),
 `tests_upload_disconnect.py` (2: import completes after the client disconnects; normal stream still ends with `done`), `tests_import_metrics.py` (7: counters, ratios, no source values in logs, interval
@@ -157,4 +157,5 @@ Large generated data (`/tmp/bench`) is outside the repository.
 Commit history of the program: `1f85c10` first pass; `289a6cf` scale ladder, counts,
 0009, drills, deadlock and stale-statistics fixes; `1e93bb7` upload-disconnect fix;
 `06f5de7` docs reorganized and Windows guidance; `5619c48` tests moved; then the
-documentation refresh of 2026-10-19.
+documentation refresh of 2026-10-19; `9d63660` PostgreSQL settings advisory; then the stale
+account-statistics fix (results section 25).

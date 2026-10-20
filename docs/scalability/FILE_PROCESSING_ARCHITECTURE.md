@@ -140,7 +140,10 @@ page expose committed/skipped/failed counters and stage.
 * **Planner statistics.** A reference table analyzed while empty keeps `reltuples = 0`
   and is estimated at one row however large it grows, turning the account INSERT's
   joins into an O(n^2) nested loop. `refresh_stale_reference_stats` analyzes such tables
-  inside the batch transaction; healthy tables are never touched (22.2).
+  inside the batch transaction; healthy tables are never touched (22.2). The same guard
+  covers `vault_account` (`refresh_stale_account_stats`, after the account INSERT): its
+  deferred ledger foreign key is checked at COMMIT and, on stale statistics, scanned a whole
+  unrelated index per ledger row, so a 250,000-line batch never committed (section 25).
 * **Upload lifecycle.** An upload import runs in a worker thread inside the streaming
   response. The response generator waits for that worker in a `finally`, so Django
   cannot delete the temporary upload (`request.FILES`) while it is still being read

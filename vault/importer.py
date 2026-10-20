@@ -168,10 +168,16 @@ _ACCOUNT_INSERT = (
 _JOINED_REFERENCE_TABLES = (
     'vault_email', 'vault_ip', 'vault_pass', 'vault_url', 'vault_user',
 )
+#: The account table is the target of the ledger's foreign key. Those checks
+#: run at COMMIT, once per ledger row, so the plan PostgreSQL picks for
+#: ``WHERE id = $1`` decides whether a batch commits in seconds or never: with
+#: statistics saying "0 rows" it chose the (created_at DESC, id) index, which
+#: cannot be searched by ``id``, and scanned that whole index for every row.
+_ACCOUNT_TABLES = ('vault_account',)
 _STALE_STATS_MIN_PAGES = 16
 
 
-def refresh_stale_reference_stats(cursor):
+def refresh_stale_reference_stats(cursor, tables=None):
     """ANALYZE reference tables whose planner statistics say "empty".
 
     A table that was analyzed while empty (after a purge, a restore of an empty
@@ -183,20 +189,38 @@ def refresh_stale_reference_stats(cursor):
     batch just inserted.  Healthy tables (``reltuples > 0``) are never touched,
     so a large database pays nothing per batch.
 
+    ``tables`` selects what is checked (default: the reference tables the
+    account INSERT joins to). ``refresh_stale_account_stats`` checks the
+    account table itself, and must run after the batch's account INSERT so the
+    table size already includes the new rows.
+
     Returns the tables analyzed (for tests and logs).
     """
+    tables = _JOINED_REFERENCE_TABLES if tables is None else tuple(tables)
+    allowed = _JOINED_REFERENCE_TABLES + _ACCOUNT_TABLES
+    if any(table not in allowed for table in tables):
+        raise ValueError('unsupported table for statistics refresh')
     cursor.execute(
         "SELECT c.relname FROM pg_class c"
         " WHERE c.oid = ANY(ARRAY["
-        + ", ".join(f"to_regclass('{t}')" for t in _JOINED_REFERENCE_TABLES)
+        + ", ".join(f"to_regclass('{t}')" for t in tables)
         + "]) AND c.reltuples <= 0"
         " AND pg_relation_size(c.oid) >= %s ORDER BY c.relname",
         (_STALE_STATS_MIN_PAGES * 8192,))
     stale = [row[0] for row in cursor.fetchall()]
     for table in stale:
-        if table in _JOINED_REFERENCE_TABLES:  # names are constants, never input
+        if table in allowed:  # names are constants, never input
             cursor.execute(f'ANALYZE {table}')
     return stale
+
+
+def refresh_stale_account_stats(cursor):
+    """ANALYZE ``vault_account`` when its statistics say "empty".
+
+    Call after the account INSERT and before the ledger rows are written, in
+    the same transaction. See ``_ACCOUNT_TABLES`` for why this matters.
+    """
+    return refresh_stale_reference_stats(cursor, _ACCOUNT_TABLES)
 
 #: Rows per COPY batch; one transaction per batch keeps memory bounded. The
 #: measured default is 250,000; very large batches add memory and commit cost.

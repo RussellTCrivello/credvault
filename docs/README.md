@@ -32,7 +32,8 @@ repository root holds only the project itself (`manage.py`, `admin_LogIntel/`,
   acknowledged writes. No billion-record claim is made.
 * **Recent fixes (2026-10-19):** deadlocks between `--parallel-files` jobs
   (inserts now ordered by the unique key); a runaway account INSERT when a
-  reference table had been analyzed while empty; upload imports that failed when
+  reference table had been analyzed while empty; a commit that never finished when the
+  account table's statistics said "empty" (section 25 of the results); upload imports that failed when
   the browser left the import page.
 * **Recommended for big files:** `python manage.py importfolder <path>` (resumable,
   independent of the browser). On Windows set `VAULT_IMPORT_WORKERS=3` first (see

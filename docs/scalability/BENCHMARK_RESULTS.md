@@ -653,3 +653,39 @@ machine:** removing blank lines before import would shorten a file like theirs b
 roughly a fifth. The audit ledger would then hold no row for those lines. Counting
 blank lines without a ledger row inside the importer was not implemented because it
 changes the audit, resume and verify semantics.
+
+## 25. Stale statistics on the account table hang a commit (defect found and fixed)
+
+Follow-up to 22.2, which fixed stale statistics on the *reference* tables only. The open
+question was whether the same state on `vault_importrecord` (ledger) and `vault_account`
+also hurts. Raw data: `benchmarks/results/2026-10-20/stale_account_stats.txt`; reproduce with
+`benchmarks/stale_stats_experiment.sh`. Sandbox (2 vCPU, 3.9 GB), single runs: 522,316
+accounts / 600,000 ledger rows loaded, then a 250,000-line file (217,508 new accounts)
+imported with the statistics forced to what `ANALYZE` leaves after a purge
+(`relpages=1`, `reltuples=0`), autovacuum disabled on both tables.
+
+| Scenario | Before the fix (`9d63660`) | After the fix |
+| --- | --- | --- |
+| Healthy statistics (control) | 31.1 s | 32.1 s (31.5 s in the script run) |
+| Stale `vault_importrecord` only | 32.5 s (no effect) | 31.3 s |
+| Stale `vault_account` only | still in `COMMIT` at 99 % CPU after 590 s, killed | **30.8 s** (31.4 s in the script run) |
+| Stale `vault_account` and ledger | not finished at the 900 s cap (+151,355 of 217,508 accounts) | not run separately |
+
+**Mechanism (EXPLAIN, not inferred from timing).** The ledger has a deferred foreign key to
+`vault_account`; PostgreSQL checks it at `COMMIT`, once per ledger row, with
+`SELECT 1 FROM ONLY vault_account WHERE id = $1 FOR KEY SHARE`. With the table estimated at
+one row, the two candidate plans cost 8.41 and 8.45, and the planner chose
+`vault_acct_created_id_idx` (`created_at DESC, id`), which cannot be searched by `id`, so each
+check scanned that whole 2,599-page index. After `ANALYZE` it uses `vault_account_pkey`.
+
+**Fix.** `refresh_stale_account_stats` (`vault/importer.py`) reuses the 22.2 guard: it analyzes
+`vault_account` when `reltuples <= 0` and the table is at least 16 pages, called after the
+batch's account INSERT and before the ledger insert, in the same transaction, so the size
+includes the batch's own rows. A healthy table pays one `pg_class` lookup per batch.
+Tests: `StaleAccountStatisticsTests` (4); with the engine call disabled the import-level test
+fails (`0.0 not greater than 0`).
+
+Not covered: the state was produced by editing `pg_class` (and, in the unit test, by
+`DELETE` + `ANALYZE`), not by a real purge-then-reimport on the user's machine; the ledger idempotency
+lookup on a *resumed* job with stale ledger statistics was not tested (a fresh job skips it);
+one run per scenario.

@@ -1,8 +1,10 @@
 """Regression tests for the scalability changes (indexes, fast mode, caches)."""
 
 import os
+import tempfile
 from unittest import mock
 
+from django.core.management import call_command
 from django.db import IntegrityError, connection, transaction
 from django.test import TestCase, TransactionTestCase
 
@@ -292,3 +294,115 @@ class StaleStatisticsTests(TransactionTestCase):
                 stale = importer.refresh_stale_reference_stats(cursor)
             self.assertNotIn('vault_url', stale)
             self.assertEqual(stale, [])
+
+
+class StaleAccountStatisticsTests(TransactionTestCase):
+    """The ledger's foreign key to ``vault_account`` is checked at COMMIT.
+
+    With the account table's statistics saying "0 rows", PostgreSQL planned
+    that check on the (created_at DESC, id) index, which cannot be searched by
+    ``id``, and scanned the whole index once per ledger row: a 250,000-line
+    import did not finish in 10 minutes (30 s with healthy statistics).
+    """
+
+    RI_QUERY = (
+        "PREPARE ri_check(bigint) AS SELECT 1 FROM ONLY public.vault_account x"
+        " WHERE id OPERATOR(pg_catalog.=) $1 FOR KEY SHARE OF x")
+
+    def _make_account_stats_stale(self):
+        """Analyzed with zero live tuples after a purge: 1 page, 0 tuples."""
+        from vault.models import Account, ImportJob, ImportRecord
+        with tempfile.TemporaryDirectory() as folder:
+            self._write_lines(folder, 50, prefix='seed')
+            call_command('importfolder', folder, quiet=True)
+        ImportRecord.objects.all().delete()
+        ImportJob.objects.all().delete()
+        Account.objects.all().delete()
+        with connection.cursor() as cursor:
+            cursor.execute('ANALYZE vault_account')
+            cursor.execute(
+                "SELECT relpages, reltuples FROM pg_class"
+                " WHERE relname = 'vault_account'")
+            pages, tuples = cursor.fetchone()
+        self.assertEqual(tuples, 0)
+        self.assertGreaterEqual(pages, 1)
+
+    @staticmethod
+    def _write_lines(folder, count, prefix='row'):
+        path = os.path.join(folder, f'{prefix}.txt')
+        with open(path, 'w') as handle:
+            for i in range(count):
+                handle.write(
+                    f'https://{prefix}{i}.example.com|user{prefix}{i}|pw{i}\n')
+
+    def _account_stats(self):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT reltuples FROM pg_class"
+                " WHERE relname = 'vault_account'")
+            return cursor.fetchone()[0]
+
+    def _ri_plan(self):
+        with connection.cursor() as cursor:
+            cursor.execute('DEALLOCATE ALL')
+            cursor.execute(self.RI_QUERY)
+            cursor.execute('SET plan_cache_mode = force_generic_plan')
+            cursor.execute('EXPLAIN EXECUTE ri_check(5)')
+            plan = '\n'.join(row[0] for row in cursor.fetchall())
+            cursor.execute('RESET plan_cache_mode')
+            cursor.execute('DEALLOCATE ALL')
+        return plan
+
+    def test_guard_analyzes_a_stale_account_table_that_has_grown(self):
+        self._make_account_stats_stale()
+        with connection.cursor() as cursor:
+            with transaction.atomic():
+                cursor.execute(
+                    "INSERT INTO vault_url (name, created_at, updated_at)"
+                    " VALUES ('https://x.example', now(), now())")
+                cursor.execute(
+                    "INSERT INTO vault_user (name, created_at, updated_at)"
+                    " VALUES ('u', now(), now())")
+                cursor.execute(
+                    "INSERT INTO vault_pass (name, created_at, updated_at)"
+                    " VALUES ('p', now(), now())")
+                cursor.execute(
+                    "INSERT INTO vault_account (url_id, account_type, user_id,"
+                    " password_id, fingerprint, created_at, updated_at)"
+                    " SELECT (SELECT id FROM vault_url LIMIT 1), 'username',"
+                    " (SELECT id FROM vault_user LIMIT 1),"
+                    " (SELECT id FROM vault_pass LIMIT 1),"
+                    " md5(i::text) || md5(i::text), now(), now()"
+                    " FROM generate_series(1, 30000) i")
+                analyzed = importer.refresh_stale_account_stats(cursor)
+        self.assertEqual(analyzed, ['vault_account'])
+        self.assertGreater(self._account_stats(), 0)
+        self.assertIn('vault_account_pkey', self._ri_plan())
+
+    def test_healthy_account_table_is_left_alone(self):
+        from vault.models import Account
+        with tempfile.TemporaryDirectory() as folder:
+            self._write_lines(folder, 3000)
+            call_command('importfolder', folder, quiet=True)
+        with connection.cursor() as cursor:
+            cursor.execute('ANALYZE vault_account')
+            with transaction.atomic():
+                self.assertEqual(
+                    importer.refresh_stale_account_stats(cursor), [])
+        self.assertEqual(Account.objects.count(), 3000)
+
+    def test_import_into_stale_account_table_refreshes_its_statistics(self):
+        from vault.models import Account
+        self._make_account_stats_stale()
+        with tempfile.TemporaryDirectory() as folder:
+            self._write_lines(folder, 3000)
+            call_command('importfolder', folder, quiet=True)
+        self.assertEqual(Account.objects.count(), 3000)
+        self.assertGreater(self._account_stats(), 0)
+        self.assertIn('vault_account_pkey', self._ri_plan())
+
+    def test_only_known_tables_can_be_analyzed(self):
+        with connection.cursor() as cursor:
+            with self.assertRaises(ValueError):
+                importer.refresh_stale_reference_stats(
+                    cursor, ['auth_user; DROP TABLE vault_account'])

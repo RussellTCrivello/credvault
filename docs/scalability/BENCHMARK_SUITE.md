@@ -55,6 +55,8 @@ directories. Keep each run's JSON next to the commit it was taken at.
 | `exp_import.sh` | one cloned-database import experiment with a set of environment overrides (used for the index, WAL, `shared_buffers` and fast-mode comparisons) |
 | `pg_crash_drill.sh DIR EXPECTED_ACCOUNTS EXPECTED_LINES` | stop PostgreSQL with `-m immediate` mid-import, restart, `pg_amcheck`, `recoverimports --run`, compare with an uninterrupted run (`KILL_AFTER` seconds, `CV_PGDATA`) |
 | `backup_restore_drill.sh DIR` | `pg_basebackup` + WAL archive, import, delete rows, restore to just before the delete, wait for recovery to end, compare counts, `pg_amcheck` |
+| `setup_sandbox.sh` | rebuilds the disposable environment after a sandbox reset (`.venv`, `pg_trgm`, a local PostgreSQL cluster, `/tmp/pgenv.sh`) |
+| `stale_stats_experiment.sh [CAP]` | healthy vs stale-statistics imports on `vault_account` and the ledger from one snapshot (results section 25, `results/2026-10-20/`) |
 | `sql/partition_prototype.sql` | hash-partitioning prototype of the ledger and account tables, 1 M rows |
 
 `pg_trgm` and `amcheck` must exist in the cluster (`CREATE EXTENSION`); some

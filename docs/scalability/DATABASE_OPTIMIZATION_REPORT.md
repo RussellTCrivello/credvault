@@ -152,6 +152,9 @@ Contract (implemented and tested in `tests/tests_pagination.py`; README section
   transaction only when its `reltuples` is 0 and it has at least 16 pages. A table
   analyzed while empty otherwise stays at "1 row" and the account INSERT degrades
   into a nested loop (22.2). Healthy tables are never analyzed per batch.
+* `refresh_stale_account_stats` does the same for `vault_account` after the account INSERT,
+  because the ledger's deferred foreign key to it is checked at COMMIT (section 25 of the
+  results). Stale ledger statistics alone had no measurable effect.
 
 ## 6. Partitioning and sharding assessment
 

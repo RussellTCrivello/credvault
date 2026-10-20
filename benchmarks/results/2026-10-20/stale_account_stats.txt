@@ -1,0 +1,20 @@
+Stale planner statistics on vault_account / vault_importrecord (2026-10-20)
+Sandbox: 2 vCPU, 3.9 GB, PostgreSQL 16.2 local socket, shared_buffers=512MB, VAULT_IMPORT_WORKERS=2.
+Database: 522,316 accounts / 600,000 ledger rows loaded first, then a 250,000-line file imported
+(217,508 new accounts). Autovacuum disabled on both tables for the runs. Stale state =
+relpages=1, reltuples=0 (what ANALYZE leaves after a purge). Single runs.
+
+BEFORE the fix (commit 9d63660), same file:
+  control, healthy statistics .......... 31.1 s   (217,681 accounts, different file seed)
+  stale vault_importrecord only ........ 32.5 s   (217,508 accounts)
+  stale vault_account + importrecord ... did not finish: killed at the 900 s cap, +151,355 accounts
+  stale vault_account only ............. still in COMMIT at 99 % CPU after 590 s; killed by hand
+Cause (EXPLAIN of the foreign-key check run at COMMIT, once per ledger row):
+  stale:    Bitmap Index Scan on vault_acct_created_id_idx  (cost 4.38..8.41)   -> whole 2,599-page index per row
+  analyzed: Index Scan using vault_account_pkey             (cost 0.42..8.45)
+
+AFTER the fix (refresh_stale_account_stats before the ledger insert):
+  stale vault_account .................. 30.8 s   (217,508 accounts; stats afterwards 14042/673671)
+  healthy control ...................... 32.1 s   (217,681 accounts)
+  benchmarks/stale_stats_experiment.sh (all three, one script): healthy 31.5 s, stale_account 31.4 s,
+  stale_ledger 31.3 s, 217,508 new accounts each.

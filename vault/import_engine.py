@@ -34,7 +34,8 @@ from django.utils import timezone
 from . import db_advisor
 from .import_metrics import ImportMetrics
 from .importer import (
-    _REFERENCE_INSERTS, _STAGE_DDL, refresh_stale_reference_stats,
+    _REFERENCE_INSERTS, _STAGE_DDL, refresh_stale_account_stats,
+    refresh_stale_reference_stats,
     MAX_IMPORT_BUFFER_BYTES, MAX_IN_FLIGHT_PARSE_BYTES, MAX_PARSE_TASK_BYTES,
     _parse_context,
     bounded_batch_rows, bounded_worker_count, collect_files_from_path,
@@ -1112,6 +1113,9 @@ def _durable_flush_batch(
                     fp: acc_id for fp, acc_id in cursor.fetchall()
                 }
                 _log_section(f"account INSERT RETURNING {len(newly_created)} new")
+                # The ledger rows written below reference these accounts; the
+                # deferred foreign-key checks at COMMIT need real statistics.
+                refresh_stale_account_stats(cursor)
 
             with connection.cursor() as cursor:
                 reference_ids = {

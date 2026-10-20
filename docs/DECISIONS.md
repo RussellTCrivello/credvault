@@ -25,6 +25,7 @@ measured by the engineering agent; **projection** = estimate, not measured.
 | D12 | Warn only on `shared_buffers` and `max_wal_size` at or below stock; display but do not warn on `checkpoint_timeout` | `checkpoint_timeout=30min` had no effect in the sandbox and was not isolated in the field | Warn on all three | verified |
 | D13 | **Do not** skip ledger rows for blank lines | sandbox: 64.5 % blank input added 27 % run time; skipping changes audit, resume and verify semantics | Implement it (needs the owner's approval and resume/verify tests); pre-filter blank lines outside the importer instead | decided, awaiting owner if wanted |
 | D14 | Documentation lives in `docs/`, tests in `tests/` | owner request | - | verified |
+| D15 | **Extend the stale-statistics guard to `vault_account` only**, called after the account INSERT | stale account stats: batch never committed (590 s+, 99 % CPU, EXPLAIN shows a full scan of the wrong index per ledger row); stale ledger stats: no effect (32.5 s vs 31.1 s) | guard the ledger too (no measured benefit); drop `vault_acct_created_id_idx` (needed for browse ordering); change the FK to non-deferred | verified (30.8 s after; 4 tests; negative control fails) |
 
 ## 2. Risk register
 
@@ -36,7 +37,7 @@ measured by the engineering agent; **projection** = estimate, not measured.
 | No evidence for billion-record operation | Certain / high | projections only (`CAPACITY_REPORT.md` section 3) | none | open; no claim is made |
 | Ledger row per blank/skipped line adds disk and time | Medium / medium | 27 % in sandbox test | pre-filter, or D13 if approved | open |
 | ~9 % of non-blank lines are rejected by the parser for reasons not yet examined | Unknown / unknown | `explainrejects` sample: mostly `:`-separated lines failing the URL or password/IP check | needs masked sample lines from the owner | open |
-| Stale-statistics guard covers reference tables only | Low-medium / high when it hits | D6 | extend to ledger/account tables | open |
+| A commit that never finishes after a purge-then-reimport (stale account statistics) | Medium (purge workflows exist) / high | section 25 | D15 guard | mitigated; reproduced by editing `pg_class`, not by a real purge on the owner's machine |
 | Browser upload cannot resume after a server restart | Medium / medium | by design | use `importfolder` + `recoverimports` | accepted |
 | Sandbox results do not transfer to other hardware | Certain / medium | 2 vCPU, 3.9 GB | measure on target hardware | accepted; stated everywhere |
 
@@ -48,17 +49,17 @@ measured by the engineering agent; **projection** = estimate, not measured.
 3. Owner: send a few **masked** rejected lines (from `manage.py explainrejects`) to decide
    whether the parser is correctly strict.
 4. Optional, needs approval: D13 (count blank lines without a ledger row).
-5. Optional: extend the stale-statistics guard to the ledger and account tables.
+5. Optional: test a *resumed* job with stale ledger statistics (the idempotency lookup is skipped for fresh jobs, so it was not exercised).
 6. Optional: measure keyword search after the 3.84 M-account load on the owner's hardware.
 
 ## 4. Continuation point (engineering state)
 
 * Branch `arena/b98bd230-credvault`, PR #12, base `main` @ `095abd0`. Last pushed commit
-  before this change: `35943c5`.
+  before the stale-account-statistics change: `9d63660`.
 * Reproduce the test environment after a sandbox reset: `python3 -m venv .venv`;
   `.venv/bin/pip install -r requirements.txt pgserver==0.1.4`; compile `pg_trgm` from the
   PostgreSQL REL_16_2 contrib sources with PGXS (`USE_PGXS=1`); `initdb`, start a local
   cluster, `createdb credvault`; export `POSTGRES_HOST/USER/PASSWORD/DB`; then
-  `python manage.py test --noinput` (278 tests, 5 skipped, about 85 s).
+  `python manage.py test --noinput` (282 tests, 5 skipped, about 85 s); `benchmarks/setup_sandbox.sh` rebuilds the environment in one step.
 * Opt-in performance tests and the benchmark scripts are described in
   `docs/scalability/BENCHMARK_SUITE.md`.
