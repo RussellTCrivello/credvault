@@ -1,0 +1,149 @@
+[
+  {
+    "file_bytes": 17620787,
+    "lines": 200000,
+    "valid_lines": 195973,
+    "peak_rss_mb": 109.3,
+    "chunk_bytes": 4096,
+    "stages": {
+      "raw_read": {
+        "wall_s": 0.0395,
+        "cpu_s": 0.0185,
+        "mb_per_s": 445.8,
+        "lines_per_s": 5060433,
+        "cpu_us_per_line": 0.09,
+        "share_of_in_process_pipeline_pct": null
+      },
+      "bounded_line_split": {
+        "wall_s": 0.087,
+        "cpu_s": 0.087,
+        "mb_per_s": 202.6,
+        "lines_per_s": 2299245,
+        "cpu_us_per_line": 0.43,
+        "share_of_in_process_pipeline_pct": 2.8
+      },
+      "sha256_per_line": {
+        "wall_s": 0.149,
+        "cpu_s": 0.149,
+        "mb_per_s": 118.2,
+        "lines_per_s": 1342118,
+        "cpu_us_per_line": 0.74,
+        "share_of_in_process_pipeline_pct": 4.8
+      },
+      "decode": {
+        "wall_s": 0.0448,
+        "cpu_s": 0.0448,
+        "mb_per_s": 393.2,
+        "lines_per_s": 4463220,
+        "cpu_us_per_line": 0.22,
+        "share_of_in_process_pipeline_pct": 1.4
+      },
+      "parse_validate_normalize": {
+        "wall_s": 2.8189,
+        "cpu_s": 2.8172,
+        "mb_per_s": 6.3,
+        "lines_per_s": 70950,
+        "cpu_us_per_line": 14.09,
+        "share_of_in_process_pipeline_pct": 90.9
+      }
+    }
+  },
+  {
+    "file_bytes": 17620787,
+    "lines": 200000,
+    "valid_lines": 195973,
+    "peak_rss_mb": 109.3,
+    "chunk_bytes": 65536,
+    "stages": {
+      "raw_read": {
+        "wall_s": 0.0029,
+        "cpu_s": 0.0029,
+        "mb_per_s": 6144.3,
+        "lines_per_s": 69738679,
+        "cpu_us_per_line": 0.01,
+        "share_of_in_process_pipeline_pct": null
+      },
+      "bounded_line_split": {
+        "wall_s": 0.0656,
+        "cpu_s": 0.0655,
+        "mb_per_s": 268.8,
+        "lines_per_s": 3050755,
+        "cpu_us_per_line": 0.33,
+        "share_of_in_process_pipeline_pct": 2.4
+      },
+      "sha256_per_line": {
+        "wall_s": 0.126,
+        "cpu_s": 0.1259,
+        "mb_per_s": 139.9,
+        "lines_per_s": 1587842,
+        "cpu_us_per_line": 0.63,
+        "share_of_in_process_pipeline_pct": 4.6
+      },
+      "decode": {
+        "wall_s": 0.0307,
+        "cpu_s": 0.0307,
+        "mb_per_s": 574.0,
+        "lines_per_s": 6514805,
+        "cpu_us_per_line": 0.15,
+        "share_of_in_process_pipeline_pct": 1.1
+      },
+      "parse_validate_normalize": {
+        "wall_s": 2.494,
+        "cpu_s": 2.4925,
+        "mb_per_s": 7.1,
+        "lines_per_s": 80192,
+        "cpu_us_per_line": 12.46,
+        "share_of_in_process_pipeline_pct": 91.8
+      }
+    }
+  },
+  {
+    "file_bytes": 17620787,
+    "lines": 200000,
+    "valid_lines": 195973,
+    "peak_rss_mb": 109.7,
+    "chunk_bytes": 1048576,
+    "stages": {
+      "raw_read": {
+        "wall_s": 0.0033,
+        "cpu_s": 0.0033,
+        "mb_per_s": 5342.1,
+        "lines_per_s": 60634301,
+        "cpu_us_per_line": 0.02,
+        "share_of_in_process_pipeline_pct": null
+      },
+      "bounded_line_split": {
+        "wall_s": 0.0682,
+        "cpu_s": 0.0682,
+        "mb_per_s": 258.2,
+        "lines_per_s": 2931018,
+        "cpu_us_per_line": 0.34,
+        "share_of_in_process_pipeline_pct": 2.6
+      },
+      "sha256_per_line": {
+        "wall_s": 0.1185,
+        "cpu_s": 0.1184,
+        "mb_per_s": 148.7,
+        "lines_per_s": 1687674,
+        "cpu_us_per_line": 0.59,
+        "share_of_in_process_pipeline_pct": 4.5
+      },
+      "decode": {
+        "wall_s": 0.0316,
+        "cpu_s": 0.0316,
+        "mb_per_s": 556.9,
+        "lines_per_s": 6321091,
+        "cpu_us_per_line": 0.16,
+        "share_of_in_process_pipeline_pct": 1.2
+      },
+      "parse_validate_normalize": {
+        "wall_s": 2.4266,
+        "cpu_s": 2.4259,
+        "mb_per_s": 7.3,
+        "lines_per_s": 82420,
+        "cpu_us_per_line": 12.13,
+        "share_of_in_process_pipeline_pct": 91.7
+      }
+    }
+  }
+]

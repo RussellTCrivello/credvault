@@ -20,7 +20,10 @@ from django.utils.dateparse import parse_date
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy as _lazy, ngettext
 
-from .counts import count_label, exact_count
+from .counts import (
+    CachedTotalPaginator, count_label, invalidate_table_totals,
+    make_search_paginator, paginator_total, table_total,
+)
 from .forms import (
     AccountForm, AdvancedSearchForm, ImportFileForm, QuickSearchForm,
     ReferenceForm,
@@ -30,6 +33,9 @@ from .importer import (
 )
 from .models import Account, Email, Ip, Pass, Url, User
 from .utils import extract_domain
+
+
+MAX_IMPORT_PROGRESS_EVENTS = 64
 
 
 class StreamableDownloadResponse(StreamingHttpResponse):
@@ -204,9 +210,10 @@ def has_search_query(params):
 
 
 def _clean_query_string(request_get):
-    """Return URL query string without the pagination 'page' parameter."""
+    """Return URL query string without the pagination 'page'/'after' parameters."""
     params = request_get.copy()
     params.pop('page', None)
+    params.pop('after', None)
     return params.urlencode()
 
 
@@ -428,6 +435,82 @@ def filter_accounts(params):
     return _sort_accounts(qs.none(), params.get('sort'))
 
 
+class KeysetPage:
+    """
+    One page of a cursor ("keyset") walk through id-ordered results.
+
+    Contract: no exact total is computed and there are no page numbers; the
+    walk is stable under concurrent inserts (a row is neither repeated nor
+    skipped because other rows were added before the cursor), and the cost of
+    page N is the same as page 1. The default page-number mode with exact
+    counts is unchanged; this mode is opt-in with ``?sort=id|-id&after=<id>``.
+    """
+
+    paginator = None
+
+    def __init__(self, object_list, next_cursor):
+        self.object_list = object_list
+        self.next_cursor = next_cursor
+        self.has_next_page = next_cursor is not None
+
+    def __iter__(self):
+        return iter(self.object_list)
+
+    def __len__(self):
+        return len(self.object_list)
+
+
+def _keyset_request(request):
+    """Return (after_id, descending) when cursor mode was requested."""
+    raw = request.GET.get('after')
+    sort = request.GET.get('sort')
+    if raw is None or sort not in ('id', '-id'):
+        return None
+    try:
+        after = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if after < 0:
+        return None
+    return after, sort == '-id'
+
+
+def _paginate_accounts_keyset(queryset, keyset, per_page):
+    after, descending = keyset
+    if descending:
+        # 0 means "start from the newest row".
+        if after:
+            queryset = queryset.filter(pk__lt=after)
+    else:
+        queryset = queryset.filter(pk__gt=after)
+    ids = list(queryset.values_list('pk', flat=True)[:per_page + 1])
+    next_cursor = ids[per_page - 1] if len(ids) > per_page else None
+    ids = ids[:per_page]
+    loaded = Account.objects.select_related(
+        'url', 'email', 'user', 'password', 'ip'
+    ).in_bulk(ids)
+    return KeysetPage([loaded[pk] for pk in ids if pk in loaded], next_cursor)
+
+
+def _page_total(page_obj):
+    """Total for a numbered page; None for a cursor page.
+
+    Exact unless ``VAULT_RESULT_COUNT_CAP`` is set and exceeded, in which case
+    it is the cap (see ``_page_total_label`` for the displayed ``N+``).
+    """
+    if page_obj.paginator is None:
+        return None
+    return paginator_total(page_obj.paginator)[0]
+
+
+def _page_total_label(page_obj):
+    """Display label for a page's total; None for a cursor page."""
+    if page_obj.paginator is None:
+        return None
+    total, capped = paginator_total(page_obj.paginator)
+    return count_label(total, capped)
+
+
 def _paginate_accounts(request, queryset, per_page=100):
     """
     One page of Account rows, loaded in two steps.
@@ -438,7 +521,12 @@ def _paginate_accounts(request, queryset, per_page=100):
     records on the page alone, in the same order. Django's paginator uses the
     exact queryset count and has no row-count ceiling.
     """
-    paginator = Paginator(queryset.values_list('pk', flat=True), per_page)
+    keyset = _keyset_request(request)
+    if keyset is not None:
+        return _paginate_accounts_keyset(queryset, keyset, per_page)
+    paginator = make_search_paginator(
+        queryset.values_list('pk', flat=True), per_page,
+    )
     page_obj = paginator.get_page(request.GET.get('page', '1'))
     ids = list(page_obj.object_list)
     loaded = Account.objects.select_related(
@@ -483,8 +571,8 @@ def _attach_usage(kind, entities):
 
 
 def _records_total_context():
-    """Exact number and readable label for the Records page."""
-    total_records = exact_count(Account.objects.all())
+    """Number and readable label for the Records page (see vault.counts)."""
+    total_records = table_total(Account)
     return {
         'total_records': total_records,
         'total_records_label': count_label(total_records),
@@ -499,9 +587,9 @@ def _reference_choices(kind):
 
 def dashboard(request):
     """Replaces: main_menu() -- the landing page with workspace stats."""
-    total_accounts = exact_count(Account.objects.all())
+    total_accounts = table_total(Account)
     reference_counts = {
-        kind: exact_count(REFERENCE_REGISTRY[kind]['model'].objects.all())
+        kind: table_total(REFERENCE_REGISTRY[kind]['model'])
         for kind in REFERENCE_REGISTRY
     }
     reference_rows = [
@@ -533,7 +621,7 @@ def browse_all(request):
     if has_query:
         queryset = filter_accounts(request.GET)
         page_obj = _paginate_accounts(request, queryset)
-        total = page_obj.paginator.count
+        total = _page_total(page_obj)
         records = page_obj.object_list
 
     return render(request, 'vault/browse.html', {
@@ -542,7 +630,10 @@ def browse_all(request):
         'records': records,
         'page_obj': page_obj,
         'total': total,
-        'total_label': count_label(total),
+        'total_label': (
+            _page_total_label(page_obj) if page_obj is not None
+            else count_label(0)
+        ),
         **_records_total_context(),
         'query_string': _clean_query_string(request.GET),
     })
@@ -563,7 +654,7 @@ def search_records(request):
     if has_query:
         queryset = filter_accounts(request.GET)
         page_obj = _paginate_accounts(request, queryset)
-        total = page_obj.paginator.count
+        total = _page_total(page_obj)
         records = page_obj.object_list
 
     return render(request, 'vault/search.html', {
@@ -572,7 +663,10 @@ def search_records(request):
         'records': records,
         'page_obj': page_obj,
         'total': total,
-        'total_label': count_label(total),
+        'total_label': (
+            _page_total_label(page_obj) if page_obj is not None
+            else count_label(0)
+        ),
         'query_string': _clean_query_string(request.GET),
     })
 
@@ -593,7 +687,7 @@ def advanced_search(request):
         params['adv'] = '1'
         queryset = filter_accounts(params)
         page_obj = _paginate_accounts(request, queryset)
-        total = page_obj.paginator.count
+        total = _page_total(page_obj)
         records = page_obj.object_list
 
     return render(request, 'vault/advanced_search.html', {
@@ -601,7 +695,10 @@ def advanced_search(request):
         'records': records,
         'page_obj': page_obj,
         'total': total,
-        'total_label': count_label(total),
+        'total_label': (
+            _page_total_label(page_obj) if page_obj is not None
+            else count_label(0)
+        ),
         'query_string': _clean_query_string(request.GET),
     })
 
@@ -670,6 +767,7 @@ def add_account(request):
         if form.is_valid():
             try:
                 account = form.save()
+                invalidate_table_totals()
             except ValidationError as error:
                 form.add_error(None, error)
                 return _render_account_form(request, form, 'vault/add.html')
@@ -694,6 +792,7 @@ def update_account(request, pk):
         if form.is_valid():
             try:
                 account = form.save()
+                invalidate_table_totals()
             except ValidationError as error:
                 form.add_error(None, error)
                 return _render_account_form(
@@ -720,6 +819,7 @@ def delete_account(request, pk):
 
     if request.method == 'POST':
         record.delete()
+        invalidate_table_totals()
         messages.success(
             request,
             _('Record #%(record_id)s deleted successfully.')
@@ -739,7 +839,7 @@ def delete_account(request, pk):
 def references_index(request):
     """Overview of the five reference tables and how many values each holds."""
     reference_counts = {
-        kind: exact_count(REFERENCE_REGISTRY[kind]['model'].objects.all())
+        kind: table_total(REFERENCE_REGISTRY[kind]['model'])
         for kind in REFERENCE_REGISTRY
     }
     reference_rows = [
@@ -751,7 +851,7 @@ def references_index(request):
         }
         for kind in REFERENCE_REGISTRY
     ]
-    total_records = exact_count(Account.objects.all())
+    total_records = table_total(Account)
     return render(request, 'vault/references_index.html', {
         'reference_rows': reference_rows,
         'total_records': total_records,
@@ -774,6 +874,8 @@ def reference_list(request, kind):
             name = form.cleaned_data['name']
             entity, created = model.objects.get_or_create(name=name)
             if created:
+                invalidate_table_totals()
+            if created:
                 messages.success(
                     request,
                     _('%(label)s added successfully.')
@@ -790,7 +892,9 @@ def reference_list(request, kind):
         form = ReferenceForm(kind=kind)
 
     qs = model.objects.order_by('name')
-    page_obj = _paginate(request, qs, per_page=100)
+    page_obj = CachedTotalPaginator(qs, 100, model).get_page(
+        request.GET.get('page', '1'),
+    )
     total_values = page_obj.paginator.count
     entities = list(page_obj.object_list)
     _attach_usage(kind, entities)
@@ -821,6 +925,7 @@ def reference_delete(request, kind, pk):
         usage = entity.accounts.count()
         try:
             entity.delete()
+            invalidate_table_totals()
             messages.success(
                 request,
                 _('%(label)s deleted successfully.') % {'label': registry['label']}
@@ -1013,6 +1118,30 @@ def import_from_file(request):
 def _stream_import_progress(uploaded_files, paths, fast_mode=False):
     """Stream manifest scanning and durable import progress as NDJSON."""
     def events():
+        # In production the import worker and response generator run
+        # concurrently, so a bounded queue provides backpressure if the
+        # client reads progress slowly. In an outer test transaction the
+        # worker runs inline before events are drained; keep that test-only
+        # queue unbounded to avoid blocking the same thread.
+        background = not connection.in_atomic_block
+        updates = queue.Queue(
+            maxsize=MAX_IMPORT_PROGRESS_EVENTS if background else 0,
+        )
+        abandoned = threading.Event()
+
+        def emit(update):
+            """Queue a progress event, but never block once the client left.
+
+            The import must outlive the browser: if the page is closed or the
+            user navigates away, nothing drains the bounded queue any more.
+            """
+            while not abandoned.is_set():
+                try:
+                    updates.put(update, timeout=0.5)
+                    return
+                except queue.Full:
+                    continue
+
         yield json.dumps({'type': 'phase', 'phase': 'counting'}) + '\n'
 
         path_groups = [
@@ -1038,7 +1167,6 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
             }) + '\n'
             return
 
-        updates = queue.Queue()
         result = {
             'created': 0,
             'skipped': 0,
@@ -1050,7 +1178,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
         def announce_job(job):
             job_id = str(job.job_id)
             result['job_ids'].append(job_id)
-            updates.put({
+            emit({
                 'type': 'job',
                 'job_id': job_id,
                 'source_name': job.source_name,
@@ -1085,7 +1213,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                 def report_file_scanned(_source, _byte_size, _line_count):
                     nonlocal scanned
                     scanned += 1
-                    updates.put({
+                    emit({
                         'type': 'count_progress',
                         'files_scanned': scanned,
                         'total_files': total_files,
@@ -1118,7 +1246,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                     upload_manifest[2] if upload_manifest is not None else 0
                 )
                 total_lines = sum(group_line_counts) + upload_line_count
-                updates.put({
+                emit({
                     'type': 'progress',
                     'phase': 'processing',
                     'processed': 0,
@@ -1146,7 +1274,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
 
                         def path_progress(position, base=processed_before,
                                           active=job_ref):
-                            updates.put({
+                            emit({
                                 'type': 'progress',
                                 'phase': 'processing',
                                 'job_id': active.get('job_id'),
@@ -1174,7 +1302,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                             worker_error.append('ImportIncomplete')
                         processed_before += group_total
                         completed_files += len(group_files)
-                        updates.put({
+                        emit({
                             'type': 'progress',
                             'phase': 'processing',
                             'processed': min(total_lines, processed_before),
@@ -1192,7 +1320,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
 
                         def upload_progress(position, base=processed_before,
                                             active=job_ref):
-                            updates.put({
+                            emit({
                                 'type': 'progress',
                                 'phase': 'processing',
                                 'job_id': active.get('job_id'),
@@ -1219,7 +1347,7 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
                             worker_error.append('ImportIncomplete')
                         processed_before += upload_line_count
                         completed_files += len(uploaded_files)
-                        updates.put({
+                        emit({
                             'type': 'progress',
                             'phase': 'processing',
                             'processed': min(total_lines, processed_before),
@@ -1234,13 +1362,12 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
             finally:
                 if background:
                     connections.close_all()
-                updates.put(None)
+                emit(None)
 
         # Django TestCase and explicit outer transactions cannot share a
         # database transaction with a worker thread. Run inline in that case
         # so test/transaction isolation is preserved; normal production
         # requests still process in the background and stream each batch.
-        background = not connection.in_atomic_block
         worker = None
         if background:
             worker = threading.Thread(
@@ -1252,13 +1379,21 @@ def _stream_import_progress(uploaded_files, paths, fast_mode=False):
             worker.start()
         else:
             import_worker(background=False)
-        while True:
-            update = updates.get()
-            if update is None:
-                break
-            yield json.dumps(update) + '\n'
-        if worker is not None:
-            worker.join()
+        try:
+            while True:
+                update = updates.get()
+                if update is None:
+                    break
+                yield json.dumps(update) + '\n'
+        finally:
+            # Normal end, or GeneratorExit because the client disconnected.
+            # Django closes request.FILES (deleting the temporary uploads) as
+            # soon as the response is closed, so on a disconnect keep this
+            # request open until the worker has finished reading them; the
+            # job is durable and its progress stays visible on the job page.
+            abandoned.set()
+            if worker is not None:
+                worker.join()
 
         if worker_error:
             yield json.dumps({

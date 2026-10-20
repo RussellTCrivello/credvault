@@ -1,0 +1,114 @@
+{
+  "fast_mode": true,
+  "query_workers": 2,
+  "import_seconds": 72.0,
+  "accounts_before": 879519,
+  "accounts_added": 176255,
+  "accounts_per_second": 2448.9,
+  "database_growth_bytes": 167747584,
+  "wal_bytes": "744355081",
+  "import_error": null,
+  "query_errors": [],
+  "baseline": {
+    "exact_email": {
+      "n": 10,
+      "p50_ms": 9.2,
+      "p95_ms": 12.3,
+      "p99_ms": 12.3,
+      "max_ms": 12.3
+    },
+    "exact_domain_broad": {
+      "n": 10,
+      "p50_ms": 69.0,
+      "p95_ms": 73.0,
+      "p99_ms": 73.0,
+      "max_ms": 73.0
+    },
+    "exact_domain_rare": {
+      "n": 10,
+      "p50_ms": 17.2,
+      "p95_ms": 21.0,
+      "p99_ms": 21.0,
+      "max_ms": 21.0
+    },
+    "substring_url_rare": {
+      "n": 10,
+      "p50_ms": 20.1,
+      "p95_ms": 26.3,
+      "p99_ms": 26.3,
+      "max_ms": 26.3
+    },
+    "substring_url_broad": {
+      "n": 10,
+      "p50_ms": 81.6,
+      "p95_ms": 95.0,
+      "p99_ms": 95.0,
+      "max_ms": 95.0
+    },
+    "substring_keyword": {
+      "n": 10,
+      "p50_ms": 108.7,
+      "p95_ms": 137.0,
+      "p99_ms": 137.0,
+      "max_ms": 137.0
+    },
+    "cursor_page_broad": {
+      "n": 10,
+      "p50_ms": 33.3,
+      "p95_ms": 50.6,
+      "p99_ms": 50.6,
+      "max_ms": 50.6
+    }
+  },
+  "during_import": {
+    "exact_email": {
+      "n": 52,
+      "p50_ms": 9.7,
+      "p95_ms": 25.9,
+      "p99_ms": 55.8,
+      "max_ms": 100.0
+    },
+    "exact_domain_broad": {
+      "n": 52,
+      "p50_ms": 200.9,
+      "p95_ms": 270.0,
+      "p99_ms": 378.3,
+      "max_ms": 409.8
+    },
+    "exact_domain_rare": {
+      "n": 52,
+      "p50_ms": 62.9,
+      "p95_ms": 82.2,
+      "p99_ms": 104.8,
+      "max_ms": 119.8
+    },
+    "substring_url_rare": {
+      "n": 52,
+      "p50_ms": 63.3,
+      "p95_ms": 133.3,
+      "p99_ms": 145.1,
+      "max_ms": 146.4
+    },
+    "substring_url_broad": {
+      "n": 52,
+      "p50_ms": 950.7,
+      "p95_ms": 1298.1,
+      "p99_ms": 2071.5,
+      "max_ms": 2075.7
+    },
+    "substring_keyword": {
+      "n": 50,
+      "p50_ms": 1022.5,
+      "p95_ms": 1251.2,
+      "p99_ms": 2286.7,
+      "max_ms": 2286.7
+    },
+    "cursor_page_broad": {
+      "n": 50,
+      "p50_ms": 49.0,
+      "p95_ms": 224.7,
+      "p99_ms": 280.2,
+      "max_ms": 280.2
+    }
+  }
+}

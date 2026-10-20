@@ -1,0 +1,1 @@
+{"name": "no_like_indexes", "rc": 0, "seconds": 219.5, "accounts_before": 6951462, "accounts_added": 440022, "accounts_per_second": 2005.0, "wal_bytes": 6515498376, "shared_buffers": "512MB"}

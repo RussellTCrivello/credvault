@@ -92,6 +92,7 @@ into Django form and model fields, and the ``CANONICALIZERS`` /
 (``url``, ``email``, ``user``, ``pass``, ``ip``).
 """
 
+import functools
 import ipaddress
 import re
 import unicodedata
@@ -215,7 +216,25 @@ def _idna_encode(host):
         return None
 
 
+#: Hosts repeat heavily inside a source file, and normalizing one is a pure
+#: function of its text. A small per-process LRU (host names only, never
+#: credentials; at most this many short strings) removes the repeat work.
+_HOST_CACHE_SIZE = 4096
+
+
 def normalize_host(value):
+    """Canonical form of a host name (see ``_normalize_host_uncached``)."""
+    if isinstance(value, str):
+        return _normalize_host_cached(value)
+    return _normalize_host_uncached(value)
+
+
+@functools.lru_cache(maxsize=_HOST_CACHE_SIZE)
+def _normalize_host_cached(value):
+    return _normalize_host_uncached(value)
+
+
+def _normalize_host_uncached(value):
     """
     Return the canonical, lower-case, ASCII form of a host name.
 

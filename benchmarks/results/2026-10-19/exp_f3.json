@@ -1,0 +1,1 @@
+{"name": "wal_off_rerun", "rc": 0, "seconds": 96.1, "accounts_before": 7919592, "accounts_added": 176333, "accounts_per_second": 1834.8, "wal_bytes": 3648189024, "shared_buffers": "512MB"}

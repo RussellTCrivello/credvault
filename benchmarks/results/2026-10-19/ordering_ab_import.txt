@@ -1,0 +1,9 @@
+ordered: 11 order-by lines
+{"name": "ab_ordered", "rc": 0, "seconds": 79.5, "accounts_before": 1131661, "accounts_added": 439862, "accounts_per_second": 5532.2, "wal_bytes": 2177542320, "shared_buffers": "512MB"}
+unordered: 0 order-by lines
+{"name": "ab_unordered", "rc": 0, "seconds": 81.2, "accounts_before": 1131661, "accounts_added": 439862, "accounts_per_second": 5414.6, "wal_bytes": 2184248352, "shared_buffers": "512MB"}
+ordered: 11 order-by lines
+{"name": "ab_ordered", "rc": 0, "seconds": 79.0, "accounts_before": 1131661, "accounts_added": 439862, "accounts_per_second": 5568.2, "wal_bytes": 2179179752, "shared_buffers": "512MB"}
+unordered: 0 order-by lines
+{"name": "ab_unordered", "rc": 0, "seconds": 81.4, "accounts_before": 1131661, "accounts_added": 439862, "accounts_per_second": 5401.7, "wal_bytes": 2184988648, "shared_buffers": "512MB"}
+ABDONE

@@ -876,9 +876,12 @@ class ImportRecord(models.Model):
         ('failed', _('Failed')),
     ]
 
+    # No separate FK index: both (import_job, source_position) and
+    # (import_job, status) below lead with this column, so a third index on
+    # it alone only adds ledger write cost.
     import_job = models.ForeignKey(
         ImportJob, on_delete=models.CASCADE, related_name='records',
-        verbose_name=_('Import job'),
+        verbose_name=_('Import job'), db_index=False,
     )
     source_position = models.BigIntegerField(
         _('Source position'),
@@ -896,9 +899,12 @@ class ImportRecord(models.Model):
         ),
     )
 
+    # No standalone status index: every status query is scoped to a job and
+    # served by (import_job, status). The two single-column indexes had zero
+    # scans after 7.4 M accounts and cost a write on every ledger row.
     status = models.CharField(
         _('Status'), max_length=20, choices=STATUS_CHOICES,
-        default='pending', db_index=True,
+        default='pending',
     )
 
     # Reference to the created Account (if committed)
@@ -945,10 +951,6 @@ class ImportRecord(models.Model):
             models.Index(
                 fields=['import_job', 'source_position'],
                 name='vault_importrec_job_pos_idx',
-            ),
-            models.Index(
-                fields=['idempotency_key'],
-                name='vault_importrec_idem_idx',
             ),
         ]
 

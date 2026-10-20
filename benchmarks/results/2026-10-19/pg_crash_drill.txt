@@ -1,0 +1,20 @@
+stopping server immediately at 01:58:30
+/tmp/bench/s0: import job 0e43c59d-f30e-4a61-8ab8-cd6b41d3173b ended 'processing'; inspect it on the import jobs page before retrying.
+Done with errors. 1 of 1 import job(s) did not complete. Imported 0 record(s); skipped 0 non-record line(s); failed 0.
+CommandError: 1 of 1 import job(s) did not complete.
+server restart + WAL crash recovery: 9.6 s
+2026-10-19 01:58:38.225 UTC [27157] LOG:  redo done at 13/FA9E7FB0 system usage: CPU: user: 4.92 s, system: 0.65 s, elapsed: 5.58 s
+2026-10-19 01:58:41.849 UTC [27155] LOG:  checkpoint complete: wrote 61714 buffers (94.2%); 0 WAL file(s) added, 72 removed, 15 recycled; write=0.850 s, sync=0.004 s, total=3.621 s; sync files=445, longest=0.002 s, average=0.001 s; distance=1427630 kB, estimate=1427630 kB; lsn=13/FA9E8048, redo lsn=13/FA9E8048
+after crash: accounts=153079 ledger=174119
+-- amcheck (btree incl. heapallindexed) after crash recovery
+amcheck exit 0 (output lines: 0)
+0e43c59d-f30e-4a61-8ab8-cd6b41d3173b status=processing committed=153079 skipped=21040 failed=0 source=s0 -> recovery partial; job now completed (committed=879519 skipped=120481 failed=0)
+recoverimports --run: 120.5 s
+second recoverimports: No recoverable import jobs.
+final accounts=879519 (expected 879519)
+ledger committed+skipped+failed by status:
+committed|879519
+skipped|120481
+duplicate fingerprints: 0
+ledger rows lacking an account although committed: 0
+final amcheck exit 0 (output lines: 0)

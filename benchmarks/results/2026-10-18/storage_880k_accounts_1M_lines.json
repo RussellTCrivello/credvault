@@ -1,0 +1,403 @@
+{
+  "accounts": 879519,
+  "database_bytes": 2107773411,
+  "vault_tables_total_bytes": 2098905088,
+  "bytes_per_account": 2386.4,
+  "tables": [
+    {
+      "table": "vault_importrecord",
+      "total_bytes": 782761984,
+      "heap_bytes": 300384256,
+      "index_bytes": 482254848,
+      "est_rows": 1000012
+    },
+    {
+      "table": "vault_account",
+      "total_bytes": 509607936,
+      "heap_bytes": 150183936,
+      "index_bytes": 359358464,
+      "est_rows": 879519
+    },
+    {
+      "table": "vault_pass",
+      "total_bytes": 274407424,
+      "heap_bytes": 67338240,
+      "index_bytes": 207011840,
+      "est_rows": 879519
+    },
+    {
+      "table": "vault_email",
+      "total_bytes": 262201344,
+      "heap_bytes": 63135744,
+      "index_bytes": 199024640,
+      "est_rows": 753893
+    },
+    {
+      "table": "vault_ip",
+      "total_bytes": 137863168,
+      "heap_bytes": 39370752,
+      "index_bytes": 98451456,
+      "est_rows": 576601
+    },
+    {
+      "table": "vault_url",
+      "total_bytes": 97714176,
+      "heap_bytes": 18243584,
+      "index_bytes": 79429632,
+      "est_rows": 195960
+    },
+    {
+      "table": "vault_user",
+      "total_bytes": 34144256,
+      "heap_bytes": 8577024,
+      "index_bytes": 25534464,
+      "est_rows": 125626
+    },
+    {
+      "table": "vault_importjob",
+      "total_bytes": 180224,
+      "heap_bytes": 8192,
+      "index_bytes": 131072,
+      "est_rows": 1
+    },
+    {
+      "table": "vault_importrecoverylog",
+      "total_bytes": 24576,
+      "heap_bytes": 0,
+      "index_bytes": 16384,
+      "est_rows": 0
+    }
+  ],
+  "indexes": [
+    {
+      "table": "vault_importrecord",
+      "index": "vault_importrecord_idempotency_key_da77985c_like",
+      "bytes": 124690432,
+      "scans": 0
+    },
+    {
+      "table": "vault_importrecord",
+      "index": "vault_importrec_idem_idx",
+      "bytes": 124690432,
+      "scans": 0
+    },
+    {
+      "table": "vault_importrecord",
+      "index": "vault_importrecord_idempotency_key_key",
+      "bytes": 124690432,
+      "scans": 0
+    },
+    {
+      "table": "vault_account",
+      "index": "vault_account_fingerprint_5bceda5e_uniq",
+      "bytes": 110297088,
+      "scans": 919809
+    },
+    {
+      "table": "vault_account",
+      "index": "vault_account_fingerprint_5bceda5e_like",
+      "bytes": 110297088,
+      "scans": 984
+    },
+    {
+      "table": "vault_pass",
+      "index": "vault_pass_name_trgm",
+      "bytes": 50741248,
+      "scans": 0
+    },
+    {
+      "table": "vault_email",
+      "index": "vault_email_name_lower_idx",
+      "bytes": 47628288,
+      "scans": 0
+    },
+    {
+      "table": "vault_email",
+      "index": "vault_email_name_key",
+      "bytes": 47628288,
+      "scans": 753899
+    },
+    {
+      "table": "vault_email",
+      "index": "vault_email_name_1c4a6f40_like",
+      "bytes": 47628288,
+      "scans": 0
+    },
+    {
+      "table": "vault_pass",
+      "index": "vault_pass_name_key",
+      "bytes": 45490176,
+      "scans": 879525
+    },
+    {
+      "table": "vault_pass",
+      "index": "vault_pass_name_2ae36d82_like",
+      "bytes": 45490176,
+      "scans": 0
+    },
+    {
+      "table": "vault_pass",
+      "index": "vault_pass_name_lower_idx",
+      "bytes": 45490176,
+      "scans": 0
+    },
+    {
+      "table": "vault_email",
+      "index": "vault_email_name_trgm",
+      "bytes": 39157760,
+      "scans": 0
+    },
+    {
+      "table": "vault_importrecord",
+      "index": "vault_importrec_job_pos_idx",
+      "bytes": 30924800,
+      "scans": 0
+    },
+    {
+      "table": "vault_account",
+      "index": "vault_acct_created_id_idx",
+      "bytes": 27811840,
+      "scans": 0
+    },
+    {
+      "table": "vault_importrecord",
+      "index": "vault_importrecord_account_id_95a8ecc3",
+      "bytes": 26943488,
+      "scans": 0
+    },
+    {
+      "table": "vault_account",
+      "index": "vault_account_password_id_f3db800f",
+      "bytes": 26779648,
+      "scans": 0
+    },
+    {
+      "table": "vault_account",
+      "index": "vault_account_email_id_c46a575a",
+      "bytes": 23412736,
+      "scans": 0
+    },
+    {
+      "table": "vault_ip",
+      "index": "vault_ip_name_09e37067_like",
+      "bytes": 23363584,
+      "scans": 0
+    },
+    {
+      "table": "vault_ip",
+      "index": "vault_ip_name_lower_idx",
+      "bytes": 23363584,
+      "scans": 0
+    },
+    {
+      "table": "vault_ip",
+      "index": "vault_ip_name_key",
+      "bytes": 23363584,
+      "scans": 576605
+    },
+    {
+      "table": "vault_importrecord",
+      "index": "vault_importrecord_pkey",
+      "bytes": 22487040,
+      "scans": 0
+    },
+    {
+      "table": "vault_pass",
+      "index": "vault_pass_pkey",
+      "bytes": 19767296,
+      "scans": 879519
+    },
+    {
+      "table": "vault_account",
+      "index": "vault_account_pkey",
+      "bytes": 19767296,
+      "scans": 979882
+    },
+    {
+      "table": "vault_account",
+      "index": "vault_account_ip_id_269fff31",
+      "bytes": 19030016,
+      "scans": 0
+    },
+    {
+      "table": "vault_email",
+      "index": "vault_email_pkey",
+      "bytes": 16949248,
+      "scans": 753893
+    },
+    {
+      "table": "vault_url",
+      "index": "vault_url_name_trgm",
+      "bytes": 15802368,
+      "scans": 0
+    },
+    {
+      "table": "vault_ip",
+      "index": "vault_ip_name_trgm",
+      "bytes": 15360000,
+      "scans": 0
+    },
+    {
+      "table": "vault_url",
+      "index": "vault_url_name_7d57bf4b_like",
+      "bytes": 14794752,
+      "scans": 0
+    },
+    {
+      "table": "vault_url",
+      "index": "vault_url_name_lower_c_idx",
+      "bytes": 14794752,
+      "scans": 0
+    },
+    {
+      "table": "vault_url",
+      "index": "vault_url_name_key",
+      "bytes": 14794752,
+      "scans": 195966
+    },
+    {
+      "table": "vault_url",
+      "index": "vault_url_name_lower_idx",
+      "bytes": 14794752,
+      "scans": 0
+    },
+    {
+      "table": "vault_account",
+      "index": "vault_account_url_id_165a1aaf",
+      "bytes": 13500416,
+      "scans": 0
+    },
+    {
+      "table": "vault_ip",
+      "index": "vault_ip_pkey",
+      "bytes": 12976128,
+      "scans": 586381
+    },
+    {
+      "table": "vault_account",
+      "index": "vault_account_user_id_3d6a7ad7",
+      "bytes": 8462336,
+      "scans": 3
+    },
+    {
+      "table": "vault_importrecord",
+      "index": "vault_importrec_job_status_idx",
+      "bytes": 7168000,
+      "scans": 0
+    },
+    {
+      "table": "vault_importrecord",
+      "index": "vault_importrecord_status_bd22bf2d",
+      "bytes": 7118848,
+      "scans": 0
+    },
+    {
+      "table": "vault_importrecord",
+      "index": "vault_importrecord_status_bd22bf2d_like",
+      "bytes": 7118848,
+      "scans": 0
+    },
+    {
+      "table": "vault_user",
+      "index": "vault_user_name_trgm",
+      "bytes": 6823936,
+      "scans": 0
+    },
+    {
+      "table": "vault_importrecord",
+      "index": "vault_importrecord_import_job_id_8be0a716",
+      "bytes": 6422528,
+      "scans": 3
+    },
+    {
+      "table": "vault_user",
+      "index": "vault_user_name_lower_idx",
+      "bytes": 5283840,
+      "scans": 0
+    },
+    {
+      "table": "vault_user",
+      "index": "vault_user_name_key",
+      "bytes": 5283840,
+      "scans": 125632
+    },
+    {
+      "table": "vault_user",
+      "index": "vault_user_name_34073d8b_like",
+      "bytes": 5283840,
+      "scans": 0
+    },
+    {
+      "table": "vault_url",
+      "index": "vault_url_pkey",
+      "bytes": 4423680,
+      "scans": 879519
+    },
+    {
+      "table": "vault_user",
+      "index": "vault_user_pkey",
+      "bytes": 2834432,
+      "scans": 125626
+    },
+    {
+      "table": "vault_importjob",
+      "index": "vault_importjob_created_at_883bf640",
+      "bytes": 16384,
+      "scans": 0
+    },
+    {
+      "table": "vault_importjob",
+      "index": "vault_importjob_status_0d0fa630_like",
+      "bytes": 16384,
+      "scans": 0
+    },
+    {
+      "table": "vault_importjob",
+      "index": "vault_importjob_status_0d0fa630",
+      "bytes": 16384,
+      "scans": 0
+    },
+    {
+      "table": "vault_importjob",
+      "index": "vault_importjob_job_id_key",
+      "bytes": 16384,
+      "scans": 0
+    },
+    {
+      "table": "vault_importjob",
+      "index": "vault_importjob_status_idx",
+      "bytes": 16384,
+      "scans": 0
+    },
+    {
+      "table": "vault_importjob",
+      "index": "vault_importjob_lease_idx",
+      "bytes": 16384,
+      "scans": 53
+    },
+    {
+      "table": "vault_importjob",
+      "index": "vault_importjob_pkey",
+      "bytes": 16384,
+      "scans": 348379
+    },
+    {
+      "table": "vault_importjob",
+      "index": "vault_importjob_created_idx",
+      "bytes": 16384,
+      "scans": 0
+    },
+    {
+      "table": "vault_importrecoverylog",
+      "index": "vault_importrecoverylog_pkey",
+      "bytes": 8192,
+      "scans": 0
+    },
+    {
+      "table": "vault_importrecoverylog",
+      "index": "vault_importrecoverylog_import_job_id_b7e87346",
+      "bytes": 8192,
+      "scans": 0
+    }
+  ]
+}

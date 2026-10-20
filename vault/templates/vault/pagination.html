@@ -1,9 +1,18 @@
 {% load i18n %}
-{% if page_obj and page_obj.paginator.num_pages > 1 %}
+{% if page_obj and page_obj.paginator is None %}
+  {% if page_obj.next_cursor %}
+  <nav class="vault-pagination" aria-label="{% trans 'Pagination' %}">
+    <span class="pagination-controls">
+      <a class="button small-button" href="?{% if query_string %}{{ query_string }}&{% endif %}after={{ page_obj.next_cursor }}">{% trans "Next" %}</a>
+    </span>
+  </nav>
+  {% endif %}
+{% elif page_obj and page_obj.paginator.num_pages > 1 %}
   <nav class="vault-pagination" aria-label="{% trans 'Pagination' %}">
     <span class="pagination-status">
-      {% blocktrans with number=page_obj.number total=page_obj.paginator.num_pages %}Page {{ number }} of {{ total }}{% endblocktrans %}
+      {% blocktrans with number=page_obj.number total=page_obj.paginator.num_pages %}Page {{ number }} of {{ total }}{% endblocktrans %}{% if page_obj.paginator.capped %}+{% endif %}
     </span>
+    {% if page_obj.paginator.capped %}<span class="pagination-note vault-muted">{% blocktrans with cap=page_obj.paginator.cap %}Totals are capped at {{ cap }} matches here. Exports include every match; use cursor paging (sort=id&amp;after=) to walk them all.{% endblocktrans %}</span>{% endif %}
     <span class="pagination-controls">
       {% if page_obj.has_previous %}
         <a class="button small-button" href="?{% if query_string %}{{ query_string }}&{% else %}{% endif %}page={{ page_obj.previous_page_number }}">{% trans "Previous" %}</a>

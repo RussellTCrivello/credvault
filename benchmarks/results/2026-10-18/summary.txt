@@ -1,0 +1,47 @@
+Raw numbers copied from the console for experiments that print text, 2026-10-18.
+Environment: see benchmarks/README.md. Base data: 879,519 accounts / 1,000,000 ledger rows.
+
+Durable import of 1,000,000 lines (8 files, 10% dup, 2% invalid) into an empty database, one process,
+default settings, 2 parse workers: 207 s (4,830 lines/s); 879,519 committed, 120,481 skipped, 0 failed.
+(A ~10 s unrelated test run overlapped; treat as +/- 5 %.)
+
+Batch size, 200k-line import (176,007 new accounts) into the 880k-account database, no concurrent queries,
+new schema, VAULT_IMPORT_BATCH_ROWS:
+  10,000   48.7 s  3,616 accounts/s  WAL 1,082 MB  growth 274 MB
+  50,000   46.4 s  3,791 accounts/s  WAL 1,092 MB  growth 274 MB
+  250,000  40.6 s  4,331 accounts/s  WAL 1,092 MB  growth 274 MB   (2 files x 100k lines: one batch per file)
+  250,000 with wal_compression=pglz: 45.1 s 3,900 accounts/s WAL 740 MB (-32 %), growth 274 MB
+
+File-level parallelism, 200k lines / 4 files (176,179 new accounts), same populated clone, batch 250k:
+  --parallel-files 1 (2 parse workers)  38.7 s  4,548 accounts/s  WAL 1,093 MB
+  --parallel-files 2                     40.1 s  4,388 accounts/s  WAL 1,104 MB
+  --parallel-files 4                     43.7 s  4,029 accounts/s  WAL 1,193 MB
+  All three produced 176,179 accounts, 0 duplicate fingerprints.
+
+SIGKILL mid-import (200k lines, batch 20,000), then `manage.py recoverimports --run`:
+  killed after ~22 s with 81,582 of 200,000 lines durable (71,996 accounts + 9,586 skipped)
+  recovery replayed the remaining 118,418 lines in 23.3 s
+  final: 176,179 new accounts (identical to the uninterrupted run), ledger +200,000 rows, 200,000 distinct
+  idempotency keys, 0 duplicate fingerprints. Recovery log outcome 'partial' (by design: lines were replayed).
+
+Peak resident memory of the process tree (importfolder, populated clone, default batch 250,000, 2 parse workers):
+  200k lines (one file):  peak single process 559 MB, tree 661 MB, 38.8 s
+  1M lines (one file):    peak single process 789 MB, tree 887 MB, 207.0 s
+  (5x the input produced 1.4x the memory: bounded by batch/queue limits, not by file size.)
+
+Commit latency probe (300 single-row transactions, local virtual disk, fdatasync):
+  synchronous_commit=on  p50 0.53 ms  p95 0.62 ms
+  synchronous_commit=off p50 0.41 ms  p95 0.58 ms
+  Sandbox storage is not representative of network block storage.
+
+Memory after bounding the per-job reference cache (MAX_REFERENCE_CACHE_VALUES = 200,000 per kind):
+  200k lines: peak single process 556 MB, tree 658 MB, 40.1 s
+  1M lines:   peak single process 637 MB, tree 735 MB, 201.0 s   (was 789 / 887 MB, 207.0 s)
+
+Parse stage before the host-normalization cache (200k lines): 3.33 s (60,071 lines/s); after: 2.49 s (80,223 lines/s).
+
+File-level parallelism, empty database, 100,000 unique records (FileConcurrencyBenchmarkTests):
+  --parallel-files=1: 18.1 s (5,513/s); =2: 14.0 s (7,134/s); =4: 14.1 s (7,072/s)
+  20,000 records: 3.5 s (5,661/s); 2.6 s (7,569/s); 2.9 s (6,912/s)
+Opt-in tests at reduced size after the final changes: ImportThroughputTests 20k durable 3.4 s (5,850/s),
+  bulk 2.6 s (7,823/s); ConcurrentImportSearchTests 30k durable 5.4 s: exact email idle p50 10.1 ms / during p95 222.5 ms (n=34).

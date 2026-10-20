@@ -1,0 +1,1 @@
+{"name": "sb512_all_indexes_rerun", "rc": 0, "seconds": 227.6, "accounts_before": 6511317, "accounts_added": 440145, "accounts_per_second": 1933.9, "wal_bytes": 6731536440, "shared_buffers": "512MB"}

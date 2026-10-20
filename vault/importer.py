@@ -19,7 +19,7 @@ across millions of lines and thousands of files:
      and ORM-saved records match exactly. The unique fingerprint drops records
      that are already stored.
 
-Each batch runs in a single transaction. See README.md, "Performance", for
+Each batch runs in a single transaction. See docs/README.md, "Performance", for
 measured speeds.
 
 Canonicalizing in step 2 is what keeps the reference tables free of
@@ -54,12 +54,16 @@ Speed for very large jobs:
 
 import os
 import re
+import sys
 from contextlib import contextmanager
 
 from django.db import connection, transaction
 from django.utils import timezone
 
-from .utils import NO_IP, CanonicalRecord, parse_line
+from .utils import (
+    NO_IP, OversizedSourceLine, CanonicalRecord,
+    iter_bounded_source_lines, parse_line,
+)
 from .validators import (
     classify_identifier, normalize_ip, normalize_password, normalize_url,
 )
@@ -92,25 +96,30 @@ _REFERENCE_INSERTS = (
     ("vault_url",
      "INSERT INTO vault_url (name, created_at, updated_at)"
      " SELECT DISTINCT url, %s, %s FROM vault_import_stage"
+     " ORDER BY url"
      " ON CONFLICT (name) DO NOTHING"),
     ("vault_pass",
      "INSERT INTO vault_pass (name, created_at, updated_at)"
      " SELECT DISTINCT secret, %s, %s FROM vault_import_stage"
+     " ORDER BY secret"
      " ON CONFLICT (name) DO NOTHING"),
     ("vault_email",
      "INSERT INTO vault_email (name, created_at, updated_at)"
      " SELECT DISTINCT ident, %s, %s FROM vault_import_stage"
      " WHERE account_type = 'email'"
+     " ORDER BY ident"
      " ON CONFLICT (name) DO NOTHING"),
     ("vault_user",
      "INSERT INTO vault_user (name, created_at, updated_at)"
      " SELECT DISTINCT ident, %s, %s FROM vault_import_stage"
      " WHERE account_type <> 'email'"
+     " ORDER BY ident"
      " ON CONFLICT (name) DO NOTHING"),
     ("vault_ip",
      "INSERT INTO vault_ip (name, created_at, updated_at)"
      " SELECT DISTINCT ip, %s, %s FROM vault_import_stage"
      " WHERE ip IS NOT NULL"
+     " ORDER BY ip"
      " ON CONFLICT (name) DO NOTHING"),
 )
 
@@ -149,37 +158,183 @@ _ACCOUNT_INSERT = (
     " ) AS k"
     " WHERE (k.account_type = 'email' AND k.email_id IS NOT NULL)"
     "    OR (k.account_type <> 'email' AND k.user_id IS NOT NULL)"
+    " ORDER BY " + _FINGERPRINT_SQL +
     " ON CONFLICT (fingerprint) DO NOTHING"
 )
 
-#: Rows per COPY batch; one transaction per batch keeps memory flat. Every
-#: batch costs one transaction, one COPY, one ANALYZE and one plan, so a
-#: larger batch means less overhead per line -- but the parser has to fill a
-#: batch before the database work on it can start, so a batch bigger than the
-#: input delays everything and measured slower than this default above about
-#: half a million rows (see README.md, "Import speed", for the curve).
-#: ``VAULT_IMPORT_BATCH_ROWS`` overrides the size (minimum 10,000).
-DEFAULT_STAGE_ROWS = 250000
 
-#: One buffered row tuple costs about 370 bytes in Python (measured on the
-#: five stored values), so 700 rows per free megabyte keeps the buffer near a
-#: quarter of the free memory. That only lowers the default on a machine (or
-#: container) with very little memory left; more memory does not raise it,
-#: because the measurements above say a bigger batch is not faster.
+#: Reference tables the account INSERT joins to, in a fixed order (the order
+#: matters: ANALYZE takes a lock that lasts until the batch commits).
+_JOINED_REFERENCE_TABLES = (
+    'vault_email', 'vault_ip', 'vault_pass', 'vault_url', 'vault_user',
+)
+_STALE_STATS_MIN_PAGES = 16
+
+
+def refresh_stale_reference_stats(cursor):
+    """ANALYZE reference tables whose planner statistics say "empty".
+
+    A table that was analyzed while empty (after a purge, a restore of an empty
+    table, a test flush) keeps ``reltuples = 0``.  PostgreSQL then estimates
+    ONE row no matter how large the table has since become, and the account
+    INSERT's joins degrade to a nested loop that rescans a 50,000-row table for
+    every staged row: one backend ran at 100 % CPU for 25 minutes on a
+    50,000-line batch.  ANALYZE inside the batch transaction sees the rows this
+    batch just inserted.  Healthy tables (``reltuples > 0``) are never touched,
+    so a large database pays nothing per batch.
+
+    Returns the tables analyzed (for tests and logs).
+    """
+    cursor.execute(
+        "SELECT c.relname FROM pg_class c"
+        " WHERE c.oid = ANY(ARRAY["
+        + ", ".join(f"to_regclass('{t}')" for t in _JOINED_REFERENCE_TABLES)
+        + "]) AND c.reltuples <= 0"
+        " AND pg_relation_size(c.oid) >= %s ORDER BY c.relname",
+        (_STALE_STATS_MIN_PAGES * 8192,))
+    stale = [row[0] for row in cursor.fetchall()]
+    for table in stale:
+        if table in _JOINED_REFERENCE_TABLES:  # names are constants, never input
+            cursor.execute(f'ANALYZE {table}')
+    return stale
+
+#: Rows per COPY batch; one transaction per batch keeps memory bounded. The
+#: measured default is 250,000; very large batches add memory and commit cost.
+#: An operator override is supported, but is capped at one million rows.
+DEFAULT_STAGE_ROWS = 250000
+MAX_IMPORT_BATCH_ROWS = 1000000
+#: 700 buffered rows per free MB lowers the default on memory-constrained hosts.
 _ROWS_PER_FREE_MB = 700
 
-#: Raw lines handed to one parse task; small enough for even progress between
-#: workers, large enough that pickling overhead is noise.
-_PARSE_CHUNK_LINES = 25000
+#: Hard upper bound for parse subprocesses, including explicit environment
+#: overrides. The default remains at most four and follows the available CPU
+#: count; larger values are for measured high-core deployments only.
+MAX_IMPORT_WORKERS = 16
 
-#: Chunks allowed in flight per worker before the parent applies backpressure.
+#: Pending parse results are bounded globally as well as per worker. Each bulk
+#: chunk contains 25k lines; this cap prevents multiplying queued source bytes
+#: without limit when the worker count is raised.
+_PARSE_CHUNK_LINES = 25000
 _MAX_PENDING_CHUNKS_PER_WORKER = 3
+MAX_IN_FLIGHT_PARSE_CHUNKS = 16
+#: Bounds both a single worker task and all queued parse input/results. The
+#: accounting intentionally estimates expansion, not just raw source bytes.
+MAX_PARSE_TASK_BYTES = 8 * 1024 * 1024
+MAX_IN_FLIGHT_PARSE_BYTES = 64 * 1024 * 1024
+_PARSE_ITEM_OVERHEAD_BYTES = 512
+_PARSE_EXPANSION_FACTOR = 4
+#: The row and audit-metadata buffers share this cap before each DB commit.
+MAX_IMPORT_BUFFER_BYTES = 256 * 1024 * 1024
+
+#: ``work_mem`` is per PostgreSQL sort/hash node, not a process-wide budget.
+#: Default conservatively for bounded file concurrency; operators can raise it
+#: after measuring their PostgreSQL memory headroom. The hard per-node cap is
+#: 256 MiB, and actual total use may multiply across query nodes and sessions.
+DEFAULT_IMPORT_WORK_MEM = "64MB"
+MAX_IMPORT_WORK_MEM_BYTES = 256 * 1024 * 1024
 
 #: ``maintenance_work_mem`` used while the trigram indexes are rebuilt
 #: (``VAULT_MAINTENANCE_WORK_MEM`` override, e.g. ``2GB`` on a big server).
 DEFAULT_MAINTENANCE_WORK_MEM = "1024MB"
 
 _MEMORY_SETTING_RE = re.compile(r"^[0-9]+(?:kB|MB|GB|TB)?$", re.IGNORECASE)
+_MEMORY_UNIT_BYTES = {
+    "": 1024, "kb": 1024, "mb": 1024 ** 2,
+    "gb": 1024 ** 3, "tb": 1024 ** 4,
+}
+_CANONICAL_MEMORY_UNITS = {
+    "": "", "kb": "kB", "mb": "MB", "gb": "GB", "tb": "TB",
+}
+
+
+def _bounded_memory_setting(value, default, maximum_bytes=None):
+    """Validate a PostgreSQL memory setting and optionally cap its size."""
+    value = (value or "").strip()
+    match = re.fullmatch(r"([0-9]+)(kB|MB|GB|TB)?", value, re.IGNORECASE)
+    if not match:
+        return default
+    try:
+        amount = int(match.group(1))
+    except ValueError:
+        return default
+    unit = (match.group(2) or "").lower()
+    byte_count = amount * _MEMORY_UNIT_BYTES[unit]
+    if byte_count < 64 * 1024:
+        return default
+    if maximum_bytes is not None and byte_count > maximum_bytes:
+        return default
+    suffix = _CANONICAL_MEMORY_UNITS[unit]
+    return f"{amount}{suffix}"
+
+
+def import_work_mem():
+    """Configured ``work_mem`` for importer transactions (maximum 256 MiB)."""
+    raw = os.environ.get("VAULT_IMPORT_WORK_MEM", "")
+    if not raw:
+        return DEFAULT_IMPORT_WORK_MEM
+    return _bounded_memory_setting(
+        raw, DEFAULT_IMPORT_WORK_MEM, MAX_IMPORT_WORK_MEM_BYTES,
+    )
+
+
+def estimated_parse_item_bytes(line):
+    """Conservative byte estimate for one raw line crossing a parse worker."""
+    if isinstance(line, OversizedSourceLine):
+        payload_bytes = sys.getsizeof(line)
+    elif isinstance(line, (bytes, bytearray)):
+        payload_bytes = len(line)
+    elif isinstance(line, str):
+        # Four bytes per Unicode code point is a safe upper bound for UTF-8.
+        payload_bytes = len(line) * 4
+    else:
+        payload_bytes = sys.getsizeof(line)
+    return _PARSE_ITEM_OVERHEAD_BYTES + payload_bytes * _PARSE_EXPANSION_FACTOR
+
+
+def estimated_batch_item_bytes(row, meta=None):
+    """Estimate Python row/ledger objects retained until a batch commit."""
+    size = _PARSE_ITEM_OVERHEAD_BYTES + sys.getsizeof(row)
+    if row is not None:
+        size += sum(sys.getsizeof(value) for value in row)
+    if meta is not None:
+        size += sys.getsizeof(meta)
+        size += sum(
+            sys.getsizeof(key) + sys.getsizeof(value)
+            for key, value in meta.items()
+        )
+    return size
+
+
+def bounded_worker_count(value):
+    """Clamp a configured parser-worker count to a finite safe range."""
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return 1
+    return max(1, min(value, MAX_IMPORT_WORKERS))
+
+
+def max_pending_parse_chunks(workers):
+    """Bound in-flight parse tasks regardless of the configured worker count."""
+    try:
+        workers = max(1, min(int(workers), MAX_IMPORT_WORKERS))
+    except (TypeError, ValueError):
+        workers = 1
+    return max(1, min(
+        workers * _MAX_PENDING_CHUNKS_PER_WORKER,
+        MAX_IN_FLIGHT_PARSE_CHUNKS,
+    ))
+
+
+def bounded_batch_rows(value):
+    """Clamp explicit batch sizes without preventing small test/API batches."""
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_STAGE_ROWS
+    if value < 1:
+        return DEFAULT_STAGE_ROWS
+    return min(value, MAX_IMPORT_BATCH_ROWS)
 
 
 def _cgroup_free_megabytes():
@@ -247,16 +402,15 @@ def stage_rows():
     """
     Rows per batch.
 
-    ``VAULT_IMPORT_BATCH_ROWS`` wins. Otherwise the default is
-    ``DEFAULT_STAGE_ROWS`` (250,000 rows, about 90 MB of buffered rows, and
-    the fastest size measured end to end); it only shrinks when the machine
-    or container has less than about 360 MB of memory left, so the buffer
-    stays near a quarter of the free memory even there.
+    ``VAULT_IMPORT_BATCH_ROWS`` wins and is capped at one million rows to
+    prevent an accidental unbounded Python buffer. Otherwise the default is
+    ``DEFAULT_STAGE_ROWS`` (250,000 rows); it only shrinks when the machine or
+    container has very little free memory.
     """
     raw = os.environ.get("VAULT_IMPORT_BATCH_ROWS")
     if raw:
         try:
-            return max(10000, int(raw))
+            return max(10000, min(MAX_IMPORT_BATCH_ROWS, int(raw)))
         except (TypeError, ValueError):
             pass
     free_mb = _free_megabytes()
@@ -269,22 +423,21 @@ def worker_count():
     """
     Parse workers to use (``VAULT_IMPORT_WORKERS`` override).
 
-    An explicit override is honored on every platform: workers run in a
-    fork pool where fork exists and in a spawn pool where it does not
-    (Windows) -- see ``_parse_context``.  Without the override the
-    default is up to 4 or the CPU count, whichever is smaller, on POSIX;
-    other platforms default to 1 (inline parsing), because spawn pays a
-    process-startup cost that only pays off when it is asked for.
+    An explicit override is honored on every platform but clamped to
+    ``MAX_IMPORT_WORKERS``. Workers use fork where available and spawn on
+    platforms without fork. Without an override the default is at most four
+    and follows the CPU count on POSIX; other platforms default to one because
+    spawn startup cost only pays off when it is requested.
     """
     try:
         value = int(os.environ.get("VAULT_IMPORT_WORKERS", 0))
     except (TypeError, ValueError):
         value = 0
     if value > 0:
-        return value
+        return bounded_worker_count(value)
     if os.name != "posix":
         return 1
-    return max(1, min(4, os.cpu_count() or 1))
+    return max(1, min(4, os.cpu_count() or 1, MAX_IMPORT_WORKERS))
 
 
 def _parse_context():
@@ -332,7 +485,7 @@ def _flush_batch(rows):
         # Bulk loads do not need to wait for the WAL flush of every batch; a
         # power loss can at worst lose the last batches, not corrupt data.
         cursor.execute("SET LOCAL synchronous_commit = off")
-        cursor.execute("SET LOCAL work_mem = %s", ("1024MB",))
+        cursor.execute("SET LOCAL work_mem = %s", (import_work_mem(),))
         cursor.execute(_STAGE_DDL)
         cursor.execute('TRUNCATE vault_import_stage')
         with cursor.copy(
@@ -345,6 +498,7 @@ def _flush_batch(rows):
         cursor.execute('ANALYZE vault_import_stage')
         for _table, sql in _REFERENCE_INSERTS:
             cursor.execute(sql, (now, now))
+        refresh_stale_reference_stats(cursor)
         cursor.execute(_ACCOUNT_INSERT, (now, now))
         created = cursor.rowcount
     return max(created, 0)
@@ -427,9 +581,16 @@ class BulkImportSession:
     """
 
     def __init__(self, batch_rows=None, workers=None):
-        self._batch_rows = stage_rows() if batch_rows is None else batch_rows
-        self._workers = worker_count() if workers is None else workers
+        self._batch_rows = (
+            stage_rows() if batch_rows is None
+            else bounded_batch_rows(batch_rows)
+        )
+        self._workers = (
+            worker_count() if workers is None
+            else bounded_worker_count(workers)
+        )
         self._rows = []
+        self._row_buffer_bytes = 0
         self._pool = None
         self.created = 0
         self.skipped = 0
@@ -446,27 +607,38 @@ class BulkImportSession:
             self._pool = _parse_context().Pool(processes=self._workers)
         return self._pool
 
+    def _flush_rows(self):
+        if not self._rows:
+            return
+        self.created += _flush_batch(self._rows)
+        self._rows.clear()
+        self._row_buffer_bytes = 0
+
+    def _add_row(self, row):
+        self._rows.append(row)
+        self._row_buffer_bytes += estimated_batch_item_bytes(row)
+        if (
+            len(self._rows) >= self._batch_rows
+            or self._row_buffer_bytes >= MAX_IMPORT_BUFFER_BYTES
+        ):
+            self._flush_rows()
+
     def _absorb(self, rows, skipped):
         self.skipped += skipped
-        self._rows.extend(rows)
-        if len(self._rows) >= self._batch_rows:
-            self.created += _flush_batch(self._rows)
-            self._rows.clear()
+        for row in rows:
+            self._add_row(row)
 
     def add_parsed(self, parsed_iter):
         """
-        Feed an iterable of already-parsed dicts (None for invalid lines) --
-        the historical ``bulk_import_lines`` input. No parse workers are used.
+        Feed parsed dictionaries incrementally; neither the source iterable
+        nor a whole-file list of canonical rows is retained in memory.
         """
-        rows = []
-        skipped = 0
         for result in parsed_iter:
             record = canonical_record(result)
             if record is None:
-                skipped += 1
-                continue
-            rows.append(_row_from(record))
-        self._absorb(rows, skipped)
+                self.skipped += 1
+            else:
+                self._add_row(_row_from(record))
 
     def add_lines(self, lines):
         """
@@ -482,27 +654,56 @@ class BulkImportSession:
 
         pool = self._parse_pool()
         chunk = []
+        chunk_bytes = 0
         pending = []
-        max_pending = self._workers * _MAX_PENDING_CHUNKS_PER_WORKER
+        pending_bytes = 0
+        max_pending = max_pending_parse_chunks(self._workers)
         # Use worker-safe function for Windows spawn (vault.workers, no Django)
         parse_fn = _safe_parse_chunk if _safe_parse_chunk is not None else _parse_chunk
+
+        def drain_pending(force=False):
+            nonlocal pending_bytes
+            while pending and (
+                force
+                or len(pending) >= max_pending
+                or pending_bytes >= MAX_IN_FLIGHT_PARSE_BYTES
+            ):
+                task, task_bytes = pending.pop(0)
+                pending_bytes -= task_bytes
+                self._absorb(*task.get())
+
+        def submit_chunk():
+            nonlocal chunk, chunk_bytes, pending_bytes
+            if not chunk:
+                return
+            pending.append((
+                pool.apply_async(parse_fn, (chunk,)), chunk_bytes,
+            ))
+            pending_bytes += chunk_bytes
+            chunk = []
+            chunk_bytes = 0
+            drain_pending()
+
         for line in lines:
+            line_bytes = estimated_parse_item_bytes(line)
+            if chunk and (
+                len(chunk) >= _PARSE_CHUNK_LINES
+                or chunk_bytes + line_bytes > MAX_PARSE_TASK_BYTES
+            ):
+                submit_chunk()
             chunk.append(line)
-            if len(chunk) >= _PARSE_CHUNK_LINES:
-                pending.append(pool.apply_async(parse_fn, (chunk,)))
-                chunk = []
-                while len(pending) >= max_pending:
-                    self._absorb(*pending.pop(0).get())
-        if chunk:
-            pending.append(pool.apply_async(parse_fn, (chunk,)))
-        while pending:
-            self._absorb(*pending.pop(0).get())
+            chunk_bytes += line_bytes
+            if (
+                len(chunk) >= _PARSE_CHUNK_LINES
+                or chunk_bytes >= MAX_PARSE_TASK_BYTES
+            ):
+                submit_chunk()
+        submit_chunk()
+        drain_pending(force=True)
 
     def finish(self):
         """Store the final partial batch; returns (created, skipped)."""
-        if self._rows:
-            self.created += _flush_batch(self._rows)
-            self._rows.clear()
+        self._flush_rows()
         self.close()
         return self.created, self.skipped
 
@@ -568,9 +769,8 @@ _TRIGRAM_INDEXES = (
 # All non-unique search indexes that fast mode suspends. Unique indexes
 # (pkey, name_key, fingerprint_uniq) are never dropped.
 _FAST_MODE_INDEXES = (
-    # reference tables: pattern_ops + lower() + C collation + trgm
-    ("vault_url_name_7d57bf4b_like",
-     "CREATE INDEX vault_url_name_7d57bf4b_like ON vault_url USING btree (name varchar_pattern_ops)"),
+    # reference tables: lower() + C collation + trgm (the varchar_pattern_ops
+    # companions were dropped by migration 0009: nothing reads them)
     ("vault_url_name_lower_idx",
      "CREATE INDEX vault_url_name_lower_idx ON vault_url USING btree (lower((name)::text))"),
     ("vault_url_name_lower_c_idx",
@@ -578,29 +778,21 @@ _FAST_MODE_INDEXES = (
     ("vault_url_name_trgm",
      "CREATE INDEX vault_url_name_trgm ON vault_url USING gin (UPPER(name::text) gin_trgm_ops)"),
 
-    ("vault_email_name_1c4a6f40_like",
-     "CREATE INDEX vault_email_name_1c4a6f40_like ON public.vault_email USING btree (name varchar_pattern_ops)"),
     ("vault_email_name_lower_idx",
      "CREATE INDEX vault_email_name_lower_idx ON public.vault_email USING btree (lower((name)::text))"),
     ("vault_email_name_trgm",
      "CREATE INDEX vault_email_name_trgm ON public.vault_email USING gin (upper((name)::text) gin_trgm_ops)"),
 
-    ("vault_user_name_34073d8b_like",
-     "CREATE INDEX vault_user_name_34073d8b_like ON public.vault_user USING btree (name varchar_pattern_ops)"),
     ("vault_user_name_lower_idx",
      "CREATE INDEX vault_user_name_lower_idx ON public.vault_user USING btree (lower((name)::text))"),
     ("vault_user_name_trgm",
      "CREATE INDEX vault_user_name_trgm ON public.vault_user USING gin (upper((name)::text) gin_trgm_ops)"),
 
-    ("vault_pass_name_2ae36d82_like",
-     "CREATE INDEX vault_pass_name_2ae36d82_like ON public.vault_pass USING btree (name varchar_pattern_ops)"),
     ("vault_pass_name_lower_idx",
      "CREATE INDEX vault_pass_name_lower_idx ON public.vault_pass USING btree (lower((name)::text))"),
     ("vault_pass_name_trgm",
      "CREATE INDEX vault_pass_name_trgm ON public.vault_pass USING gin (upper((name)::text) gin_trgm_ops)"),
 
-    ("vault_ip_name_09e37067_like",
-     "CREATE INDEX vault_ip_name_09e37067_like ON public.vault_ip USING btree (name varchar_pattern_ops)"),
     ("vault_ip_name_lower_idx",
      "CREATE INDEX vault_ip_name_lower_idx ON public.vault_ip USING btree (lower((name)::text))"),
     ("vault_ip_name_trgm",
@@ -609,8 +801,6 @@ _FAST_MODE_INDEXES = (
     # account table: FK indexes + fingerprint_like + sort index
     ("vault_account_email_id_c46a575a",
      "CREATE INDEX vault_account_email_id_c46a575a ON public.vault_account USING btree (email_id)"),
-    ("vault_account_fingerprint_5bceda5e_like",
-     "CREATE INDEX vault_account_fingerprint_5bceda5e_like ON public.vault_account USING btree (fingerprint varchar_pattern_ops)"),
     ("vault_account_ip_id_269fff31",
      "CREATE INDEX vault_account_ip_id_269fff31 ON public.vault_account USING btree (ip_id)"),
     ("vault_account_password_id_f3db800f",
@@ -625,22 +815,12 @@ _FAST_MODE_INDEXES = (
     # ledger table: non-unique indexes (FKs, status, job_pos, etc.)
     # Dropping these during fast import cuts ledger INSERT cost.
     # Unique indexes (pkey, idempotency_key_key) stay.
-    ("vault_importrec_idem_idx",
-     "CREATE INDEX vault_importrec_idem_idx ON public.vault_importrecord USING btree (idempotency_key)"),
     ("vault_importrec_job_pos_idx",
      "CREATE INDEX vault_importrec_job_pos_idx ON public.vault_importrecord USING btree (import_job_id, source_position)"),
     ("vault_importrec_job_status_idx",
      "CREATE INDEX vault_importrec_job_status_idx ON public.vault_importrecord USING btree (import_job_id, status)"),
     ("vault_importrecord_account_id_95a8ecc3",
      "CREATE INDEX vault_importrecord_account_id_95a8ecc3 ON public.vault_importrecord USING btree (account_id)"),
-    ("vault_importrecord_idempotency_key_da77985c_like",
-     "CREATE INDEX vault_importrecord_idempotency_key_da77985c_like ON public.vault_importrecord USING btree (idempotency_key varchar_pattern_ops)"),
-    ("vault_importrecord_import_job_id_8be0a716",
-     "CREATE INDEX vault_importrecord_import_job_id_8be0a716 ON public.vault_importrecord USING btree (import_job_id)"),
-    ("vault_importrecord_status_bd22bf2d",
-     "CREATE INDEX vault_importrecord_status_bd22bf2d ON public.vault_importrecord USING btree (status)"),
-    ("vault_importrecord_status_bd22bf2d_like",
-     "CREATE INDEX vault_importrecord_status_bd22bf2d_like ON public.vault_importrecord USING btree (status varchar_pattern_ops)"),
 )
 
 
@@ -652,13 +832,38 @@ def maintenance_work_mem():
     return DEFAULT_MAINTENANCE_WORK_MEM
 
 
-def drop_search_indexes():
-    """Drop all non-unique search indexes suspended by fast mode."""
+FAST_MODE_SCOPES = ('search', 'all')
+
+
+def fast_mode_scope():
+    """Which indexes fast mode suspends: ``search`` (default) or ``all``.
+
+    ``search`` suspends only the five ``pg_trgm`` substring indexes -- what
+    the documentation always promised -- so exact searches, record lookups
+    and every foreign-key path stay indexed while the import runs.
+    ``all`` (``VAULT_FAST_MODE_SCOPE=all``) additionally drops the btree
+    indexes on the reference, account and ledger tables; it is meant for an
+    offline load because lookups degrade badly meanwhile (README, "Fast mode").
+    """
+    value = os.environ.get("VAULT_FAST_MODE_SCOPE", "search").strip().lower()
+    return value if value in FAST_MODE_SCOPES else "search"
+
+
+def _suspended_indexes(scope):
+    if scope == "all":
+        return _FAST_MODE_INDEXES
+    return tuple(item for item in _FAST_MODE_INDEXES
+                 if item[0].endswith("_trgm"))
+
+
+def drop_search_indexes(scope=None):
+    """Drop the indexes fast mode suspends (see ``fast_mode_scope``)."""
+    indexes = _suspended_indexes(scope or fast_mode_scope())
     # DROP INDEX is safe inside a transaction, but we still handle errors
     # for test transactions that have pending triggers.
     try:
         with transaction.atomic(), connection.cursor() as cursor:
-            for name, _ddl in _FAST_MODE_INDEXES:
+            for name, _ddl in indexes:
                 try:
                     cursor.execute(f"DROP INDEX IF EXISTS {name}")
                 except Exception:
@@ -671,7 +876,7 @@ def drop_search_indexes():
         # If the outer transaction already has pending triggers (TestCase),
         # the whole atomic block may fail on first CREATE. Fall back to
         # dropping one by one outside atomic.
-        for name, _ddl in _FAST_MODE_INDEXES:
+        for name, _ddl in indexes:
             try:
                 with connection.cursor() as cursor:
                     cursor.execute(f"DROP INDEX IF EXISTS {name}")
@@ -730,7 +935,7 @@ def ensure_search_indexes():
 
 
 @contextmanager
-def search_indexes_suspended():
+def search_indexes_suspended(scope=None):
     """
     Drop all non-unique search indexes for the duration of the block and
     always rebuild them afterwards -- including when the block raises.
@@ -745,7 +950,7 @@ def search_indexes_suspended():
     # Rebuild any leftovers from a previous crash before dropping again,
     # so we don't start with a partially indexed state.
     ensure_search_indexes()
-    drop_search_indexes()
+    drop_search_indexes(scope)
     try:
         yield
     finally:
@@ -834,12 +1039,10 @@ def _import_one_file_session(handle):
     """
     session = BulkImportSession()
     try:
-        # Iterating the binary handle gives whole lines without end-of-line
-        # translation, and parse_line decodes UTF-8 (ignoring errors) one
-        # line at a time -- the same tolerance as the previous text-mode
-        # errors='ignore' read. add_lines() chunks the stream for the parse
-        # workers and stores in large COPY batches.
-        session.add_lines(handle)
+        # The bounded reader preserves complete binary lines, but hashes and
+        # discards any line over the format-derived cap without retaining its
+        # plaintext. add_lines() applies byte-aware backpressure to parse tasks.
+        session.add_lines(iter_bounded_source_lines(handle))
         return session.finish()
     finally:
         session.close()

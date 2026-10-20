@@ -1,0 +1,207 @@
+Timing is on.
+psql:benchmarks/sql/partition_prototype.sql:10: NOTICE:  schema "ptest" does not exist, skipping
+DROP SCHEMA
+Time: 0.912 ms
+CREATE SCHEMA
+Time: 1.810 ms
+SET
+Time: 0.098 ms
+SET
+Time: 0.058 ms
+CREATE TABLE
+Time: 8.985 ms
+ALTER TABLE
+Time: 5.374 ms
+ALTER TABLE
+Time: 1.989 ms
+CREATE INDEX
+Time: 1.930 ms
+CREATE INDEX
+Time: 1.158 ms
+CREATE INDEX
+Time: 1.474 ms
+CREATE INDEX
+Time: 1.100 ms
+CREATE TABLE
+Time: 0.863 ms
+DO
+Time: 30.029 ms
+ALTER TABLE
+Time: 20.959 ms
+ALTER TABLE
+Time: 19.968 ms
+CREATE INDEX
+Time: 20.613 ms
+CREATE INDEX
+Time: 21.929 ms
+CREATE INDEX
+Time: 17.988 ms
+CREATE INDEX
+Time: 20.349 ms
+== ledger bulk load of N rows (plain)
+INSERT 0 1000000
+Time: 12816.508 ms (00:12.817)
+== ledger bulk load (hash partitioned x16)
+INSERT 0 1000000
+Time: 12503.284 ms (00:12.503)
+VACUUM
+Time: 902.464 ms
+VACUUM
+Time: 717.737 ms
+== sizes
+   t   | total  |  idx   
+-------+--------+--------
+ plain | 495 MB | 208 MB
+(1 row)
+
+Time: 4.345 ms
+  t   | total  |  idx   
+------+--------+--------
+ part | 518 MB | 231 MB
+(1 row)
+
+Time: 7.059 ms
+== (10 s settle)
+ pg_sleep 
+----------
+ 
+(1 row)
+
+Time: 1001.917 ms (00:01.002)
+== sustained insert of 500k further ledger rows (new job id), plain vs partitioned
+Time: 3.743 ms
+INSERT 0 500000
+Time: 7919.876 ms (00:07.920)
+INSERT 0 500000
+Time: 8617.417 ms (00:08.617)
+== lookups: 20000 random idempotency_key point reads
+-- plain
+ count 
+-------
+ 20000
+(1 row)
+
+Time: 365.428 ms
+-- partitioned (key lookups without the job id cannot prune: all 16 partitions are probed)
+ count 
+-------
+ 20000
+(1 row)
+
+Time: 1025.539 ms (00:01.026)
+-- partitioned, with job id (prunes to one partition; this is how the importer queries)
+ count 
+-------
+ 20000
+(1 row)
+
+Time: 107.116 ms
+== per-job status counts (verification path)
+                                         QUERY PLAN                                          
+---------------------------------------------------------------------------------------------
+ GroupAggregate (actual rows=2 loops=1)
+   Group Key: status
+   ->  Index Only Scan using led_plain_job_status on led_plain (actual rows=1500000 loops=1)
+         Index Cond: (import_job_id = '1'::bigint)
+         Heap Fetches: 1024403
+ Planning Time: 0.292 ms
+ Execution Time: 499.313 ms
+(7 rows)
+
+Time: 501.512 ms
+                                                      QUERY PLAN                                                      
+----------------------------------------------------------------------------------------------------------------------
+ GroupAggregate (actual rows=2 loops=1)
+   Group Key: led_part.status
+   ->  Index Only Scan using led_part_8_import_job_id_status_idx on led_part_8 led_part (actual rows=1500000 loops=1)
+         Index Cond: (import_job_id = '1'::bigint)
+         Heap Fetches: 1126020
+ Planning Time: 1.051 ms
+ Execution Time: 540.932 ms
+(7 rows)
+
+Time: 542.772 ms
+== maintenance: VACUUM (FREEZE, ANALYZE) whole table
+VACUUM
+Time: 2424.265 ms (00:02.424)
+VACUUM
+Time: 2296.197 ms (00:02.296)
+== maintenance: REINDEX of the unique key (plain: one big index; part: 16 small ones, concurrently possible)
+REINDEX
+Time: 1448.947 ms (00:01.449)
+REINDEX
+Time: 2200.741 ms (00:02.201)
+CREATE TABLE
+Time: 4.190 ms
+DO
+Time: 6.086 ms
+== expected failure: UNIQUE(id) on a table partitioned by fingerprint
+psql:benchmarks/sql/partition_prototype.sql:98: ERROR:  unique constraint on partitioned table must include all partitioning columns
+DETAIL:  UNIQUE constraint on table "acct_part" lacks column "fingerprint" which is part of the partition key.
+Time: 2.751 ms
+ALTER TABLE
+Time: 26.108 ms
+ALTER TABLE
+Time: 18.104 ms
+CREATE TABLE
+Time: 0.480 ms
+ALTER TABLE
+Time: 1.481 ms
+ALTER TABLE
+Time: 1.648 ms
+== account load: plain
+INSERT 0 1000000
+Time: 6518.843 ms (00:06.519)
+== account load: partitioned
+INSERT 0 1000000
+Time: 6487.055 ms (00:06.487)
+VACUUM
+Time: 344.854 ms
+VACUUM
+Time: 1366.203 ms (00:01.366)
+== 20000 random fingerprint lookups
+ count 
+-------
+  5375
+(1 row)
+
+Time: 533.980 ms
+ count 
+-------
+  5231
+(1 row)
+
+Time: 484.330 ms
+== count(*)
+  count  
+---------
+ 1000000
+(1 row)
+
+Time: 66.799 ms
+  count  
+---------
+ 1000000
+(1 row)
+
+Time: 55.140 ms
+== sizes
+ plain  
+--------
+ 303 MB
+(1 row)
+
+Time: 0.473 ms
+  part  
+--------
+ 382 MB
+(1 row)
+
+Time: 2.049 ms
+psql:benchmarks/sql/partition_prototype.sql:120: NOTICE:  drop cascades to 4 other objects
+DETAIL:  drop cascades to table led_plain
+drop cascades to table led_part
+drop cascades to table acct_part
+drop cascades to table acct_plain
+DROP SCHEMA
+Time: 366.139 ms

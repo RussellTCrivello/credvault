@@ -1,0 +1,1 @@
+{"name": "sb512_all_indexes", "rc": 0, "seconds": 210.0, "accounts_before": 5631710, "accounts_added": 439862, "accounts_per_second": 2095.0, "wal_bytes": 5707533824, "shared_buffers": "512MB"}
