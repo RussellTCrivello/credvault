@@ -93,9 +93,18 @@ python manage.py createsuperuser
 The rules live in `vault/validators.py`, which is the single place to change
 if a format needs adjusting.
 
+**Many lines skipped?** `python manage.py explainrejects <folder-or-file>` samples
+the files read-only (no database access) and groups rejected lines by the first
+check they fail (no separator, too few fields, first field not a URL, second
+field not an email/username, bad password/IP field, ...). Examples are shown
+only as a shape mask (letters become `a`, digits `9`), so no secret is printed.
+Options: `--limit` (lines per file, default 200000), `--every N` (sample every
+Nth line), `--examples`.
+
 # LogIntel language support
 
 The workspace uses Django's translation framework. English is the default language; Arabic is available with a right-to-left layout. The language selector applies the choice across workspace pages and remembers it for the session.
+
 
 ## Add another language
 
